@@ -1,0 +1,15 @@
+{
+    "soulPatchV1": {
+        "ID": "GraphTest",
+        "version": "1.0",
+        "name": "GraphTest",
+        "description": "Testbench for new processors",
+        "category": "effect",
+        "manufacturer": "soul-web-playground",
+        "isInstrument": false,
+        "source": [
+            "main.soul",
+            "va.soul"
+        ]
+    }
+}

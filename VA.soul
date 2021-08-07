@@ -1,0 +1,940 @@
+/*
+Virtual analog library.
+
+Zhe Deng 2021
+thezhefromcenterville@gmail.com
+
+See https://github.com/thezhe/VirtualAnalogCompressors
+*/
+
+/** Title: VA
+
+    Virtual analog library -- a collection of filters (processors and sub-graphs) for discretizing nonlinear, time-varying inhomogenous ordinary differential equations.
+
+    Notes:
+    - All filters are stable and causal.
+    - All filters are stable under parameter modulation and single input single output (SISO) unless otherwise indicated.
+    - Frequency-domain processors and sub-graphs are designed to be connected in a feedforward fashion.
+    - Interface follows the general style of soul::filters except for some minor type modifications:
+        * 'SampleType' must be float64, float32 or a vector of float64/float32. This is also used as a 'CoeffType' for soul::filters.
+        * 'MonoType' must be float32 or float64. This is for signals that are guaranteed to be mono or stereo-linked.
+        * 'updateInterval' default value increased to 32
+    - See https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul
+*/
+
+namespace VA(using SampleType = float64, int updateInterval = 32)
+{
+    static_assert (SampleType.primitiveType.isFloat, "Primitive type of 'SampleType' must be float32 or float64");
+    static_assert ((SampleType.isVector || SampleType.isFloat), "SampleType must be float64, float32, or a vector of float64/float32");
+
+    // internal constants
+    using MonoType = SampleType.primitiveType;
+
+    // namespace typedefs
+    namespace filt = soul::filters(SampleType, MonoType, updateInterval);
+    namespace op = filt::tpt::onepole;
+    namespace svf = filt::tpt::svf;
+
+    //==============================================================================
+    /** "Topology preserving transform" multi-mode one-pole filter with an endpoint for cutoff modulation. 
+
+        Notes:
+        - Maps signal and cutoff to signal.
+        - Linear, time-varying, and stateful.
+        - omegadiv2 is the digital cutoff divided by 2. No checking is done! -- the input must be in the interval [0, pi/2). 
+        - See soul::filters::tpt::onepole
+    */  
+    namespace Onepole
+    {
+        processor Processor (int initialMode = 0)
+        {
+            input stream SampleType in;
+            input stream  SampleType omegadiv2;
+            output stream SampleType out;
+
+            input event float modeIn [[ name: "Mode", min: 0, max: 2, init: 0, text: "Lowpass|Highpass|Allpass" ]];
+            
+            static_assert((initialMode >= 0 || initialMode <= 2), "Onepole: Mode must be 0 (LPF1), 1 (HPF1), or 2 (APF1)");
+
+            event modeIn (float v) { mode = int (v); }
+
+            int mode = initialMode;
+            
+            SampleType omegadiv2ToG(SampleType x)
+            {
+                SampleType g = tan(x);
+                return g / (1 + g);
+            }
+
+            void run()
+            {   
+                op::State s;
+                op::Coeffs c;
+                c.clear ();
+
+                loop
+                {
+                    c.b = omegadiv2ToG(omegadiv2);
+                        
+                    if (mode == op::Mode::lowpass)        out << s.processLPF (in, c);
+                    else if (mode == op::Mode::highpass)  out << s.processHPF (in, c);
+                    else if (mode == op::Mode::allpass)   out << s.processAPF (in, c);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** "Topology preserving transform" multi-mode state variable filter (SVF) with endpoints for cutoff and resonance modulation at audio rates. 
+
+        Notes:
+        - Maps signal, cutoff, and resonance to signal.
+        - Linear, time-varying, and stateful.
+        - omegadiv2 is the digital cutoff divided by 2. No checking is done! -- the input must be in the interval [0, pi/2). 
+        - R is the resonance. Again, no checking is done -- the input should be in the interval (0, inf]
+        - See soul::filters::tpt::svf
+    */  
+    namespace SVF
+    {
+
+        /** Updates a set of coefficients for the given settings. */
+        void update (svf::Coeffs& c, MonoType omegadiv2, MonoType R)
+        {
+            c.a = tan (omegadiv2); //g
+            c.a0 = MonoType(1.0) / (MonoType(1.0) + MonoType(2.0) * R * c.a + c.a * c.a); //d
+            c.p = MonoType(2.0) * R + c.a; //g1
+        }
+
+        /** */
+        processor Processor
+        {
+            input stream SampleType in;
+            input stream SampleType omegadiv2, R;
+            output stream SampleType lowpassOut, highpassOut, bandpassOut;
+
+            void run()
+            {
+                svf::State s;
+                svf::Coeffs c;
+
+                loop
+                {
+                    c.update(omegadiv2, R);
+
+                    let y = svf::process(s, in, c);
+
+                    lowpassOut  << y[0];
+                    highpassOut << y[1];
+                    bandpassOut << y[2];
+                    
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Anhysteretic magnetic flux density curve (Ban).
+        
+        Notes:
+        - Maps signal to signal.
+        - Nonlinear, time-invariant, stateless.
+        - Langevin function approximation.
+        - Use as an algebraic sigmoid with input gain.
+    */
+    namespace Ban
+    {
+        /** */
+        SampleType process(SampleType x)
+        {
+            return x / (SampleType(1.0) + abs(x));
+        }
+
+        /** */
+        processor Processor(MonoType initialDrive = MonoType(1.0))
+        {
+            input stream SampleType in;
+        //    input stream SampleType a;
+            output stream SampleType out;
+            
+            SampleType drive = initialDrive;
+
+            void run()
+            {
+                loop
+                {
+                    out << process(drive * in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Anhysteretic inductance (Lan = dBan/dH).
+
+        Notes:
+        - Maps sample to cutoff.
+        - Nonlinear, time-invariant, and stateless.
+        - Use for nonlinear capacitor or inductor tones. 
+        - Based on the Froehlich-Kennelley model.
+        - See https://www.dafx.de/paper-archive/2015/DAFx-15_submission_68.pdf
+    */
+    namespace Lan
+    {
+        /** Holds a set of filter coefficients. */
+        struct Coeffs
+        {
+            SampleType c; //linear cutoff
+            SampleType N; //nonlinearity
+        }
+
+        /** Clears a set of coefficients. */
+        void clear (Coeffs& c)
+        {
+            c.c = SampleType();
+            c.N = SampleType();
+        }
+
+        /** Updates a set of coefficients for the given settings. */
+        void update (Coeffs& c, MonoType freqHz, MonoType nonlinearity)
+        {
+            c.c = sqrt(MonoType(1.0) / (MonoType(twoPi) * freqHz));
+            c.N = nonlinearity;
+        }
+
+        /** Updates a set of coefficients for the given step response settings settings. */
+        void updateStep (Coeffs& c, MonoType tau, MonoType nonlinearity)
+        {
+            c.c = sqrt(tau/MonoType(1000));
+            c.N = nonlinearity;
+        }
+
+        /** */
+        SampleType process(SampleType x, Coeffs& c)
+        {
+            const SampleType sqrtDenom = c.N * abs(x) + c.c;
+            return SampleType(1.0) / (sqrtDenom * sqrtDenom);
+        }
+        
+        //Processor parameter min/max
+        const MonoType minNonlinearity = 0;
+        const MonoType maxNonlinearity = 5000;
+
+        /** */
+        processor Processor(MonoType initialFrequency = filt::defaultFreqHz,
+                            MonoType initialNonlinearity = 400)
+        {
+            input stream SampleType in;
+            output stream SampleType L;
+            
+            input event
+            {
+                MonoType frequencyIn [[ name: "Frequency", min: filt::minFreqHz, max: filt::maxFreqHz, init: filt::defaultFreqHz, unit: "Hz" ]];
+                MonoType nonlinearityIn [[ name: "Nonlinearity", min: minNonlinearity, max: maxNonlinearity, init: initialNonlinearity ]];
+            }
+
+            static_assert((initialFrequency >= filt::minFreqHz && initialFrequency <= filt::maxFreqHz), "Lan: Cutoff Frequency must be in interval [0, samplingRate/2)");
+
+            event frequencyIn (MonoType v) { frequency = v; recalc = true; }
+            event nonlinearityIn (MonoType v) { nonlinearity = v; recalc = true; }
+
+            MonoType frequency = initialFrequency;
+            MonoType nonlinearity = initialNonlinearity;
+            bool recalc = true;
+
+            void run()
+            {
+                Coeffs c;
+                c.clear();
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        c.update(frequency, nonlinearity);
+                    }
+
+                    loop (updateInterval)
+                    {   
+                        L << process(in, c);
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Irreversible magnetic flux density (Birr) and inductance (Lirr) cutoff calculator. 
+        Use with Onepole to calculate Birr(x) and Lirr(x).
+
+        Notes:
+        - Maps signal to cutoff.
+        - Nonlinear, time-invariant, and stateful. 
+        - Based on the Jiles-Atherton model.
+    */
+    namespace BirrLirrCutoff
+    {
+        /** Holds the filter state. */
+        struct State
+        {
+            SampleType x1;
+        }
+
+        /** Resets a filter state. */
+        void reset (State& s)
+        {
+            s.x1 = SampleType();
+        }
+        
+        /** */
+        SampleType process(State&s, SampleType x)
+        {
+            const SampleType y = abs(x - s.x1) * SampleType(0.5);
+            s.x1 = x;
+
+            return y;
+        }
+
+        /** */
+        processor Processor
+        {
+            input stream SampleType in;
+            output stream SampleType omegadiv2;
+        
+            void run()
+            {
+                State s;
+
+                loop
+                {
+                    omegadiv2 << s.process(in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Irreversible magnetic flux density (Birr) and inductance (Lirr) calculator */
+    namespace BirrLirr
+    {
+        namespace Mode
+        {
+            let Birr = 0;
+            let Lirr = 1;
+        }
+
+        graph Graph (int mode = Mode::Birr, MonoType initialDrive)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+     
+            static_assert((mode == Mode::Birr || mode == Mode::Lirr), "BirrLirr: mode must be Mode::Birr (0) or Mode::Lirr (1)");
+
+            let
+            {
+                ban = Ban::Processor(initialDrive);
+                birrLirrCutoff = BirrLirrCutoff::Processor;
+                onepole = Onepole::Processor(mode);
+            }
+    
+            connection
+            {
+                in -> ban.in;
+                ban.out -> onepole.in;
+
+                in -> birrLirrCutoff.in;
+                birrLirrCutoff.omegadiv2 -> onepole.omegadiv2;
+
+                onepole.out -> out;
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Converts an analog angular cutoff to a digital angular cutoff divided by 2
+    
+        Notes:
+        - Maps cutoff to cutoff.
+        - Nonlinear, time-invariant, stateless.
+        - Clamping to the interval [0, 0.49 * pi] can be enabled via a processor parameter
+    */
+    namespace OmegaToomegadiv2
+    {
+        //Cutoff limits normalized such that Nyquist is pi/2
+        const SampleType minCutoff = SampleType(0.0);
+        const SampleType maxCutoff = SampleType(filt::normalisedFreqLimit * pi);
+        
+        /** Constants for use in specifying the filter mode. */
+        namespace Mode 
+        {
+            let none = 0;
+            let clampLow = 1;
+            let clampHigh = 2;
+            let clampAll = 3;
+        }
+    
+        /** */
+        processor Processor(int initialMode = Mode::none)
+        {
+            input stream SampleType Omega;
+            output stream SampleType omegadiv2;
+
+            void run()
+            {
+                loop
+                {
+                    const SampleType omegadiv2Unclamped = Omega * SampleType(processor.period * 0.5);
+
+                    if const (initialMode == Mode::none)
+                        omegadiv2 << omegadiv2Unclamped;
+                    else if const (initialMode == Mode::clampLow)
+                        omegadiv2 << max(omegadiv2Unclamped, minCutoff);
+                    else if const (initialMode == Mode::clampHigh)
+                        omegadiv2 << min(omegadiv2Unclamped, maxCutoff);
+                    else if const (initialMode == Mode::clampAll)
+                        omegadiv2 << clamp(omegadiv2Unclamped, minCutoff, maxCutoff);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** abs() as a processor wrapper. */
+    namespace Abs
+    {
+        /** */
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << abs(in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** A compressor transfer function (CTF) with color
+        
+        Notes:
+        - Maps sample to sample.
+        - Nonlinear, time-invariant, stateless.
+        - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color
+        - See https://ocw.mit.edu/courses/mathematics/18-01sc-single-variable-calculus-fall-2010/1.-differentiation/part-b-implicit-differentiation-and-inverse-functions/session-15-implicit-differentiation-and-inverse-functions/MIT18_01SCF10_Ses15b.pdf
+        - See https://blog.audio-tk.com/2015/09/08/audio-toolkit-additional-gain-functions/
+    */
+    namespace CTF
+    {
+        /** Holds a set of filter coefficients. */
+        struct Coeffs 
+        {
+            SampleType thr;
+            SampleType divR;
+            SampleType height;
+            SampleType divWidth; 
+        }
+    
+        /** Clears a set of coefficients. */
+        void clear (Coeffs& c) 
+        {
+            c.thr = SampleType();
+            c.divR = SampleType();
+            c.height = SampleType();
+            c.divWidth = SampleType();
+        }
+    
+        /** Updates a set of coefficients for the given settings. */
+        void update (Coeffs& c, MonoType threshold, MonoType ratio, MonoType colorHeight, MonoType colorWidth) 
+        {
+            c.thr = threshold;
+            c.divR = MonoType(1.0) / ratio;
+            c.height = colorHeight;
+            c.divWidth = MonoType(1.0) / colorWidth;
+        }
+    
+        /** */
+        SampleType process (SampleType x, Coeffs& c) 
+        {
+            const SampleType xdB = soul::gainTodB(x);
+
+            const SampleType xdBmthr = xdB - c.thr;
+            const SampleType temp = c.divWidth * (xdBmthr);
+            const SampleType color = c.height / (SampleType(1.0) + temp * temp);
+            SampleType ydB;
+            
+            if (xdB > c.thr)
+                ydB = c.thr + (xdBmthr) * c.divR + color;
+            else
+                ydB = xdB + color;
+
+            return soul::dBtoGain(ydB) / x;
+        }
+    
+        /** Processor parameter min/max */
+        const MonoType minThreshold = MonoType(-60.0);
+        const MonoType maxThreshold = MonoType(0.0);
+        const MonoType minRatio = MonoType(1.0);
+        const MonoType maxRatio = MonoType(25.0);
+        const MonoType minColorHeight = MonoType(-5.0);
+        const MonoType maxColorHeight = MonoType(5.0);
+        const MonoType minColorWidth = MonoType(0.2);
+        const MonoType maxColorWidth = MonoType(3.0);
+
+        /** */
+        processor Processor(MonoType initialThreshold = -20,
+                            MonoType initialRatio = 5,
+                            MonoType initialColorHeight = 5,
+                            MonoType initialColorWidth = 3)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event
+            {
+                MonoType thresholdIn [[ name: "Threshold", min: minThreshold, max: maxThreshold, init: initialThreshold, unit: "dB" ]];
+                MonoType ratioIn [[ name: "Ratio", min: minRatio, max: maxRatio, init: initialRatio ]];
+                MonoType colorHeightIn [[ name: "Color Height", min: minColorHeight, max: maxColorHeight, init: initialColorHeight, unit: "dB" ]];
+                MonoType colorWidthIn [[ name: "Color Width", min: minColorWidth, max: maxColorWidth, init: initialColorWidth, unit: "dB" ]];
+            }
+
+            static_assert((initialThreshold >= minThreshold && initialThreshold <= maxThreshold), "CTF: Threshold must be in the interval [-60, 0] dB");
+            static_assert((initialRatio >= minRatio && initialRatio <= maxRatio), "CTF: Ratio must be in the interval [1, 25]");
+            static_assert((initialColorHeight >= minColorHeight && initialColorHeight <= maxColorHeight), "CTF: Color Height must be in the interval [-5, 5] dB");
+            static_assert((initialColorWidth >= minColorWidth && initialColorWidth <= maxColorWidth), "CTF: Color Width must be in the interval [0.2, 3] dB");
+
+            event thresholdIn (MonoType v) { threshold = v; recalc = true; }
+            event ratioIn (MonoType v) { ratio = v; recalc = true; }
+            event colorHeightIn (MonoType v) { colorHeight = v; recalc = true; }
+            event colorWidthIn (MonoType v) { colorWidth = v; recalc = true; }
+
+            MonoType threshold = initialThreshold;
+            MonoType ratio = initialRatio;
+            MonoType colorHeight = initialColorHeight;
+            MonoType colorWidth = initialColorWidth;
+            bool recalc = true;
+
+            void run()
+            {
+                Coeffs c;
+                c.clear();
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update(threshold, ratio, colorHeight, colorWidth);
+                    }
+    
+                    loop (updateInterval)
+                    {
+                        out << process(in, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Nonlinear branching cutoff for making a nonlinear ballistics filter
+
+        Notes:
+        - Maps filter output and input to cutoff.
+        - Nonlinear, time-invariant, stateless.
+    */
+    namespace BranchingCutoff
+    {
+        /** Holds a set of filter coefficients. */
+        struct Coeffs 
+        {
+            Lan::Coeffs attack;
+            Lan::Coeffs release;
+        }
+
+        /** Clears a set of coefficients. */
+        void clear (Coeffs& c) 
+        {
+            Lan::clear(c.attack);
+            Lan::clear(c.release);
+        }
+    
+        /** Updates a set of coefficients for the given settings. */
+        void update (Coeffs& c, MonoType attack, MonoType release, MonoType nonlinearity) 
+        {
+            Lan::updateStep(c.attack, attack, nonlinearity);
+            Lan::updateStep(c.release, release, nonlinearity);
+        }
+    
+        /** */
+        SampleType process (SampleType x, SampleType y, Coeffs& c) 
+        {
+            return x > y ? Lan::process(x, c.attack) : Lan::process(x, c.release);   
+        }
+    
+        /** */
+        processor Processor(MonoType initialAttack,
+                            MonoType initialRelease,
+                            MonoType initialNonlinearity)
+        {
+            input stream SampleType x, y;
+            output stream SampleType L;
+    
+            MonoType attack = initialAttack;
+            MonoType release = initialRelease;
+            MonoType nonlinearity = initialNonlinearity;
+            bool recalc = true;
+    
+            void run()
+            {
+                Coeffs c;
+                c.clear();
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update(attack, release, nonlinearity);
+                    }
+    
+                    loop (updateInterval)
+                    {
+                        L << process(x, y, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Nonlinear envelope filter
+
+        Notes:
+        - Maps sample to sample.
+        - Nonlinear, time-invariant, stateful.
+    */
+    namespace EnvelopeFilter
+    {
+        graph Graph(MonoType initialAttack,
+                    MonoType initialRelease,
+                    MonoType initialNonlinearity)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+        
+            let
+            {
+                onepole = Onepole::Processor;
+                branchingCutoff = BranchingCutoff::Processor(initialAttack, initialRelease, initialNonlinearity);
+                p_OmegaToomegadiv2 = OmegaToomegadiv2::Processor;
+            }
+        
+            connection
+            {
+                in -> onepole.in;
+
+                in -> branchingCutoff.x;
+                onepole.out -> [1] -> branchingCutoff.y;
+                branchingCutoff.L -> p_OmegaToomegadiv2.Omega;
+                p_OmegaToomegadiv2.omegadiv2 -> onepole.omegadiv2;
+
+                onepole.out -> out;
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Set a vector equal to the average of its elements. */
+    namespace StereoLink (bool initialEnabled = true)
+    {
+        /** */
+        SampleType process (SampleType x, Coeffs& c) 
+        {
+            x = MonoType(x.sum())/MonoType(x.size());
+        }
+    
+        /** */
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event MonoType enabledIn [[ name: "Enabled", min: 0, max: 1, init: initialEnabled, unit: "Off|On" ]];
+            
+            event enabledIn (MonoType v) { enabled = bool(v); }
+
+            bool enabled = initialEnabled;
+
+            void run()
+            {
+                loop
+                {
+                    out << (enabled ? process(in) : in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Addition as a processor wrapper */
+    namespace Add
+    {
+        /** */
+        SampleType process (SampleType x1, SampleType x2) 
+        {
+            return x1 + x2;
+        }
+    
+        /** */
+        processor Processor()
+        {
+            input stream SampleType in1, in2;
+            output stream SampleType out;
+    
+            void run()
+            {
+                loop
+                {
+                    out << process(in1, in2);
+    
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Multiplication as a processor wrapper */
+    namespace Multiply
+    {
+        /** */
+        SampleType process (SampleType x1, SampleType x2) 
+        {
+            return x1 * x2;
+        }
+    
+        /** */
+        processor Processor()
+        {
+            input stream SampleType in1, in2;
+            output stream SampleType out;
+    
+            void run()
+            {
+                loop
+                {
+                    out << process(in1, in2);
+    
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Top-level effect graphs. These effects are made using other namespaces in 'VA' and the 'soul' namespaces.
+    */
+    namespace TopLevel
+    {
+        //==============================================================================
+        /** Jiles-Atherton model. Calculate a signal transforming into a hysteretic magnetic flux density.
+
+            B(x) = Birr(x) + Ban(x)
+
+            Notes:
+            - Maps sample to sample.
+            - Nonlinear, time-varying, and stateful.
+            - Output simulates the core magnetization of a nonlinear, hysteretic inductor.
+            - 1/Output simulates the charge of a nonlinear, hysteretic capacitor.
+        */
+        namespace JA_B
+        {
+            /** */
+            graph Graph(MonoType initialDrive = MonoType(1),
+                        MonoType initialGainBirr = MonoType(0),
+                        MonoType initialGainBan = MonoType(1))
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+
+                let
+                {
+                    birrLirr = BirrLirr::Graph(0, initialDrive);
+
+                    ban = Ban::Processor(initialDrive);
+
+                    fixedSum = soul::mixers::FixedSum(SampleType, initialGainBirr, initialGainBan);
+                }
+
+                connection
+                {
+                    in -> birrLirr.in;
+                    birrLirr.out -> fixedSum.in1;
+
+                    in -> ban.in;
+                    ban.out -> fixedSum.in2;
+
+                    fixedSum.out -> out;
+                }
+            }
+        }
+
+        //==============================================================================
+        /** Derivative of the Jiles-Atherton model. Calculate hysteretic nonlinear passive component value.
+
+            L(x) = dB/dx = dBirr/dx + dBan/dx = Lirr(x) + Lan(x)
+
+            Notes:
+            - Maps sample to cutoff.
+            - Nonlinear, time-varying, and stateful.
+            - Output simulates the inductance of a nonlinear, hysteretic inductor.
+            - 1/Output simulates the capacitance of a nonlinear, hysteretic capacitor.
+        */
+        namespace JA_L
+        {
+            /** */
+            graph Graph(MonoType initialFrequency = filt::defaultFreqHz, 
+                        MonoType initialNonlinearity = MonoType(0),
+                        MonoType initialGainMirr = MonoType(0))
+            {
+                input stream SampleType in;
+                output stream SampleType omegadiv2;
+
+                let
+                {
+                    lirr = BirrLirr::Graph(1, initialNonlinearity*MonoType(500));
+                    lan = Lan::Processor(initialFrequency, initialNonlinearity/MonoType(50));
+                    fixedSum = soul::mixers::FixedSum(SampleType, initialFrequency*initialGainMirr, MonoType(1.0));
+                    p_OmegaToomegadiv2 = OmegaToomegadiv2::Processor(3);
+                }
+        
+                connection
+                {
+                    in -> lirr.in;
+                    lirr.out -> fixedSum.in1;
+
+                    in -> lan.in;
+                    lan.L -> fixedSum.in2;
+
+                    fixedSum.out -> p_OmegaToomegadiv2.Omega;
+
+                    p_OmegaToomegadiv2.omegadiv2 -> omegadiv2;
+                }
+            }
+        }
+        
+        //==============================================================================
+        /** Hysteretic nonlinear passive component cutoff modulation applied to Onepole
+
+            Notes:
+            - Maps sample to sample.
+            - Nonlinear, time-invariant, and stateful.
+        */
+        namespace JA_Onepole
+        {
+            graph Graph(MonoType initialFrequency = filt::defaultFreqHz, 
+                        MonoType initialNonlinearity = MonoType(0),
+                        MonoType initialGainMirr = MonoType(0),
+                        int initialMode = 0)
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+        
+                input
+                {
+                    //event endpoints
+                }
+        
+                let
+                {
+                    jaL = JA_L::Graph(initialFrequency, initialNonlinearity, initialGainMirr);
+                    onepole = Onepole::Processor(initialMode);
+                }
+        
+                connection
+                {
+                    in -> jaL.in;
+
+                    in -> onepole.in;
+                    jaL.omegadiv2 -> onepole.omegadiv2;
+
+                    onepole.out -> out;
+                }
+            }
+        }
+
+        //==============================================================================
+        /** A modified classical compressor sidechain
+        
+            Notes:
+            - Maps sample to sample.
+            - Nonlinear, time-invariant, and stateful.
+            - 3 sidechain blocks:
+            * Detector: ideal rectifier
+            * Envelope Filter: nonlinear ballistics filter
+            * Compressor Transfer Function: hard-knee with color  
+        */
+        namespace Sidechain
+        {
+            graph Graph(MonoType initialThreshold,
+                        MonoType initialRatio,
+                        MonoType initialColorHeight,
+                        MonoType initialColorWidth,
+                        MonoType initialAttack,
+                        MonoType initialRelease,
+                        MonoType initialNonlinearity)
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+            
+                let
+                {
+                    detector = Abs::Processor;
+                    ctf = CTF::Processor(initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
+                    envelopeFilter = EnvelopeFilter::Graph(initialAttack, initialRelease, initialNonlinearity);
+                }
+            
+                connection
+                {
+                    in -> detector.in;
+                    detector.out -> envelopeFilter.in;
+                    envelopeFilter.out -> ctf.in;
+                    ctf.out -> out;
+                }
+            }
+        }
+    }
+}
+
+//TODO channel-wise vectorization support
+//TODO finish initialization parameters
+//TODO static asserts and min/max constants
+//TODO add input events
+//TODO add increasing cutoff nonlinearity and clamp
