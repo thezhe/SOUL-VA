@@ -1,55 +1,60 @@
 /*
-Virtual analog library.
+MIT License
 
-Zhe Deng 2021
-thezhefromcenterville@gmail.com
+Copyright (c) 2021 Zhe Deng
 
-See https://github.com/thezhe/VirtualAnalogCompressors
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 */
 
-/** Title: VA
+/** Title: VA (https://github.com/thezhe/SOUL-VA)
 
-    Virtual analog library -- a collection of filters (processors and sub-graphs) for discretizing nonlinear, time-varying inhomogenous ordinary differential equations.
+    Virtual analog library -- a collection of nonlinear, time-varying filters. Interface based on
+    soul::filters (https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul).
 
     Notes:
-    - All filters are stable and causal.
-    - All filters are stable under parameter modulation and single input single output (SISO) unless otherwise indicated.
-    - Frequency-domain processors and sub-graphs are designed to be connected in a feedforward fashion.
-    - Interface follows the general style of soul::filters except for some minor type modifications:
-        * 'SampleType' must be float64, float32 or a vector of float64/float32. This is also used as a 'CoeffType' for soul::filters.
-        * 'MonoType' must be float32 or float64. This is for signals that are guaranteed to be mono or stereo-linked.
-        * 'updateInterval' default value increased to 32
-    - See https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul
+    - The overall structure of this library is as close to that of soul::filters except for:
+        * All filters are stable under parameter modulation (TPT).
+        * 'updateInterval' is 32 by default.
 */
 
-namespace VA(using SampleType = float64, int updateInterval = 32)
+namespace VA (using SampleType = float32, 
+              using CoeffType = float64, 
+              int updateInterval = 32)
 {
     static_assert (SampleType.primitiveType.isFloat, "Primitive type of 'SampleType' must be float32 or float64");
-    static_assert ((SampleType.isVector || SampleType.isFloat), "SampleType must be float64, float32, or a vector of float64/float32");
+    static_assert ((SampleType.isVector || SampleType.isFloat), "'SampleType' must be float64, float32, or a vector of float64/float32");
+    static_assert (CoeffType.isFloat, "'CoeffType' must be float32 or float64");
 
-    // internal constants
     using MonoType = SampleType.primitiveType;
 
-    // namespace typedefs
-    namespace filt = soul::filters(SampleType, MonoType, updateInterval);
+    namespace filt = soul::filters(SampleType, CoeffType, updateInterval);
     namespace op = filt::tpt::onepole;
     namespace svf = filt::tpt::svf;
 
     //==============================================================================
-    /** "Topology preserving transform" multi-mode one-pole filter with an endpoint for cutoff modulation. 
-
-        Notes:
-        - Maps signal and cutoff to signal.
-        - Linear, time-varying, and stateful.
-        - omegadiv2 is the digital cutoff divided by 2. No checking is done! -- the input must be in the interval [0, pi/2). 
-        - See soul::filters::tpt::onepole
-    */  
+    /** soul::tpt::onepole modified for cutoff modulation via an input stream */  
     namespace Onepole
     {
         processor Processor (int initialMode = 0)
         {
             input stream SampleType in;
-            input stream  SampleType omegadiv2;
+            input stream  SampleType omegadiv2; //cutoff; must be in [0, pi/2) where pi/2 is Nyquist
             output stream SampleType out;
 
             input event float modeIn [[ name: "Mode", min: 0, max: 2, init: 0, text: "Lowpass|Highpass|Allpass" ]];
@@ -70,7 +75,6 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
             {   
                 op::State s;
                 op::Coeffs c;
-                c.clear ();
 
                 loop
                 {
@@ -87,19 +91,9 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
     }
 
     //==============================================================================
-    /** "Topology preserving transform" multi-mode state variable filter (SVF) with endpoints for cutoff and resonance modulation at audio rates. 
-
-        Notes:
-        - Maps signal, cutoff, and resonance to signal.
-        - Linear, time-varying, and stateful.
-        - omegadiv2 is the digital cutoff divided by 2. No checking is done! -- the input must be in the interval [0, pi/2). 
-        - R is the resonance. Again, no checking is done -- the input should be in the interval (0, inf]
-        - See soul::filters::tpt::svf
-    */  
+    /** soul::tpt::svf modified for cutoff and resonance modulation via input streams */  
     namespace SVF
     {
-
-        /** Updates a set of coefficients for the given settings. */
         void update (svf::Coeffs& c, MonoType omegadiv2, MonoType R)
         {
             c.a = tan (omegadiv2); //g
@@ -107,11 +101,11 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
             c.p = MonoType(2.0) * R + c.a; //g1
         }
 
-        /** */
         processor Processor
         {
             input stream SampleType in;
-            input stream SampleType omegadiv2, R;
+            input stream SampleType omegadiv2; //cutoff; must be in [0, pi/2) where pi/2 is Nyquist
+            input stream SampleType R; //resonance; must be in (0, inf]
             output stream SampleType lowpassOut, highpassOut, bandpassOut;
 
             void run()
@@ -138,26 +132,22 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
     //==============================================================================
     /** Anhysteretic magnetic flux density curve (Ban).
         
-        Notes:
-        - Maps signal to signal.
-        - Nonlinear, time-invariant, stateless.
-        - Langevin function approximation.
-        - Use as an algebraic sigmoid with input gain.
+            y[n] = a * x / (1.0 + |a * x|)
     */
     namespace Ban
     {
-        /** */
         SampleType process(SampleType x)
         {
             return x / (SampleType(1.0) + abs(x));
         }
 
-        /** */
         processor Processor(MonoType initialDrive = MonoType(1.0))
         {
             input stream SampleType in;
-        //    input stream SampleType a;
             output stream SampleType out;
+
+
+              //    input event SampleType a;
             
             SampleType drive = initialDrive;
 
@@ -174,53 +164,37 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
     }
 
     //==============================================================================
-    /** Anhysteretic inductance (Lan = dBan/dH).
+    /** Anhysteretic inductance (Lan).
 
-        Notes:
-        - Maps sample to cutoff.
-        - Nonlinear, time-invariant, and stateless.
-        - Use for nonlinear capacitor or inductor tones. 
-        - Based on the Froehlich-Kennelley model.
-        - See https://www.dafx.de/paper-archive/2015/DAFx-15_submission_68.pdf
+        Based on the Froehlich-Kennelley model.
+        https://www.dafx.de/paper-archive/2015/DAFx-15_submission_68.pdf
     */
     namespace Lan
     {
-        /** Holds a set of filter coefficients. */
         struct Coeffs
         {
             SampleType c; //linear cutoff
             SampleType N; //nonlinearity
         }
 
-        /** Clears a set of coefficients. */
         void clear (Coeffs& c)
         {
             c.c = SampleType();
             c.N = SampleType();
         }
 
-        /** Updates a set of coefficients for the given settings. */
         void update (Coeffs& c, MonoType freqHz, MonoType nonlinearity)
         {
             c.c = sqrt(MonoType(1.0) / (MonoType(twoPi) * freqHz));
             c.N = nonlinearity;
         }
 
-        /** Updates a set of coefficients for the given step response settings settings. */
-        void updateStep (Coeffs& c, MonoType tau, MonoType nonlinearity)
-        {
-            c.c = sqrt(tau/MonoType(1000));
-            c.N = nonlinearity;
-        }
-
-        /** */
         SampleType process(SampleType x, Coeffs& c)
         {
             const SampleType sqrtDenom = c.N * abs(x) + c.c;
             return SampleType(1.0) / (sqrtDenom * sqrtDenom);
         }
         
-        //Processor parameter min/max
         const MonoType minNonlinearity = 0;
         const MonoType maxNonlinearity = 5000;
 
@@ -272,29 +246,22 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
     }
 
     //==============================================================================
-    /** Irreversible magnetic flux density (Birr) and inductance (Lirr) cutoff calculator. 
-        Use with Onepole to calculate Birr(x) and Lirr(x).
-
-        Notes:
-        - Maps signal to cutoff.
-        - Nonlinear, time-invariant, and stateful. 
-        - Based on the Jiles-Atherton model.
+    /** The trapezoidal integrator input gain used in timeless integration.
+    
+            y[n] = 0.5 * |x[n] - x[n-1]|
     */
-    namespace BirrLirrCutoff
+    namespace TimelessGain
     {
-        /** Holds the filter state. */
         struct State
         {
             SampleType x1;
         }
 
-        /** Resets a filter state. */
         void reset (State& s)
         {
             s.x1 = SampleType();
         }
         
-        /** */
         SampleType process(State&s, SampleType x)
         {
             const SampleType y = abs(x - s.x1) * SampleType(0.5);
@@ -303,11 +270,10 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
             return y;
         }
 
-        /** */
         processor Processor
         {
             input stream SampleType in;
-            output stream SampleType omegadiv2;
+            output stream SampleType out;
         
             void run()
             {
@@ -315,7 +281,7 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
 
                 loop
                 {
-                    omegadiv2 << s.process(in);
+                    out << s.process(in);
 
                     advance();
                 }
@@ -324,7 +290,7 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
     }
 
     //==============================================================================
-    /** Irreversible magnetic flux density (Birr) and inductance (Lirr) calculator */
+    /** Irreversible magnetic flux density (Birr) and inductance (Lirr). */
     namespace BirrLirr
     {
         namespace Mode
@@ -362,10 +328,7 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
 
     //==============================================================================
     /** Converts an analog angular cutoff to a digital angular cutoff divided by 2
-    
-        Notes:
-        - Maps cutoff to cutoff.
-        - Nonlinear, time-invariant, stateless.
+
         - Clamping to the interval [0, 0.49 * pi] can be enabled via a processor parameter
     */
     namespace OmegaToomegadiv2
@@ -933,7 +896,6 @@ namespace VA(using SampleType = float64, int updateInterval = 32)
     }
 }
 
-//TODO channel-wise vectorization support
 //TODO finish initialization parameters
 //TODO static asserts and min/max constants
 //TODO add input events
