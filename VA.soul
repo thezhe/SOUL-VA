@@ -29,10 +29,9 @@ SOFTWARE.
 
     Notes:
     - The overall structure of this library is as close to that of soul::filters except for:
-        * All filters are stable under parameter modulation (TPT).
         * 'updateInterval' is 32 by default.
+        * The filters are optimized for 44.1kHz sampling rate and 24-bit bit depth with nonlinear filters internally oversampled to 88.2kHz
 */
-
 namespace VA (using SampleType = float32, 
               using CoeffType = float64, 
               int updateInterval = 32)
@@ -64,12 +63,6 @@ namespace VA (using SampleType = float32,
             event modeIn (float v) { mode = int (v); }
 
             int mode = initialMode;
-            
-            SampleType omegadiv2ToG(SampleType x)
-            {
-                SampleType g = tan(x);
-                return g / (1 + g);
-            }
 
             void run()
             {   
@@ -78,7 +71,7 @@ namespace VA (using SampleType = float32,
 
                 loop
                 {
-                    c.b = omegadiv2ToG(omegadiv2);
+                    c.b = omegadiv2 / (1.0 + omegadiv2);
                         
                     if (mode == op::Mode::lowpass)        out << s.processLPF (in, c);
                     else if (mode == op::Mode::highpass)  out << s.processHPF (in, c);
@@ -374,10 +367,8 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** abs() as a processor wrapper. */
     namespace Abs
     {
-        /** */
         processor Processor()
         {
             input stream SampleType in;
@@ -666,16 +657,8 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** Addition as a processor wrapper */
     namespace Add
     {
-        /** */
-        SampleType process (SampleType x1, SampleType x2) 
-        {
-            return x1 + x2;
-        }
-    
-        /** */
         processor Processor()
         {
             input stream SampleType in1, in2;
@@ -685,7 +668,7 @@ namespace VA (using SampleType = float32,
             {
                 loop
                 {
-                    out << process(in1, in2);
+                    out << in1 + in2;
     
                     advance();
                 }
@@ -694,16 +677,8 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** Multiplication as a processor wrapper */
     namespace Multiply
     {
-        /** */
-        SampleType process (SampleType x1, SampleType x2) 
-        {
-            return x1 * x2;
-        }
-    
-        /** */
         processor Processor()
         {
             input stream SampleType in1, in2;
@@ -713,7 +688,7 @@ namespace VA (using SampleType = float32,
             {
                 loop
                 {
-                    out << process(in1, in2);
+                    out << in1 * in2;
     
                     advance();
                 }
@@ -722,8 +697,7 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** Top-level effect graphs. These effects are made using other namespaces in 'VA' and the 'soul' namespaces.
-    */
+    /** Top-level effect graphs. These effects are made using other namespaces in 'VA' and the 'soul' namespaces. */
     namespace TopLevel
     {
         //==============================================================================
@@ -899,4 +873,5 @@ namespace VA (using SampleType = float32,
 //TODO finish initialization parameters
 //TODO static asserts and min/max constants
 //TODO add input events
+//TODO over/undersampling and prewarping
 //TODO add increasing cutoff nonlinearity and clamp

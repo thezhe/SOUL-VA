@@ -1,11 +1,16 @@
 function testMain(fs)
   %% testMain
   % 
-  % A script that tests 'main.soulpatch' using a set of inputs (see 'Input-generating functions' section)
+  % A script that tests 'main.soulpatch' using a set of inputs
+  % 
+  % Notes:
+  % - All .wav files are lossless, 24-bit, and have a sampling rate of 'fs' 
+  % - Plots show results of test cases (see 'Input-generating functions' section)
   %%
     
   %%==============================================================================
   %% The 'testMain' script.
+
   if (~isfolder('inputs'))
     genInputs(fs);
   end
@@ -22,33 +27,28 @@ function testMain(fs)
   
   %%==============================================================================
   %% Top Level functions.
-  function genInputs(fs)
+  function genInputs()
     %% genInputs
     %
-    % Generate test inputs
-    % 
-    % Endpoints:
-    % - fs: sampling rate
-    % - outputs: .wav files
-    %
     % Notes:
-    % - All files are lossless .wav, 24-bit, and normalized to 0.5  
+    % - Generates test inputs in 'inputs/'
+    % - All inputs normalized to 0.5 except for dBRamp
     %%
-    
+
     mkdir('inputs');
 
-    genBSin('inputs/BSin.wav', fs);
-    gendBRamp('inputs/dBRamp.wav', fs);
-    genImpulse('inputs/Impulse.wav', fs);
-    genPulse('inputs/Pulse.wav', fs);
-    genSin('inputs/Sin.wav', fs);
-    genSinRamp('inputs/SinRamp.wav', fs);
+    genBSin();
+    gendBRamp();
+    genImpulse();
+    genPulse();
+    genSin();
+    genSinRamp();
   end
   
   function genOutputs(fs)
     %% genOutputs
     %
-    % Generate an 'outputs' folder with processed files from 'inputs'
+    % Generate 'outputs/' by passing 'inputs/' thru 'main.soulpatch'
     %%
 
     mkdir('outputs');
@@ -67,28 +67,15 @@ function testMain(fs)
   
   function plotIO()
   
-    pkg load signal;
-    
-    %% BSin
     isStable('outputs/BSin.wav');
-
-    %% Pulse
     plotSignal('outputs/Pulse.wav', 'Pulse', 1000, 1, [1, 1, 1]); 
     isStable('outputs/Pulse.wav');
-
-    %% dBRamp
     plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'dBRamp', 2, [1, 2, 1]);
     isStable('outputs/dBRamp.wav');
-
-    %% SinRamp
     plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp', 2, [1, 2, 2]);
     isStable('outputs/SinRamp.wav');
-
-    %% Impulse
     plotBode('outputs/Impulse.wav', true, 'Impulse', 3, [3, 1, 1]);
     isStable('outputs/Impulse.wav');
-
-    %% Sin
     plotBode('outputs/Sin.wav', false, 'Sin', 3, [3, 1, 3]);
     isStable('outputs/Sin.wav');
 
@@ -104,17 +91,17 @@ function testMain(fs)
         [y, ~] = audioread(file);
         
         if (any(abs(y) >= 1))
-          printf("%s: UNSTABLE\n", file);
-        else
-          printf("%s: stable\n", file);
+          printf("%s: This is unstable or is extremely resonant. \n", file);
         endif
       endfunction
   endfunction
   
   %%==============================================================================
   %% Plotting functions.
-  function plotBode(file, phase, title, fig, sp)
-    %BodePlot Plot audiofile's magnitude and phase spectrum
+  function plotBode(file, phase, ttl, fig, sp)
+    %% BodePlot 
+    % 
+    % Plot magnitude (dB) and phase (radians) of a .wav
 
     %FFT
     [x, fs] = audioread(file);
@@ -123,51 +110,54 @@ function testMain(fs)
     n = length(x);
     df = fs/n;
     f = 0:df:Ny;
-
+    f(1) = df-eps;
     y = fft(x);
     y = y(1:(n/2)+1);
     if (~phase)
       y = y/n;
     end
-    y(2:end-1) = y(2:end-1)*2;
+    y = y*2;
 
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
 
     %Magnitude
     mag = gainTodB(abs(y));
-    if (phase)
-    idx = mag < -0.5;
-    else
-    idx = mag > -95 ;
-    end
-
     subplot(sp(1), sp(2), sp(3));
-    hold on
+    hold on 
     set(gca,'xscale','log');
-
+    set(gca, "linewidth", 1, "fontsize", 14)
+    grid on;
     if (phase)
-      xlim([20, 20000]);
-      ylim([-60, 0]);
+      xlim([f(1), 20000]);
+    else
+      xlim([f(1), f(end)]);
     end
-    scatter(f(idx), mag(idx), 10, "filled");
+    [fR, magR] = reducePlot(f, mag, 1);
+    plot(fR, magR, 'LineWidth', 2);
     hold off
-    xlabel('frequency (Hz)');
-    ylabel('magnitude (dB)');
+    title(['\fontsize{30}' ttl]);
+    xlabel('\fontsize{20}frequency (Hz)');
+    ylabel('\fontsize{20}magnitude (dB)');
 
+    %phase
     if (phase)
-    %Phase
+      p = angle(y);
+      subplot(sp(1), sp(2), sp(3)+1);
+      hold on
+      set(gca,'xscale','log');
+      set(gca, "linewidth", 1, "fontsize", 14)
+      title(['\fontsize{30}' ttl]);
+      xlabel('\fontsize{20}frequency (Hz)');
+      ylabel('\fontsize{20}phase (rads)');
+      grid on;
+      xlim([f(1), 20000]);
 
-    p = angle(y);
-    idx = (abs(p) > 0.25);
-    subplot(sp(1), sp(2), sp(3)+1);
-    hold on
-    xlim([20, 20000]);
-    semilogx(f(idx), p(idx), 'LineWidth', 2);
-    hold off
-    xlabel('frequency (Hz)');
-    ylabel('phase (radians)');
+      [fR, pR] = reducePlot(f, p, 0.1);
+      plot(fR, pR, 'LineWidth', 2);
+
+      hold off
+     
     end
-
   endfunction
 
   function plotSignal(file, ttl, res, fig, sp)
@@ -178,25 +168,28 @@ function testMain(fs)
 
     [y, fs] = audioread(file);
     info = audioinfo(file);
-    T = info.Duration/(length(y)-1);
-    y = downsample(y, fs/res);
-    t = 0:info.Duration/(res-1):info.Duration;
+    t = 0:1/fs:info.Duration-(1/fs);
+    [tR, yR] = reducePlot(t, y, 0.1);
+
 
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
-    subplot(sp(1), sp(2), sp(3));
-    plot(t, y, 'LineWidth', 2);
-    title(['\fontsize{60}' ttl]);
-    xlabel('\fontsize{30}t (seconds)');
-    ylabel('\fontsize{30}amplitude');
+    subplot(sp(1), sp(2), sp(3));    
+    hold on
+      set(gca, "linewidth", 1, "fontsize", 14);
+      title(['\fontsize{30}' ttl]);
+      xlabel('\fontsize{20}t (seconds)');
+      ylabel('\fontsize{20}amplitude');
+      
+      plot(tR, yR, 'LineWidth', 2);
+    hold off
   endfunction
 
-  function plotWaveshaper(file2, file1, dB, res, title, fig, sp)
+  function plotWaveshaper(file2, file1, dB, res, ttl, fig, sp)
     %% plotWaveshaper
     %
     % Plot samples of file2 vs file1
     %%
 
-    %boiler plate
     [y, fs] = audioread(file2);
     [x, ~] = audioread(file1);
 
@@ -205,37 +198,41 @@ function testMain(fs)
       x = gainTodB(x); 
     end
 
-    figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
-
-    subplot(sp(1), sp(2), sp(3));
-
     if (res>1)
       Q = floor(fs/res);
-      x = downsample(x, Q);
-      y = downsample(y, Q);
+      last = length(x)-mod(length(x), Q);
+      x = x(1:Q:last);
+      y = y(1:Q:last);
     end
 
-    scatter(x, y, 3, 'filled');
+    figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
+    subplot(sp(1), sp(2), sp(3));
+    hold on;
+      set(gca, "linewidth", 1, "fontsize", 14)
+      title(['\fontsize{30}' ttl]);
+      if(dB)
+        xlabel('\fontsize{20}input (dB)');
+        ylabel('\fontsize{20}output (dB)');
+      else
+        xlabel('\fontsize{20}input');
+        ylabel('\fontsize{20}output');
+      end
+      grid on;
 
-    if(dB)
-      xlabel('input (dB)');
-      ylabel('output (dB)');
-    else
-      xlabel('input');
-      ylabel('output');
-    end
+      scatter(x, y, 3, 'filled');
+    hold off
   endfunction
 
   %%==============================================================================
   %% Input-generating functions.
-  function genBSin(file, fs)
+  function genBSin()
     %% genBSin
     %
     % Generate (0.5/6)*sin baised by (2.5/6)*cos with frequencies 2kHz and 18kHz
     %
     % Notes:
     % - Length: 0.25 second
-    % - Test: system stability
+    % - Test: System stability. Test passes if no console warnings are printed.
     % - See Fig. 4 in https://dafx2019.bcu.ac.uk/papers/DAFx2019_paper_3.pdf
     %%
 
@@ -249,47 +246,47 @@ function testMain(fs)
 
     y = A1*sin(wd1*n) + A2*cos(wd2*n);
 
-    audiowrite(file, y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/BSin.wav', y, fs, 'BitsPerSample', 24);
   endfunction
 
-  function gendBRamp(file, fs)
+  function gendBRamp()
     %% gendBRamp
     %
-    % Generate ramp on the dB scale
+    % Generate a gradual ramp on the dB scale from -60 dB to 0 dB 
     %
     % Notes:
     % - Length: 2 seconds
-    % - Tests: decibel mapping, stability
+    % - Tests: stability, decibel mapping (outputs/dBRamp vs input/dBRamp plot)
     %%
 
     y = dBtoGain(linspace(-60, 0, 2*fs));
 
-    audiowrite(file, y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/dBRamp.wav', y, fs, 'BitsPerSample', 24);
   endfunction 
 
-  function genImpulse(file, fs)  
+  function genImpulse()  
     %% genImpulse
     %
-    % Generate an impulse
+    % Generate an impulse with amplitude 0.5
     %
     % Notes:
     % - Length: 1 second
-    % - Tests: impulse response, frequency response, stability
+    % - Tests: stability, frequency response (magnitude and phase plots)
     %%
 
     y = [0.5, zeros(1, fs-1)];
 
-    audiowrite(file, y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/Impulse.wav', y, fs, 'BitsPerSample', 24);
   endfunction
 
-  function genPulse(file, fs)
+  function genPulse()
     %% genImpulse
     %
     % Generate a pulse
     % 
     % Notes:
     % - Length: 1 second
-    % - Tests: step response, attack/release response, stability
+    % - Tests: step response and attack/release response (outputs/Pulse.wav plot), stability
     %%
 
     N = ceil(0.5*fs);
@@ -299,10 +296,10 @@ function testMain(fs)
     y(1:N) = 0.5;
     y(N + 1:end) = 0.25;
 
-    audiowrite(file, y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/Pulse.wav', y, fs, 'BitsPerSample', 24);
   endfunction
 
-  function genSin(file, fs)
+  function genSin()
     %% genSin
     %
     % Generate sin
@@ -318,10 +315,10 @@ function testMain(fs)
 
     y = 0.5*sin(wd*n); 
 
-    audiowrite(file, y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/Sin.wav', y, fs, 'BitsPerSample', 24);
   endfunction
   
-  function genSinRamp(file, fs)
+  function genSinRamp()
     %% genSin
     %
     % Generate a sin that fades in linearly
@@ -340,7 +337,7 @@ function testMain(fs)
 
     y = A.*sin(wd*n);
 
-    audiowrite(file, y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/SinRamp.wav', y, fs, 'BitsPerSample', 24);
   endfunction
   
   %%==============================================================================
@@ -353,5 +350,40 @@ function testMain(fs)
   function y = dBtoGain(x)
     x(x<-100) = -100;
     y = 10.^(x/20);
+  endfunction
+
+  function [xR, yR] = reducePlot(x, y, thrdy)
+    %% reducePlot
+    % 
+    % Reduce the points to plot by setting a threshold for dy
+    %
+    % Notes:
+    % - First and last elements are always plotted
+    % - Points with abs(dy) > thrdy and points 1 sample before these points are plotted
+    %
+    % Example:
+    %   x = 0:5;
+    %   y = [0; 0; 1; 0; 0; 0];
+    %   [xR, yR] = reducePlot(x, y, 0.1)
+    %   xR = 
+    %     0 1 2 3 5 
+    %   yR =
+    %     0 
+    %     0
+    %     1
+    %     0
+    %     0
+    %%
+
+    dy = y(2:end) - y(1:end-1);
+    dy = abs(dy) > thrdy;
+    dy = [1; dy(1:end)];
+    dy(1:end-1) = dy(1:end-1) + dy(2:end);
+    dy(end) = 1;
+    dy(dy>1) = 1;
+    idx = logical(dy);
+
+    xR = x(idx);
+    yR = y(idx);
   endfunction
 endfunction

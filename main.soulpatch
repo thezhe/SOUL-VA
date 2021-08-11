@@ -8,8 +8,7 @@
         "manufacturer": "soul-web-playground",
         "isInstrument": false,
         "source": [
-            "main.soul",
-            "va.soul"
+            "main.soul"
         ]
     }
 }
