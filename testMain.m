@@ -234,19 +234,21 @@ function testMain(fs)
     n = length(x);
     df = fs/n;
     f = 0:df:(fs/2);
-    f(1) = df-eps;
     y = fft(x);
     y = y(1:(n/2)+1);
-
     if (~phase)
       y = y/n;
     end
-    
-    y = y*2;
+    y(2:end-1) = y(2:end-1)*2;
 
     %Magnitude
     mag = gainTodB(abs(y));
-    [fR, magR] = reducePlot(f, mag, 1);
+    dc = num2str(mag(1));
+    ny = num2str(mag(end));
+
+    mag = mag(2:end-1);
+    fmag = f(2:end-1);
+    [fmagR, magR] = reducePlot(fmag, mag, 1);
     
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
     subplot(sp(1), sp(2), sp(3));
@@ -254,37 +256,42 @@ function testMain(fs)
       set(gca,'xscale','log');
       set(gca, "linewidth", 1, "fontsize", 14)
       if (phase)
-        xlim([f(1), 20000]);
+        xlim([fmag(1), 20000]);
         ylim([-60, 0]);
       else
-        xlim([f(1), f(end)]);
+        xlim([fmag(1), fmag(end)]);
         ylim([-100, 0]);
       end
-      title(['\fontsize{30}' ttl]);
+      title(['\fontsize{30}' ttl ' (|Y(0)| = ' dc ' dB, |Y(fs/2)| = ' ny ' dB)']);
       xlabel('\fontsize{20}frequency (Hz)');
       ylabel('\fontsize{20}magnitude (dB)');
       grid on;
 
-      plot(fR, magR, 'LineWidth', 2);
+      plot(fmagR, magR, 'LineWidth', 2);
     hold off
 
     %phase
     if (phase)
       p = angle(y);
-      [fR, pR] = reducePlot(f, p, 0.1);
+      dc = num2str(p(1));
+      ny = num2str(p(end));
+
+      p = p(2:end-1);
+      fp = f(2:end-1);
+      [fpR, pR] = reducePlot(fp, p, 0.1);
 
       subplot(sp(1), sp(2), sp(3)+1);
       hold on
         set(gca,'xscale','log');
         set(gca, "linewidth", 1, "fontsize", 14)
-        title(['\fontsize{30}' ttl]);
+        title(['\fontsize{30}' ttl ' (\angle Y(0) = ' dc ' rads, \angle Y(fs/2) = ' ny ' rads)']);
         xlabel('\fontsize{20}frequency (Hz)');
         ylabel('\fontsize{20}phase (rads)');
-        xlim([f(1), 20000]);
+        xlim([fp(1), 20000]);
         ylim([-pi, pi]);
         grid on;
         
-        plot(fR, pR, 'LineWidth', 2);
+        plot(fpR, pR, 'LineWidth', 2);
       hold off
     end
   endfunction

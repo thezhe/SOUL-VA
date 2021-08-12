@@ -29,31 +29,75 @@ SOFTWARE.
 
     Notes:
     - The overall structure of this library is as close to that of soul::filters except for:
-        * 'updateInterval' is 32 by default.
+        * Different initialization parameters (No CoeffType -- SampleType is used for minimzed nonsimd-simd casting, default updateInterval is 32)
         * The filters are optimized for 44.1kHz sampling rate and 24-bit bit depth with nonlinear filters internally oversampled to 88.2kHz
 */
-namespace VA (using SampleType = float32, 
-              using CoeffType = float64, 
+namespace VA (using SampleType = float32,  
               int updateInterval = 32)
 {
     static_assert (SampleType.primitiveType.isFloat, "Primitive type of 'SampleType' must be float32 or float64");
     static_assert ((SampleType.isVector || SampleType.isFloat), "'SampleType' must be float64, float32, or a vector of float64/float32");
-    static_assert (CoeffType.isFloat, "'CoeffType' must be float32 or float64");
 
-    using MonoType = SampleType.primitiveType;
-
-    namespace filt = soul::filters(SampleType, CoeffType, updateInterval);
-    namespace op = filt::tpt::onepole;
-    namespace svf = filt::tpt::svf;
+    using CoeffType = SampleType.primitiveType;
 
     //==============================================================================
-    /** soul::tpt::onepole modified for cutoff modulation via an input stream */  
+    /** soul::tpt::onepole modified for cutoff modulation via an input stream
+
+        Should be used with 2x oversampling
+    */  
     namespace Onepole
     {
+        namespace Mode
+        {
+            let lowpass  = 0;
+            let highpass = 1;
+            let allpass  = 2;
+        }        
+
+        struct Coeffs
+        {
+            SampleType b;
+        }
+
+        struct State
+        {
+            SampleType z1;
+        }
+
+        void clear (Coeffs& c)
+        {
+            c.b = SampleType (1);
+        }
+
+        void reset (State& s)
+        {
+            s.z1 = SampleType();
+        }
+
+        SampleType processLPF (State& s, SampleType x, Coeffs& c)
+        {
+            let vn = (x - s.z1) * c.b;
+            let lpf = vn + s.z1;
+            s.z1 = vn + lpf;
+            return lpf;
+        }
+
+        SampleType processHPF (State& s, SampleType x, Coeffs& c)
+        {
+            return x - processLPF (s, x, c);
+        }
+
+        SampleType processAPF (State& s, SampleType x, Coeffs& c)
+        {
+            let lpf = processLPF (s, x, c);
+            let hpf = x - lpf;
+            return lpf - hpf;
+        }
+
         processor Processor (int initialMode = 0)
         {
             input stream SampleType in;
-            input stream  SampleType omegadiv2; //cutoff; must be in [0, pi/2) where pi/2 is Nyquist
+            input stream  SampleType Omega; //angular cutoff; must be > 0
             output stream SampleType out;
 
             input event float modeIn [[ name: "Mode", min: 0, max: 2, init: 0, text: "Lowpass|Highpass|Allpass" ]];
@@ -64,18 +108,21 @@ namespace VA (using SampleType = float32,
 
             int mode = initialMode;
 
+            let Tdiv2 = SampleType (processor.period * 0.5);
+
             void run()
             {   
-                op::State s;
-                op::Coeffs c;
+                State s;
+                Coeffs c;
 
                 loop
                 {
-                    c.b = omegadiv2 / (1.0 + omegadiv2);
+                    let g = Omega * Tdiv2; 
+                    c.b = g / (SampleType (1.0) + g);
                         
-                    if (mode == op::Mode::lowpass)        out << s.processLPF (in, c);
-                    else if (mode == op::Mode::highpass)  out << s.processHPF (in, c);
-                    else if (mode == op::Mode::allpass)   out << s.processAPF (in, c);
+                    if (mode == Mode::lowpass)        out << s.processLPF (in, c);
+                    else if (mode == Mode::highpass)  out << s.processHPF (in, c);
+                    else if (mode == Mode::allpass)   out << s.processAPF (in, c);
 
                     advance();
                 }
@@ -84,33 +131,66 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** soul::tpt::svf modified for cutoff and resonance modulation via input streams */  
+    /** soul::tpt::svf modified for cutoff/resonance modulation via input streams and minimal nonsimd-simd casting */  
     namespace SVF
     {
-        void update (svf::Coeffs& c, MonoType omegadiv2, MonoType R)
+        namespace Mode
         {
-            c.a = tan (omegadiv2); //g
-            c.a0 = MonoType(1.0) / (MonoType(1.0) + MonoType(2.0) * R * c.a + c.a * c.a); //d
-            c.p = MonoType(2.0) * R + c.a; //g1
+            let lowpass  = 0;
+            let highpass = 1;
+            let bandpass = 2;
         }
 
+        struct Coeffs
+        {
+            SampleType a0;
+            SampleType a;
+            SampleType p;
+        }
+
+        struct State
+        {
+            SampleType[2] z;
+        }
+
+        void reset (State& s)
+        {
+            s.z[0] = SampleType();
+            s.z[1] = SampleType();
+        }
+
+        SampleType[3] process (State& s, SampleType x, Coeffs& c)
+        {
+            let hpf = c.a0 * (x - c.p * s.z[0] - s.z[1]);
+            let bpf = c.a * hpf + s.z[0];
+            let lpf = c.a * bpf + s.z[1];
+
+            s.z[0] = c.a * hpf + bpf;
+            s.z[1] = c.a * bpf + lpf;
+
+            return SampleType[3] (lpf, hpf, bpf);
+        }
         processor Processor
         {
             input stream SampleType in;
-            input stream SampleType omegadiv2; //cutoff; must be in [0, pi/2) where pi/2 is Nyquist
-            input stream SampleType R; //resonance; must be in (0, inf]
+            input stream SampleType Omega; //angular cutoff; must be > 0
+            input stream SampleType R; //resonance; must be > 0
             output stream SampleType lowpassOut, highpassOut, bandpassOut;
+
+            let Tdiv2 = SampleType (processor.period * 0.5); 
 
             void run()
             {
-                svf::State s;
-                svf::Coeffs c;
+                State s;
+                Coeffs c;
 
                 loop
                 {
-                    c.update(omegadiv2, R);
+                    c.a = Omega * Tdiv2; //g
+                    c.a0 = SampleType(1.0) / (SampleType(1.0) + SampleType(2.0) * R * c.a + c.a * c.a); //d
+                    c.p = SampleType(2.0) * R + c.a; //g1
 
-                    let y = svf::process(s, in, c);
+                    let y = s.process(in, c);
 
                     lowpassOut  << y[0];
                     highpassOut << y[1];
@@ -126,6 +206,9 @@ namespace VA (using SampleType = float32,
     /** Anhysteretic magnetic flux density curve (Ban).
         
             y[n] = a * x / (1.0 + |a * x|)
+
+        Based on the Froehlich-Kennelley model.
+        https://www.dafx.de/paper-archive/2015/DAFx-15_submission_68.pdf
     */
     namespace Ban
     {
@@ -134,21 +217,22 @@ namespace VA (using SampleType = float32,
             return x / (SampleType(1.0) + abs(x));
         }
 
-        processor Processor(MonoType initialDrive = MonoType(1.0))
+        processor Processor(float initialDrive = 1.f)
         {
             input stream SampleType in;
             output stream SampleType out;
 
-
-              //    input event SampleType a;
+            input event float driveIn [[ name: "Drive", min: 0, max: 10, init: 0 ]];
             
-            SampleType drive = initialDrive;
+            event driveIn (float v) { a = SampleType(v); }
+
+            SampleType a = initialDrive;
 
             void run()
             {
                 loop
                 {
-                    out << process(drive * in);
+                    out << process(a * in);
 
                     advance();
                 }
@@ -176,9 +260,9 @@ namespace VA (using SampleType = float32,
             c.N = SampleType();
         }
 
-        void update (Coeffs& c, MonoType freqHz, MonoType nonlinearity)
+        void update (Coeffs& c, SampleType freqHz, SampleType nonlinearity)
         {
-            c.c = sqrt(MonoType(1.0) / (MonoType(twoPi) * freqHz));
+            c.c = sqrt(SampleType(1.0) / (SampleType(twoPi) * freqHz));
             c.N = nonlinearity;
         }
 
@@ -188,29 +272,28 @@ namespace VA (using SampleType = float32,
             return SampleType(1.0) / (sqrtDenom * sqrtDenom);
         }
         
-        const MonoType minNonlinearity = 0;
-        const MonoType maxNonlinearity = 5000;
+        const SampleType minNonlinearity = 0;
+        const SampleType maxNonlinearity = 5000;
 
-        /** */
-        processor Processor(MonoType initialFrequency = filt::defaultFreqHz,
-                            MonoType initialNonlinearity = 400)
+        processor Processor(SampleType initialFrequency = filt::defaultFreqHz,
+                            SampleType initialNonlinearity = 400)
         {
             input stream SampleType in;
             output stream SampleType L;
             
             input event
             {
-                MonoType frequencyIn [[ name: "Frequency", min: filt::minFreqHz, max: filt::maxFreqHz, init: filt::defaultFreqHz, unit: "Hz" ]];
-                MonoType nonlinearityIn [[ name: "Nonlinearity", min: minNonlinearity, max: maxNonlinearity, init: initialNonlinearity ]];
+                SampleType frequencyIn [[ name: "Frequency", min: filt::minFreqHz, max: filt::maxFreqHz, init: filt::defaultFreqHz, unit: "Hz" ]];
+                SampleType nonlinearityIn [[ name: "Nonlinearity", min: minNonlinearity, max: maxNonlinearity, init: initialNonlinearity ]];
             }
 
             static_assert((initialFrequency >= filt::minFreqHz && initialFrequency <= filt::maxFreqHz), "Lan: Cutoff Frequency must be in interval [0, samplingRate/2)");
 
-            event frequencyIn (MonoType v) { frequency = v; recalc = true; }
-            event nonlinearityIn (MonoType v) { nonlinearity = v; recalc = true; }
+            event frequencyIn (SampleType v) { frequency = v; recalc = true; }
+            event nonlinearityIn (SampleType v) { nonlinearity = v; recalc = true; }
 
-            MonoType frequency = initialFrequency;
-            MonoType nonlinearity = initialNonlinearity;
+            SampleType frequency = initialFrequency;
+            SampleType nonlinearity = initialNonlinearity;
             bool recalc = true;
 
             void run()
@@ -284,7 +367,7 @@ namespace VA (using SampleType = float32,
 
     //==============================================================================
     /** Irreversible magnetic flux density (Birr) and inductance (Lirr). */
-    namespace BirrLirr
+    namespace Irreversible
     {
         namespace Mode
         {
@@ -292,12 +375,12 @@ namespace VA (using SampleType = float32,
             let Lirr = 1;
         }
 
-        graph Graph (int mode = Mode::Birr, MonoType initialDrive)
+        graph Graph (int mode = Mode::Birr, SampleType initialDrive)
         {
             input stream SampleType in;
             output stream SampleType out;
      
-            static_assert((mode == Mode::Birr || mode == Mode::Lirr), "BirrLirr: mode must be Mode::Birr (0) or Mode::Lirr (1)");
+            static_assert((mode == Mode::Birr || mode == Mode::Lirr), "Irreversible: mode must be Mode::Birr (0) or Mode::Lirr (1)");
 
             let
             {
@@ -319,72 +402,7 @@ namespace VA (using SampleType = float32,
         }
     }
 
-    //==============================================================================
-    /** Converts an analog angular cutoff to a digital angular cutoff divided by 2
 
-        - Clamping to the interval [0, 0.49 * pi] can be enabled via a processor parameter
-    */
-    namespace OmegaToomegadiv2
-    {
-        //Cutoff limits normalized such that Nyquist is pi/2
-        const SampleType minCutoff = SampleType(0.0);
-        const SampleType maxCutoff = SampleType(filt::normalisedFreqLimit * pi);
-        
-        /** Constants for use in specifying the filter mode. */
-        namespace Mode 
-        {
-            let none = 0;
-            let clampLow = 1;
-            let clampHigh = 2;
-            let clampAll = 3;
-        }
-    
-        /** */
-        processor Processor(int initialMode = Mode::none)
-        {
-            input stream SampleType Omega;
-            output stream SampleType omegadiv2;
-
-            void run()
-            {
-                loop
-                {
-                    const SampleType omegadiv2Unclamped = Omega * SampleType(processor.period * 0.5);
-
-                    if const (initialMode == Mode::none)
-                        omegadiv2 << omegadiv2Unclamped;
-                    else if const (initialMode == Mode::clampLow)
-                        omegadiv2 << max(omegadiv2Unclamped, minCutoff);
-                    else if const (initialMode == Mode::clampHigh)
-                        omegadiv2 << min(omegadiv2Unclamped, maxCutoff);
-                    else if const (initialMode == Mode::clampAll)
-                        omegadiv2 << clamp(omegadiv2Unclamped, minCutoff, maxCutoff);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    namespace Abs
-    {
-        processor Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            void run()
-            {
-                loop
-                {
-                    out << abs(in);
-
-                    advance();
-                }
-            }
-        }
-    }
 
     //==============================================================================
     /** A compressor transfer function (CTF) with color
@@ -398,7 +416,6 @@ namespace VA (using SampleType = float32,
     */
     namespace CTF
     {
-        /** Holds a set of filter coefficients. */
         struct Coeffs 
         {
             SampleType thr;
@@ -406,8 +423,7 @@ namespace VA (using SampleType = float32,
             SampleType height;
             SampleType divWidth; 
         }
-    
-        /** Clears a set of coefficients. */
+
         void clear (Coeffs& c) 
         {
             c.thr = SampleType();
@@ -416,16 +432,14 @@ namespace VA (using SampleType = float32,
             c.divWidth = SampleType();
         }
     
-        /** Updates a set of coefficients for the given settings. */
-        void update (Coeffs& c, MonoType threshold, MonoType ratio, MonoType colorHeight, MonoType colorWidth) 
+        void update (Coeffs& c, SampleType threshold, SampleType ratio, SampleType colorHeight, SampleType colorWidth) 
         {
             c.thr = threshold;
-            c.divR = MonoType(1.0) / ratio;
+            c.divR = SampleType(1.0) / ratio;
             c.height = colorHeight;
-            c.divWidth = MonoType(1.0) / colorWidth;
+            c.divWidth = SampleType(1.0) / colorWidth;
         }
     
-        /** */
         SampleType process (SampleType x, Coeffs& c) 
         {
             const SampleType xdB = soul::gainTodB(x);
@@ -444,30 +458,30 @@ namespace VA (using SampleType = float32,
         }
     
         /** Processor parameter min/max */
-        const MonoType minThreshold = MonoType(-60.0);
-        const MonoType maxThreshold = MonoType(0.0);
-        const MonoType minRatio = MonoType(1.0);
-        const MonoType maxRatio = MonoType(25.0);
-        const MonoType minColorHeight = MonoType(-5.0);
-        const MonoType maxColorHeight = MonoType(5.0);
-        const MonoType minColorWidth = MonoType(0.2);
-        const MonoType maxColorWidth = MonoType(3.0);
+        const SampleType minThreshold = SampleType(-60.0);
+        const SampleType maxThreshold = SampleType(0.0);
+        const SampleType minRatio = SampleType(1.0);
+        const SampleType maxRatio = SampleType(25.0);
+        const SampleType minColorHeight = SampleType(-5.0);
+        const SampleType maxColorHeight = SampleType(5.0);
+        const SampleType minColorWidth = SampleType(0.2);
+        const SampleType maxColorWidth = SampleType(3.0);
 
-        /** */
-        processor Processor(MonoType initialThreshold = -20,
-                            MonoType initialRatio = 5,
-                            MonoType initialColorHeight = 5,
-                            MonoType initialColorWidth = 3)
+        
+        processor Processor(SampleType initialThreshold = -20,
+                            SampleType initialRatio = 5,
+                            SampleType initialColorHeight = 5,
+                            SampleType initialColorWidth = 3)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input event
             {
-                MonoType thresholdIn [[ name: "Threshold", min: minThreshold, max: maxThreshold, init: initialThreshold, unit: "dB" ]];
-                MonoType ratioIn [[ name: "Ratio", min: minRatio, max: maxRatio, init: initialRatio ]];
-                MonoType colorHeightIn [[ name: "Color Height", min: minColorHeight, max: maxColorHeight, init: initialColorHeight, unit: "dB" ]];
-                MonoType colorWidthIn [[ name: "Color Width", min: minColorWidth, max: maxColorWidth, init: initialColorWidth, unit: "dB" ]];
+                SampleType thresholdIn [[ name: "Threshold", min: minThreshold, max: maxThreshold, init: initialThreshold, unit: "dB" ]];
+                SampleType ratioIn [[ name: "Ratio", min: minRatio, max: maxRatio, init: initialRatio ]];
+                SampleType colorHeightIn [[ name: "Color Height", min: minColorHeight, max: maxColorHeight, init: initialColorHeight, unit: "dB" ]];
+                SampleType colorWidthIn [[ name: "Color Width", min: minColorWidth, max: maxColorWidth, init: initialColorWidth, unit: "dB" ]];
             }
 
             static_assert((initialThreshold >= minThreshold && initialThreshold <= maxThreshold), "CTF: Threshold must be in the interval [-60, 0] dB");
@@ -475,15 +489,15 @@ namespace VA (using SampleType = float32,
             static_assert((initialColorHeight >= minColorHeight && initialColorHeight <= maxColorHeight), "CTF: Color Height must be in the interval [-5, 5] dB");
             static_assert((initialColorWidth >= minColorWidth && initialColorWidth <= maxColorWidth), "CTF: Color Width must be in the interval [0.2, 3] dB");
 
-            event thresholdIn (MonoType v) { threshold = v; recalc = true; }
-            event ratioIn (MonoType v) { ratio = v; recalc = true; }
-            event colorHeightIn (MonoType v) { colorHeight = v; recalc = true; }
-            event colorWidthIn (MonoType v) { colorWidth = v; recalc = true; }
+            event thresholdIn (SampleType v) { threshold = v; recalc = true; }
+            event ratioIn (SampleType v) { ratio = v; recalc = true; }
+            event colorHeightIn (SampleType v) { colorHeight = v; recalc = true; }
+            event colorWidthIn (SampleType v) { colorWidth = v; recalc = true; }
 
-            MonoType threshold = initialThreshold;
-            MonoType ratio = initialRatio;
-            MonoType colorHeight = initialColorHeight;
-            MonoType colorWidth = initialColorWidth;
+            SampleType threshold = initialThreshold;
+            SampleType ratio = initialRatio;
+            SampleType colorHeight = initialColorHeight;
+            SampleType colorWidth = initialColorWidth;
             bool recalc = true;
 
             void run()
@@ -535,29 +549,29 @@ namespace VA (using SampleType = float32,
         }
     
         /** Updates a set of coefficients for the given settings. */
-        void update (Coeffs& c, MonoType attack, MonoType release, MonoType nonlinearity) 
+        void update (Coeffs& c, SampleType attack, SampleType release, SampleType nonlinearity) 
         {
             Lan::updateStep(c.attack, attack, nonlinearity);
             Lan::updateStep(c.release, release, nonlinearity);
         }
     
-        /** */
+        
         SampleType process (SampleType x, SampleType y, Coeffs& c) 
         {
             return x > y ? Lan::process(x, c.attack) : Lan::process(x, c.release);   
         }
     
-        /** */
-        processor Processor(MonoType initialAttack,
-                            MonoType initialRelease,
-                            MonoType initialNonlinearity)
+        
+        processor Processor(SampleType initialAttack,
+                            SampleType initialRelease,
+                            SampleType initialNonlinearity)
         {
             input stream SampleType x, y;
             output stream SampleType L;
     
-            MonoType attack = initialAttack;
-            MonoType release = initialRelease;
-            MonoType nonlinearity = initialNonlinearity;
+            SampleType attack = initialAttack;
+            SampleType release = initialRelease;
+            SampleType nonlinearity = initialNonlinearity;
             bool recalc = true;
     
             void run()
@@ -594,9 +608,9 @@ namespace VA (using SampleType = float32,
     */
     namespace EnvelopeFilter
     {
-        graph Graph(MonoType initialAttack,
-                    MonoType initialRelease,
-                    MonoType initialNonlinearity)
+        graph Graph(SampleType initialAttack,
+                    SampleType initialRelease,
+                    SampleType initialNonlinearity)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -626,21 +640,14 @@ namespace VA (using SampleType = float32,
     /** Set a vector equal to the average of its elements. */
     namespace StereoLink (bool initialEnabled = true)
     {
-        /** */
-        SampleType process (SampleType x, Coeffs& c) 
-        {
-            x = MonoType(x.sum())/MonoType(x.size());
-        }
-    
-        /** */
         processor Processor()
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event MonoType enabledIn [[ name: "Enabled", min: 0, max: 1, init: initialEnabled, unit: "Off|On" ]];
+            input event SampleType enabledIn [[ name: "Enabled", min: 0, max: 1, init: initialEnabled, unit: "Off|On" ]];
             
-            event enabledIn (MonoType v) { enabled = bool(v); }
+            event enabledIn (SampleType v) { enabled = bool(v); }
 
             bool enabled = initialEnabled;
 
@@ -648,7 +655,47 @@ namespace VA (using SampleType = float32,
             {
                 loop
                 {
-                    out << (enabled ? process(in) : in);
+                    out << (enabled ? SampleType(in.sum())/SampleType(in.size()) : in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    namespace ZeroClamp
+    {       
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << max(in, CoeffType(0.0));
+            
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    namespace Abs
+    {
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << abs(in);
 
                     advance();
                 }
@@ -713,17 +760,17 @@ namespace VA (using SampleType = float32,
         */
         namespace JA_B
         {
-            /** */
-            graph Graph(MonoType initialDrive = MonoType(1),
-                        MonoType initialGainBirr = MonoType(0),
-                        MonoType initialGainBan = MonoType(1))
+            
+            graph Graph(SampleType initialDrive = SampleType(1),
+                        SampleType initialGainBirr = SampleType(0),
+                        SampleType initialGainBan = SampleType(1))
             {
                 input stream SampleType in;
                 output stream SampleType out;
 
                 let
                 {
-                    birrLirr = BirrLirr::Graph(0, initialDrive);
+                    birrLirr = Irreversible::Graph(0, initialDrive);
 
                     ban = Ban::Processor(initialDrive);
 
@@ -756,19 +803,19 @@ namespace VA (using SampleType = float32,
         */
         namespace JA_L
         {
-            /** */
-            graph Graph(MonoType initialFrequency = filt::defaultFreqHz, 
-                        MonoType initialNonlinearity = MonoType(0),
-                        MonoType initialGainMirr = MonoType(0))
+            
+            graph Graph(SampleType initialFrequency = filt::defaultFreqHz, 
+                        SampleType initialNonlinearity = SampleType(0),
+                        SampleType initialGainMirr = SampleType(0))
             {
                 input stream SampleType in;
                 output stream SampleType omegadiv2;
 
                 let
                 {
-                    lirr = BirrLirr::Graph(1, initialNonlinearity*MonoType(500));
-                    lan = Lan::Processor(initialFrequency, initialNonlinearity/MonoType(50));
-                    fixedSum = soul::mixers::FixedSum(SampleType, initialFrequency*initialGainMirr, MonoType(1.0));
+                    lirr = Irreversible::Graph(1, initialNonlinearity*SampleType(500));
+                    lan = Lan::Processor(initialFrequency, initialNonlinearity/SampleType(50));
+                    fixedSum = soul::mixers::FixedSum(SampleType, initialFrequency*initialGainMirr, SampleType(1.0));
                     p_OmegaToomegadiv2 = OmegaToomegadiv2::Processor(3);
                 }
         
@@ -796,9 +843,9 @@ namespace VA (using SampleType = float32,
         */
         namespace JA_Onepole
         {
-            graph Graph(MonoType initialFrequency = filt::defaultFreqHz, 
-                        MonoType initialNonlinearity = MonoType(0),
-                        MonoType initialGainMirr = MonoType(0),
+            graph Graph(SampleType initialFrequency = filt::defaultFreqHz, 
+                        SampleType initialNonlinearity = SampleType(0),
+                        SampleType initialGainMirr = SampleType(0),
                         int initialMode = 0)
             {
                 input stream SampleType in;
@@ -840,13 +887,13 @@ namespace VA (using SampleType = float32,
         */
         namespace Sidechain
         {
-            graph Graph(MonoType initialThreshold,
-                        MonoType initialRatio,
-                        MonoType initialColorHeight,
-                        MonoType initialColorWidth,
-                        MonoType initialAttack,
-                        MonoType initialRelease,
-                        MonoType initialNonlinearity)
+            graph Graph(SampleType initialThreshold,
+                        SampleType initialRatio,
+                        SampleType initialColorHeight,
+                        SampleType initialColorWidth,
+                        SampleType initialAttack,
+                        SampleType initialRelease,
+                        SampleType initialNonlinearity)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -871,7 +918,7 @@ namespace VA (using SampleType = float32,
 }
 
 //TODO finish initialization parameters
-//TODO static asserts and min/max constants
+//TODO static asserts and remove min/max constants
 //TODO add input events
-//TODO over/undersampling and prewarping
-//TODO add increasing cutoff nonlinearity and clamp
+//TODO over/undersampling
+//TODO add increasing cutoff nonlinearity
