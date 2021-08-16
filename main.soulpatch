@@ -1,14 +1,15 @@
 {
     "soulPatchV1": {
-        "ID": "GraphTest",
+        "ID": "main",
         "version": "1.0",
-        "name": "GraphTest",
-        "description": "Testbench for new processors",
+        "name": "main",
+        "description": "Testbench for Processors",
         "category": "effect",
-        "manufacturer": "soul-web-playground",
+        "manufacturer": "Zhe Deng",
         "isInstrument": false,
         "source": [
-            "main.soul"
+            "main.soul",
+            "VA.soul"
         ]
     }
 }

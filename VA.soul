@@ -29,8 +29,8 @@ SOFTWARE.
 
     Notes:
     - The overall structure of this library is as close to that of soul::filters except for:
-        * Different initialization parameters (No CoeffType -- SampleType is used for minimzed nonsimd-simd casting, default updateInterval is 32)
-        * The filters are optimized for 44.1kHz sampling rate and 24-bit bit depth with nonlinear filters internally oversampled to 88.2kHz
+        * Different initialization parameters (No CoeffType -- SampleType is used for minimzed nonsimd-simd casting; default updateInterval is 32)
+        * The filters are optimized for 44.1kHz sampling rate and 24-bit bit depth with reccomendations for under/oversampling
 */
 namespace VA (using SampleType = float32,  
               int updateInterval = 32)
@@ -38,22 +38,13 @@ namespace VA (using SampleType = float32,
     static_assert (SampleType.primitiveType.isFloat, "Primitive type of 'SampleType' must be float32 or float64");
     static_assert ((SampleType.isVector || SampleType.isFloat), "'SampleType' must be float64, float32, or a vector of float64/float32");
 
-    using CoeffType = SampleType.primitiveType;
-
     //==============================================================================
     /** soul::tpt::onepole modified for cutoff modulation via an input stream
 
-        Should be used with 2x oversampling
+        2x oversampling recommended
     */  
     namespace Onepole
-    {
-        namespace Mode
-        {
-            let lowpass  = 0;
-            let highpass = 1;
-            let allpass  = 2;
-        }        
-
+    {   
         struct Coeffs
         {
             SampleType b;
@@ -94,15 +85,14 @@ namespace VA (using SampleType = float32,
             return lpf - hpf;
         }
 
-        processor Processor (int initialMode = 0)
+        processor Processor (int initialMode = 0, int cutoffMode = 0)
         {
             input stream SampleType in;
             input stream  SampleType Omega; //angular cutoff; must be > 0
+            input stream SampleType g;
             output stream SampleType out;
 
-            input event float modeIn [[ name: "Mode", min: 0, max: 2, init: 0, text: "Lowpass|Highpass|Allpass" ]];
-            
-            static_assert((initialMode >= 0 || initialMode <= 2), "Onepole: Mode must be 0 (LPF1), 1 (HPF1), or 2 (APF1)");
+            input event float modeIn [[ name: "Mode", min: 0, max: 2, init: initialMode, text: "Lowpass|Highpass|Allpass" ]];
 
             event modeIn (float v) { mode = int (v); }
 
@@ -117,12 +107,19 @@ namespace VA (using SampleType = float32,
 
                 loop
                 {
-                    let g = Omega * Tdiv2; 
-                    c.b = g / (SampleType (1.0) + g);
-                        
-                    if (mode == Mode::lowpass)        out << s.processLPF (in, c);
-                    else if (mode == Mode::highpass)  out << s.processHPF (in, c);
-                    else if (mode == Mode::allpass)   out << s.processAPF (in, c);
+                    if const (cutoffMode == 0)
+                    {
+                        let temp = Omega * Tdiv2; 
+                        c.b = temp / (SampleType (1.0) + temp);
+                    }
+                    else 
+                    {
+                        c.b = g / (SampleType (1.0) + g);
+                    }   
+
+                    if (mode == 0)        out << s.processLPF (in, c);
+                    else if (mode == 1)  out << s.processHPF (in, c);
+                    else if (mode == 2)   out << s.processAPF (in, c);
 
                     advance();
                 }
@@ -131,16 +128,12 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** soul::tpt::svf modified for cutoff/resonance modulation via input streams and minimal nonsimd-simd casting */  
+    /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
+    
+        2x oversampling recommended
+    */  
     namespace SVF
     {
-        namespace Mode
-        {
-            let lowpass  = 0;
-            let highpass = 1;
-            let bandpass = 2;
-        }
-
         struct Coeffs
         {
             SampleType a0;
@@ -170,6 +163,7 @@ namespace VA (using SampleType = float32,
 
             return SampleType[3] (lpf, hpf, bpf);
         }
+
         processor Processor
         {
             input stream SampleType in;
@@ -187,8 +181,8 @@ namespace VA (using SampleType = float32,
                 loop
                 {
                     c.a = Omega * Tdiv2; //g
-                    c.a0 = SampleType(1.0) / (SampleType(1.0) + SampleType(2.0) * R * c.a + c.a * c.a); //d
-                    c.p = SampleType(2.0) * R + c.a; //g1
+                    c.a0 = SampleType (1.0) / (SampleType (1.0) + SampleType (2.0) * R * c.a + c.a * c.a); //d
+                    c.p = SampleType (2.0) * R + c.a; //g1
 
                     let y = s.process(in, c);
 
@@ -212,17 +206,18 @@ namespace VA (using SampleType = float32,
     */
     namespace Ban
     {
-        SampleType process(SampleType x)
+        SampleType process (SampleType x, SampleType a)
         {
-            return x / (SampleType(1.0) + abs(x));
+            let temp = a * x;
+            return temp / (SampleType(1.0) + abs(temp));
         }
-
+        
         processor Processor(float initialDrive = 1.f)
         {
             input stream SampleType in;
             output stream SampleType out;
 
-            input event float driveIn [[ name: "Drive", min: 0, max: 10, init: 0 ]];
+            input event float driveIn [[ name: "Drive", min: 0, max: 10, init: initialDrive ]];
             
             event driveIn (float v) { a = SampleType(v); }
 
@@ -232,7 +227,7 @@ namespace VA (using SampleType = float32,
             {
                 loop
                 {
-                    out << process(a * in);
+                    out << process(in, a);
 
                     advance();
                 }
@@ -250,7 +245,7 @@ namespace VA (using SampleType = float32,
     {
         struct Coeffs
         {
-            SampleType c; //linear cutoff
+            SampleType c; //affects linear Omega
             SampleType N; //nonlinearity
         }
 
@@ -262,35 +257,30 @@ namespace VA (using SampleType = float32,
 
         void update (Coeffs& c, SampleType freqHz, SampleType nonlinearity)
         {
-            c.c = sqrt(SampleType(1.0) / (SampleType(twoPi) * freqHz));
+            c.c = sqrt(SampleType(twoPi) * freqHz);
             c.N = nonlinearity;
         }
 
         SampleType process(SampleType x, Coeffs& c)
         {
-            const SampleType sqrtDenom = c.N * abs(x) + c.c;
-            return SampleType(1.0) / (sqrtDenom * sqrtDenom);
+            let temp = c.N * abs(x) + c.c;
+            return SampleType (1.0) / (temp * temp);
         }
         
-        const SampleType minNonlinearity = 0;
-        const SampleType maxNonlinearity = 5000;
-
-        processor Processor(SampleType initialFrequency = filt::defaultFreqHz,
+        processor Processor(SampleType initialFrequency = 0,
                             SampleType initialNonlinearity = 400)
         {
             input stream SampleType in;
-            output stream SampleType L;
+            output stream SampleType Omega;
             
             input event
             {
-                SampleType frequencyIn [[ name: "Frequency", min: filt::minFreqHz, max: filt::maxFreqHz, init: filt::defaultFreqHz, unit: "Hz" ]];
-                SampleType nonlinearityIn [[ name: "Nonlinearity", min: minNonlinearity, max: maxNonlinearity, init: initialNonlinearity ]];
+                float frequencyIn [[ name: "Frequency", min: 20, max: 18000, init: initialFrequency, unit: "Hz" ]];
+                float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 500, init: initialNonlinearity ]];
             }
 
-            static_assert((initialFrequency >= filt::minFreqHz && initialFrequency <= filt::maxFreqHz), "Lan: Cutoff Frequency must be in interval [0, samplingRate/2)");
-
-            event frequencyIn (SampleType v) { frequency = v; recalc = true; }
-            event nonlinearityIn (SampleType v) { nonlinearity = v; recalc = true; }
+            event frequencyIn (float v) { frequency = v; recalc = true; }
+            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
 
             SampleType frequency = initialFrequency;
             SampleType nonlinearity = initialNonlinearity;
@@ -312,7 +302,7 @@ namespace VA (using SampleType = float32,
 
                     loop (updateInterval)
                     {   
-                        L << process(in, c);
+                        Omega << process(in, c);
 
                         advance();
                     }
@@ -322,11 +312,11 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** The trapezoidal integrator input gain used in timeless integration.
+    /** The input gain before a timeless trapezoidal integrator.
     
             y[n] = 0.5 * |x[n] - x[n-1]|
     */
-    namespace TimelessGain
+    namespace TimelessIntGain
     {
         struct State
         {
@@ -340,7 +330,7 @@ namespace VA (using SampleType = float32,
         
         SampleType process(State&s, SampleType x)
         {
-            const SampleType y = abs(x - s.x1) * SampleType(0.5);
+            let y = abs(x - s.x1) * SampleType(0.5);
             s.x1 = x;
 
             return y;
@@ -349,7 +339,7 @@ namespace VA (using SampleType = float32,
         processor Processor
         {
             input stream SampleType in;
-            output stream SampleType out;
+            output stream SampleType g;
         
             void run()
             {
@@ -357,7 +347,7 @@ namespace VA (using SampleType = float32,
 
                 loop
                 {
-                    out << s.process(in);
+                    g << s.process(in);
 
                     advance();
                 }
@@ -366,27 +356,27 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** Irreversible magnetic flux density (Birr) and inductance (Lirr). */
+    /** Irreversible magnetic flux density (Birr) and inductance (Lirr). 
+    
+        Based on the Jiles-Atherton model.
+    */
     namespace Irreversible
     {
-        namespace Mode
-        {
-            let Birr = 0;
-            let Lirr = 1;
-        }
-
-        graph Graph (int mode = Mode::Birr, SampleType initialDrive)
+        graph Processor (int mode = Mode::Birr, SampleType initialDrive)
         {
             input stream SampleType in;
             output stream SampleType out;
-     
-            static_assert((mode == Mode::Birr || mode == Mode::Lirr), "Irreversible: mode must be Mode::Birr (0) or Mode::Lirr (1)");
+
+            input event
+            {
+               // ban.driveIn;
+            }
 
             let
             {
                 ban = Ban::Processor(initialDrive);
-                birrLirrCutoff = BirrLirrCutoff::Processor;
-                onepole = Onepole::Processor(mode);
+                timeless = TimelessIntGain::Processor;
+                onepole = Onepole::Processor(mode, 1);
             }
     
             connection
@@ -394,15 +384,62 @@ namespace VA (using SampleType = float32,
                 in -> ban.in;
                 ban.out -> onepole.in;
 
-                in -> birrLirrCutoff.in;
-                birrLirrCutoff.omegadiv2 -> onepole.omegadiv2;
+                in -> timeless.in;
+                timeless.g -> onepole.g;
 
                 onepole.out -> out;
             }
         }
+
+        namespace Mode
+        {
+            let Birr = 0;
+            let Lirr = 1;
+        }
+
     }
 
+    //==============================================================================
+    /** Audio-optimized Jiles-Atherton model for inductance (L).
 
+        L(x) = dB/dx = dBirr/dx + dBan/dx = Lirr(x) + Lan(x)
+    */
+    namespace JA_L
+    {
+        graph Processor(float initialFrequency = 200, 
+                    float initialNonlinearity = 0.f)
+        {
+            input stream SampleType in;
+            output stream SampleType Omega;
+
+            input event
+            {
+                //lirr.driveIn driveIn;
+                //lan.frequencyIn frequencyIn;
+                //lan.nonlinearityIn nonlinearityIn;
+            }
+
+            let
+            {
+                lirr = Irreversible::Processor(1, 0);
+                lan = Lan::Processor(initialFrequency, initialNonlinearity);
+                recip = Reciprocal::Processor;
+                clamp = ZeroClamp::Processor;
+            }
+    
+            connection
+            {
+                in -> lan.in;
+                in -> lirr.in;
+                
+                lan.Omega, lirr.out -> recip.in;
+
+                recip.out -> clamp.in;
+
+                clamp.out -> Omega;
+            }
+        }
+    }
 
     //==============================================================================
     /** A compressor transfer function (CTF) with color
@@ -456,18 +493,7 @@ namespace VA (using SampleType = float32,
 
             return soul::dBtoGain(ydB) / x;
         }
-    
-        /** Processor parameter min/max */
-        const SampleType minThreshold = SampleType(-60.0);
-        const SampleType maxThreshold = SampleType(0.0);
-        const SampleType minRatio = SampleType(1.0);
-        const SampleType maxRatio = SampleType(25.0);
-        const SampleType minColorHeight = SampleType(-5.0);
-        const SampleType maxColorHeight = SampleType(5.0);
-        const SampleType minColorWidth = SampleType(0.2);
-        const SampleType maxColorWidth = SampleType(3.0);
 
-        
         processor Processor(SampleType initialThreshold = -20,
                             SampleType initialRatio = 5,
                             SampleType initialColorHeight = 5,
@@ -478,21 +504,16 @@ namespace VA (using SampleType = float32,
     
             input event
             {
-                SampleType thresholdIn [[ name: "Threshold", min: minThreshold, max: maxThreshold, init: initialThreshold, unit: "dB" ]];
-                SampleType ratioIn [[ name: "Ratio", min: minRatio, max: maxRatio, init: initialRatio ]];
-                SampleType colorHeightIn [[ name: "Color Height", min: minColorHeight, max: maxColorHeight, init: initialColorHeight, unit: "dB" ]];
-                SampleType colorWidthIn [[ name: "Color Width", min: minColorWidth, max: maxColorWidth, init: initialColorWidth, unit: "dB" ]];
+                float thresholdIn [[ name: "Threshold", min: -60, max: 0, init: initialThreshold, unit: "dB" ]];
+                float ratioIn [[ name: "Ratio", min: 1, max: 100, init: initialRatio ]];
+                float colorHeightIn [[ name: "Color Height", min: -12, max: 12, init: initialColorHeight, unit: "dB" ]];
+                float colorWidthIn [[ name: "Color Width", min: -12, max: 12, init: initialColorWidth, unit: "dB" ]];
             }
 
-            static_assert((initialThreshold >= minThreshold && initialThreshold <= maxThreshold), "CTF: Threshold must be in the interval [-60, 0] dB");
-            static_assert((initialRatio >= minRatio && initialRatio <= maxRatio), "CTF: Ratio must be in the interval [1, 25]");
-            static_assert((initialColorHeight >= minColorHeight && initialColorHeight <= maxColorHeight), "CTF: Color Height must be in the interval [-5, 5] dB");
-            static_assert((initialColorWidth >= minColorWidth && initialColorWidth <= maxColorWidth), "CTF: Color Width must be in the interval [0.2, 3] dB");
-
-            event thresholdIn (SampleType v) { threshold = v; recalc = true; }
-            event ratioIn (SampleType v) { ratio = v; recalc = true; }
-            event colorHeightIn (SampleType v) { colorHeight = v; recalc = true; }
-            event colorWidthIn (SampleType v) { colorWidth = v; recalc = true; }
+            event thresholdIn (float v) { threshold = v; recalc = true; }
+            event ratioIn (float v) { ratio = v; recalc = true; }
+            event colorHeightIn (float v) { colorHeight = v; recalc = true; }
+            event colorWidthIn (float v) { colorWidth = v; recalc = true; }
 
             SampleType threshold = initialThreshold;
             SampleType ratio = initialRatio;
@@ -533,45 +554,19 @@ namespace VA (using SampleType = float32,
         - Nonlinear, time-invariant, stateless.
     */
     namespace BranchingCutoff
-    {
-        /** Holds a set of filter coefficients. */
-        struct Coeffs 
-        {
-            Lan::Coeffs attack;
-            Lan::Coeffs release;
-        }
-
-        /** Clears a set of coefficients. */
-        void clear (Coeffs& c) 
-        {
-            Lan::clear(c.attack);
-            Lan::clear(c.release);
-        }
-    
-        /** Updates a set of coefficients for the given settings. */
-        void update (Coeffs& c, SampleType attack, SampleType release, SampleType nonlinearity) 
-        {
-            Lan::updateStep(c.attack, attack, nonlinearity);
-            Lan::updateStep(c.release, release, nonlinearity);
-        }
-    
-        
-        SampleType process (SampleType x, SampleType y, Coeffs& c) 
-        {
-            return x > y ? Lan::process(x, c.attack) : Lan::process(x, c.release);   
-        }
-    
-        
+    {  
         processor Processor(SampleType initialAttack,
-                            SampleType initialRelease,
-                            SampleType initialNonlinearity)
+                            SampleType initialRelease)
         {
             input stream SampleType x, y;
-            output stream SampleType L;
+            output stream SampleType Omega;
+
+            input event
+            {
+                float attackIn [[ name: "Attack", min: 1,   max: 200, init: initialAttack, unit: "ms"]];
+                float releaseIn [[ name: "Frequency", min: 1,   max: 200, init: initialAttack, unit: "ms"]];
+            }
     
-            SampleType attack = initialAttack;
-            SampleType release = initialRelease;
-            SampleType nonlinearity = initialNonlinearity;
             bool recalc = true;
     
             void run()
@@ -585,30 +580,47 @@ namespace VA (using SampleType = float32,
                     {
                         recalc = false;
     
-                        c.update(attack, release, nonlinearity);
+                        c.update(attack, release);
                     }
     
                     loop (updateInterval)
                     {
-                        L << process(x, y, c);
+                        Omega << process (x, y, c); 
     
                         advance();
                     }
                 }
             }
         }
+
+        SampleType process (SampleType x, SampleType y, Coeffs& c) 
+        {
+            return x > y ? c.aOmega : c.rOmega;   
+        }
+
+        struct Coeffs 
+        {
+            SampleType aOmega;
+            SampleType rOmega;
+        }
+
+        void clear (Coeffs& c) 
+        {
+            c.aOmega = 1;
+            c.rOmega = 1;
+        }
+
+        void update (Coeffs& c, SampleType attack, SampleType release) 
+        {
+            c.aOmega = SampleType(1.0) / attack;
+            c.rOmega = SampleType(1.0) / release;
+        }
     }
 
     //==============================================================================
-    /** Nonlinear envelope filter
-
-        Notes:
-        - Maps sample to sample.
-        - Nonlinear, time-invariant, stateful.
-    */
-    namespace EnvelopeFilter
+    namespace BallisticsFilter
     {
-        graph Graph(SampleType initialAttack,
+        graph Processor(SampleType initialAttack,
                     SampleType initialRelease,
                     SampleType initialNonlinearity)
         {
@@ -619,7 +631,6 @@ namespace VA (using SampleType = float32,
             {
                 onepole = Onepole::Processor;
                 branchingCutoff = BranchingCutoff::Processor(initialAttack, initialRelease, initialNonlinearity);
-                p_OmegaToomegadiv2 = OmegaToomegadiv2::Processor;
             }
         
             connection
@@ -628,9 +639,9 @@ namespace VA (using SampleType = float32,
 
                 in -> branchingCutoff.x;
                 onepole.out -> [1] -> branchingCutoff.y;
-                branchingCutoff.L -> p_OmegaToomegadiv2.Omega;
-                p_OmegaToomegadiv2.omegadiv2 -> onepole.omegadiv2;
 
+                branchingCutoff.Omega -> onepole.Omega;
+                
                 onepole.out -> out;
             }
         }
@@ -655,7 +666,7 @@ namespace VA (using SampleType = float32,
             {
                 loop
                 {
-                    out << (enabled ? SampleType(in.sum())/SampleType(in.size()) : in);
+                    out << (enabled ? SampleType(in.sum()/in.size()) : in);
 
                     advance();
                 }
@@ -675,7 +686,7 @@ namespace VA (using SampleType = float32,
             {
                 loop
                 {
-                    out << max(in, CoeffType(0.0));
+                    out << max(in, SampleType (0.0));
             
                     advance();
                 }
@@ -704,26 +715,6 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    namespace Add
-    {
-        processor Processor()
-        {
-            input stream SampleType in1, in2;
-            output stream SampleType out;
-    
-            void run()
-            {
-                loop
-                {
-                    out << in1 + in2;
-    
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
     namespace Multiply
     {
         processor Processor()
@@ -744,24 +735,75 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    /** Top-level effect graphs. These effects are made using other namespaces in 'VA' and the 'soul' namespaces. */
-    namespace TopLevel
+    namespace Reciprocal
+    {
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            void run()
+            {
+                loop
+                {
+                    out << SampleType (1.0) / in;
+    
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    // /** Timeless TDF-II Trapezoidal Differentiator 
+    
+    //     Find ((d/dx)^n)y using numerical differentiation  
+    // */
+    // namespace TimelessDiff (int order)
+    // {
+    //     struct State 
+    //     {
+    //         SampleType[order] z;
+    //     }
+
+    //     void reset (State& s) {}
+
+    //     SampleType process (State& s, SampleType y, SampleType x) 
+    //     {
+                
+    //     }
+
+    //     processor Processor()
+    //     {
+    //         input stream SampleType y, x;
+    //         output stream SampleType out;
+    
+    //         void run()
+    //         {
+    //             State s;
+    
+    //             loop
+    //             {
+    //                 out << s.process(y, x);
+
+    //                 advance();
+    //             }
+    //         }
+    //     }
+    // }
+
+    //==============================================================================
+    /** High-level Processors made using the 'VA' and 'soul' namespaces */
+    namespace HighLevel
     {
         //==============================================================================
-        /** Jiles-Atherton model. Calculate a signal transforming into a hysteretic magnetic flux density.
+        /** Audio-optimized Jiles-Atherton model for magnetic flux density.
 
             B(x) = Birr(x) + Ban(x)
-
-            Notes:
-            - Maps sample to sample.
-            - Nonlinear, time-varying, and stateful.
-            - Output simulates the core magnetization of a nonlinear, hysteretic inductor.
-            - 1/Output simulates the charge of a nonlinear, hysteretic capacitor.
         */
         namespace JA_B
         {
-            
-            graph Graph(SampleType initialDrive = SampleType(1),
+            graph Processor(SampleType initialDrive = SampleType(1),
                         SampleType initialGainBirr = SampleType(0),
                         SampleType initialGainBan = SampleType(1))
             {
@@ -770,7 +812,7 @@ namespace VA (using SampleType = float32,
 
                 let
                 {
-                    birrLirr = Irreversible::Graph(0, initialDrive);
+                    birrLirr = Irreversible::Processor(0, initialDrive);
 
                     ban = Ban::Processor(initialDrive);
 
@@ -789,85 +831,36 @@ namespace VA (using SampleType = float32,
                 }
             }
         }
-
-        //==============================================================================
-        /** Derivative of the Jiles-Atherton model. Calculate hysteretic nonlinear passive component value.
-
-            L(x) = dB/dx = dBirr/dx + dBan/dx = Lirr(x) + Lan(x)
-
-            Notes:
-            - Maps sample to cutoff.
-            - Nonlinear, time-varying, and stateful.
-            - Output simulates the inductance of a nonlinear, hysteretic inductor.
-            - 1/Output simulates the capacitance of a nonlinear, hysteretic capacitor.
-        */
-        namespace JA_L
-        {
-            
-            graph Graph(SampleType initialFrequency = filt::defaultFreqHz, 
-                        SampleType initialNonlinearity = SampleType(0),
-                        SampleType initialGainMirr = SampleType(0))
-            {
-                input stream SampleType in;
-                output stream SampleType omegadiv2;
-
-                let
-                {
-                    lirr = Irreversible::Graph(1, initialNonlinearity*SampleType(500));
-                    lan = Lan::Processor(initialFrequency, initialNonlinearity/SampleType(50));
-                    fixedSum = soul::mixers::FixedSum(SampleType, initialFrequency*initialGainMirr, SampleType(1.0));
-                    p_OmegaToomegadiv2 = OmegaToomegadiv2::Processor(3);
-                }
-        
-                connection
-                {
-                    in -> lirr.in;
-                    lirr.out -> fixedSum.in1;
-
-                    in -> lan.in;
-                    lan.L -> fixedSum.in2;
-
-                    fixedSum.out -> p_OmegaToomegadiv2.Omega;
-
-                    p_OmegaToomegadiv2.omegadiv2 -> omegadiv2;
-                }
-            }
-        }
         
         //==============================================================================
-        /** Hysteretic nonlinear passive component cutoff modulation applied to Onepole
-
-            Notes:
-            - Maps sample to sample.
-            - Nonlinear, time-invariant, and stateful.
-        */
+        /** VA::JA_L modulating VA::Onepole */
         namespace JA_Onepole
         {
-            graph Graph(SampleType initialFrequency = filt::defaultFreqHz, 
-                        SampleType initialNonlinearity = SampleType(0),
-                        SampleType initialGainMirr = SampleType(0),
-                        int initialMode = 0)
+            graph Processor (int initialMode = 0, 
+                        float initialFrequency = 200.f,
+                        float initialNonlinearity = 0.f)
             {
                 input stream SampleType in;
                 output stream SampleType out;
         
-                input
+                input event
                 {
-                    //event endpoints
+                    //jaL.frequencyIn;
+                    //jaL.nonlinearityIn;
+                    //onepole.modeIn;
                 }
         
                 let
                 {
-                    jaL = JA_L::Graph(initialFrequency, initialNonlinearity, initialGainMirr);
+                    jaL = JA_L::Processor(initialFrequency, initialNonlinearity);
                     onepole = Onepole::Processor(initialMode);
                 }
         
                 connection
                 {
-                    in -> jaL.in;
+                    in -> jaL.in, onepole.in;
 
-                    in -> onepole.in;
-                    jaL.omegadiv2 -> onepole.omegadiv2;
+                    jaL.Omega -> onepole.Omega;
 
                     onepole.out -> out;
                 }
@@ -887,7 +880,7 @@ namespace VA (using SampleType = float32,
         */
         namespace Sidechain
         {
-            graph Graph(SampleType initialThreshold,
+            graph Processor(SampleType initialThreshold,
                         SampleType initialRatio,
                         SampleType initialColorHeight,
                         SampleType initialColorWidth,
@@ -902,14 +895,14 @@ namespace VA (using SampleType = float32,
                 {
                     detector = Abs::Processor;
                     ctf = CTF::Processor(initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
-                    envelopeFilter = EnvelopeFilter::Graph(initialAttack, initialRelease, initialNonlinearity);
+                    ballistics = BallisticsFilter::Processor(initialAttack, initialRelease);
                 }
             
                 connection
                 {
                     in -> detector.in;
-                    detector.out -> envelopeFilter.in;
-                    envelopeFilter.out -> ctf.in;
+                    detector.out -> ballistics.in;
+                    ballistics.out -> ctf.in;
                     ctf.out -> out;
                 }
             }
@@ -918,7 +911,7 @@ namespace VA (using SampleType = float32,
 }
 
 //TODO finish initialization parameters
-//TODO static asserts and remove min/max constants
 //TODO add input events
 //TODO over/undersampling
-//TODO add increasing cutoff nonlinearity
+//TODO add hysteresis back into JA_L
+//TODO octave test JA_L and JA_Onepole

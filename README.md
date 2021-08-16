@@ -1,10 +1,10 @@
 
 # SOUL Virtual Analog Library
-*VA.[soul](https://github.com/soul-lang/SOUL)* is a collection of novel analog-inspired effects optimized for accuracy (anti-aliasing and minimal frequency warping) and efficiency (non-iterative SIMD algorithms). Each effect is packaged in an easy-to-use Processor object in VA::TopLevel.
+*VA.[soul](https://github.com/soul-lang/SOUL)* is a collection of novel analog-inspired effects optimized for accuracy (anti-aliasing and minimal frequency warping) and efficiency (non-iterative SIMD algorithms). Each effect is packaged in an easy-to-use Processor in VA::HighLevel.
 
 ## Contents
 - *VA.soul* - single-file library
-- *main.soul* and *main.soulpatch* - library test bench; use *main.soul* to connect Processor objects from *VA.soul*
+- *main.soul* and *main.soulpatch* - library test bench; use *main.soul* to connect Processor instances from *VA.soul*
 - *testMain.m* - [Octave](https://www.gnu.org/software/octave/index) script for running test cases on *main.soulpatch*
 
 ## Example: testMain(44100)

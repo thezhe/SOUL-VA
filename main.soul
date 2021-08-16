@@ -1,34 +1,23 @@
-/** Title: GraphTest
+/** Title: main Processor
 
-Boilerplate code for testing processors and subgraphs
+Boilerplate code for testing instances of Processors from VA.soul
 */
 
-graph GraphTest [[main]]
+graph Processor [[main]]
 {
-    input stream float audioIn;
-    output stream float audioOut;
+    input stream float in;
+    output stream float out;
 
-   // namespace va = VA(float);
+    namespace va = VA(float)::HighLevel;
 
     let
     { 
-        // jaB = va::TopLevel::JA_B::Graph(1.f, 0.5f, 0.5f);
-        // jaL = va::TopLevel::JA_L::Graph(12000, 0.1f, 0.f);
-        // jaOnepole = va::TopLevel::JA_Onepole::Graph(12000, 0.675f, 1.f, 0);
-
-        // sidechain = va::TopLevel::Sidechain::Graph(-20, 5, 4.5, 2, 1, 150, 0.1f);
-        // multiply = va::Multiply::Processor;
-
-        // gain = soul::gain::FixedGain(float, 100.f);
-
-        // dc_blocker = soul::filters::dc_blocker::Processor;
-
-        // op = soul::filters::tpt::onepole::Processor (0, 1000.f);
+        //define Processor instances
     }
 
     connection
     {        
-        audioIn -> audioOut;
+        in -> out;
     }
 }
 
