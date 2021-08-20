@@ -12,12 +12,16 @@ graph Processor [[main]]
 
     let
     { 
-        //define Processor instances
+        jaOnepole = va::JA_Onepole::Processor(0, 10.f, 100.f, 100.f);
+        op = soul::filters::tpt::onepole::Processor(0, 10.f);
     }
 
     connection
     {        
-        in -> out;
+       in -> jaOnepole.in; 
+       jaOnepole.out -> out;
+       //in -> op.in;
+       //op.out -> out;
     }
 }
 

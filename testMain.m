@@ -15,11 +15,14 @@ function testMain(fs)
     genInputs();
   end
 
-  persistent main_time = 0;
-  [info, ~, ~] = stat('main.soul');
+  persistent mainTime = 0;
+  persistent vaTime = 0;
+  [mainInfo, ~, ~] = stat('main.soul');
+  [vaInfo, ~, ~] = stat('VA.soul');
 
-  if (info.mtime ~= main_time || ~isfolder('outputs'))
-    main_time = info.mtime;
+  if (mainInfo.mtime ~= mainTime || vaInfo.mtime ~= vaTime || ~isfolder('outputs'))
+    mainTime = mainInfo.mtime;
+    vaTime = vaInfo.mtime;
     genOutputs();
   end
 
@@ -32,7 +35,7 @@ function testMain(fs)
     %
     % Notes:
     % - Generates test inputs in 'inputs/'
-    % - All inputs normalized to 0.5 except for dBRamp
+    % - All inputs normalized to 0.5 except for dBRamp and sinRamp
     %%
 
     mkdir('inputs');
@@ -68,34 +71,36 @@ function testMain(fs)
   function plotIO()
     %% plotIO
     %
-    % Plot responses to '/inputs' and check their stability
+    % Plot responses to '/inputs' and check stability of 0.5 normalized inputs
+    %
+    % Note:
+    % - The magnitude and phase responses of 'Impulse.wav' is meaningless if the system is nonlinear
+    % - The phase response of 'Impulse.wav' may be distorted if the system is oversampled
     %%
 
     isStable('outputs/BSin.wav');
     isStable('outputs/Pulse.wav');
-    isStable('outputs/dBRamp.wav');
-    isStable('outputs/SinRamp.wav');
     isStable('outputs/Impulse.wav');
     isStable('outputs/Sin.wav');
-    
+
     plotSignal('outputs/Pulse.wav', 'Pulse', 1, [1, 1, 1]); 
     plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'dBRamp', 2, [1, 2, 1]);
     plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp', 2, [1, 2, 2]);
     plotBode('outputs/Impulse.wav', true, 'Impulse', 3, [3, 1, 1]);
     plotBode('outputs/Sin.wav', false, 'Sin', 3, [3, 1, 3]);
     
-      function isStable(file)
-        %%  isStable
-        % 
-        % Print a warning if any samples >= 1
-        %%  
+    function isStable(file)
+      %%  isStable
+      % 
+      % Print a warning if any samples > 0.9
+      %%  
 
-        [y, ~] = audioread(file);
-        
-        if (any(abs(y) >= 1))
-          printf("%s: Output is unstable or extremely resonant. \n", file);
-        endif
-      endfunction
+      [y, ~] = audioread(file);
+      
+      if (any(abs(y) > 0.9))
+        printf("%s: Output is unstable or extremely resonant. \n", file);
+      endif
+    endfunction
   endfunction
   
   %%==============================================================================
@@ -204,7 +209,7 @@ function testMain(fs)
     nMax = ceil(0.025*fs)-1;
     n = 0:nMax;
 
-    A = 0:0.5/nMax:0.5;
+    A = 0:1/nMax:1;
 
     wd = pi*880/fs;
 
@@ -215,14 +220,14 @@ function testMain(fs)
   
   %%==============================================================================
   %% Plotting functions.
-  function plotBode(file, phase, ttl, fig, sp)
+  function plotBode(file, linear, ttl, fig, sp)
     %% BodePlot 
     % 
     % Plot magnitude (dB) and phase (radians) of an audio file
     %
     % Notes:
     % - 'file': audio file path
-    % - 'phase': set to true to include phase (plot takes up 2 subplots)
+    % - 'linear': set to true if system is linear (extra subplot for phase)
     % - 'ttl': title
     % - 'fig' - figure number
     % - 'sp' - three element array to set the subplot
@@ -236,26 +241,27 @@ function testMain(fs)
     f = 0:df:(fs/2);
     y = fft(x);
     y = y(1:(n/2)+1);
-    if (~phase)
+    if (~linear)
       y = y/n;
+      y(2:end-1) = y(2:end-1)*2;
+    else
+      y = y * 2;    
     end
-    y(2:end-1) = y(2:end-1)*2;
 
     %Magnitude
     mag = gainTodB(abs(y));
     dc = num2str(mag(1));
     ny = num2str(mag(end));
-
     mag = mag(2:end-1);
     fmag = f(2:end-1);
-    [fmagR, magR] = reducePlot(fmag, mag, 1);
+    [fmagR, magR] = reducePlot(fmag, mag, 0.01);
     
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
     subplot(sp(1), sp(2), sp(3));
     hold on 
       set(gca,'xscale','log');
       set(gca, "linewidth", 1, "fontsize", 14)
-      if (phase)
+      if (linear)
         xlim([fmag(1), 20000]);
         ylim([-60, 0]);
       else
@@ -270,15 +276,15 @@ function testMain(fs)
       plot(fmagR, magR, 'LineWidth', 2);
     hold off
 
-    %phase
-    if (phase)
+    %linear
+    if (linear)
       p = angle(y);
       dc = num2str(p(1));
       ny = num2str(p(end));
 
       p = p(2:end-1);
       fp = f(2:end-1);
-      [fpR, pR] = reducePlot(fp, p, 0.1);
+      [fpR, pR] = reducePlot(fp, p, 0.001);
 
       subplot(sp(1), sp(2), sp(3)+1);
       hold on
@@ -286,7 +292,7 @@ function testMain(fs)
         set(gca, "linewidth", 1, "fontsize", 14)
         title(['\fontsize{30}' ttl ' (\angle Y(0) = ' dc ' rads, \angle Y(fs/2) = ' ny ' rads)']);
         xlabel('\fontsize{20}frequency (Hz)');
-        ylabel('\fontsize{20}phase (rads)');
+        ylabel('\fontsize{20}linear (rads)');
         xlim([fp(1), 20000]);
         ylim([-pi, pi]);
         grid on;

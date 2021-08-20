@@ -41,8 +41,8 @@ namespace VA (using SampleType = float32,
     //==============================================================================
     /** soul::tpt::onepole modified for cutoff modulation via an input stream
 
-        2x oversampling recommended
-    */  
+        See oversampling reccomendation in endpoint comments
+    */
     namespace Onepole
     {   
         struct Coeffs
@@ -88,8 +88,8 @@ namespace VA (using SampleType = float32,
         processor Processor (int initialMode = 0, int cutoffMode = 0)
         {
             input stream SampleType in;
-            input stream  SampleType Omega; //angular cutoff; must be > 0
-            input stream SampleType g;
+            input stream  SampleType Omega; //angular cutoff; must be > 0; oversample x2; use for any cutoffs
+            input stream SampleType g; //integrator input gain; do not oversample; use for low cutoffs
             output stream SampleType out;
 
             input event float modeIn [[ name: "Mode", min: 0, max: 2, init: initialMode, text: "Lowpass|Highpass|Allpass" ]];
@@ -217,7 +217,7 @@ namespace VA (using SampleType = float32,
             input stream SampleType in;
             output stream SampleType out;
 
-            input event float driveIn [[ name: "Drive", min: 0, max: 10, init: initialDrive ]];
+            input event float driveIn [[ name: "Drive", min: 0, max: 1000, init: initialDrive ]];
             
             event driveIn (float v) { a = SampleType(v); }
 
@@ -264,7 +264,7 @@ namespace VA (using SampleType = float32,
         SampleType process(SampleType x, Coeffs& c)
         {
             let temp = c.N * abs(x) + c.c;
-            return SampleType (1.0) / (temp * temp);
+            return temp * temp;
         }
         
         processor Processor(SampleType initialFrequency = 0,
@@ -276,7 +276,7 @@ namespace VA (using SampleType = float32,
             input event
             {
                 float frequencyIn [[ name: "Frequency", min: 20, max: 18000, init: initialFrequency, unit: "Hz" ]];
-                float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 500, init: initialNonlinearity ]];
+                float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 1000, init: initialNonlinearity ]];
             }
 
             event frequencyIn (float v) { frequency = v; recalc = true; }
@@ -362,19 +362,19 @@ namespace VA (using SampleType = float32,
     */
     namespace Irreversible
     {
-        graph Processor (int mode = Mode::Birr, SampleType initialDrive)
+        graph Processor (int mode = Mode::Birr, float initialHysteresis)
         {
             input stream SampleType in;
             output stream SampleType out;
 
-            input event
+            input
             {
-               // ban.driveIn;
+                ban.driveIn hysteresisIn;
             }
 
             let
             {
-                ban = Ban::Processor(initialDrive);
+                ban = Ban::Processor(initialHysteresis);
                 timeless = TimelessIntGain::Processor;
                 onepole = Onepole::Processor(mode, 1);
             }
@@ -407,36 +407,34 @@ namespace VA (using SampleType = float32,
     namespace JA_L
     {
         graph Processor(float initialFrequency = 200, 
-                    float initialNonlinearity = 0.f)
+                    float initialNonlinearity = 0.f,
+                    float initialHysteresis = 0.f)
         {
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event
+            input
             {
-                //lirr.driveIn driveIn;
-                //lan.frequencyIn frequencyIn;
-                //lan.nonlinearityIn nonlinearityIn;
+                lirr.hysteresisIn;
+                lan.frequencyIn;
+                lan.nonlinearityIn;
             }
 
             let
             {
-                lirr = Irreversible::Processor(1, 0);
                 lan = Lan::Processor(initialFrequency, initialNonlinearity);
-                recip = Reciprocal::Processor;
-                clamp = ZeroClamp::Processor;
+                lirr = Irreversible::Processor(1, initialHysteresis);
+                clamper = Clamper::Processor(0);
+                fGain = soul::gain::FixedGain(SampleType, 2.5 * initialFrequency);
             }
     
             connection
             {
-                in -> lan.in;
-                in -> lirr.in;
                 
-                lan.Omega, lirr.out -> recip.in;
-
-                recip.out -> clamp.in;
-
-                clamp.out -> Omega;
+                in -> lan.in, lirr.in;
+                lan.Omega -> clamper.in;
+                lirr.out -> fGain -> clamper.in;
+                clamper.out -> Omega;                
             }
         }
     }
@@ -675,9 +673,10 @@ namespace VA (using SampleType = float32,
     }
 
     //==============================================================================
-    namespace ZeroClamp
+    /** Clamp the min, max, or both by setting min and/or max to values >= 0 */
+    namespace Clamper
     {       
-        processor Processor()
+        processor Processor(float min = -1, float max = -1)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -686,7 +685,12 @@ namespace VA (using SampleType = float32,
             {
                 loop
                 {
-                    out << max(in, SampleType (0.0));
+                    if const (min < 0)
+                        out << min (in, SampleType(max));
+                    else if const (max < 0)
+                        out << max (in, SampleType(min));
+                    else
+                        out << clamp(in, SampleType(min), SampleType(max));
             
                     advance();
                 }
@@ -754,6 +758,28 @@ namespace VA (using SampleType = float32,
         }
     }
 
+    //==============================================================================
+    namespace OmegaTog
+    {
+        processor Processor()
+        {
+            input stream SampleType Omega;
+            output stream SampleType g;
+    
+            let Tdiv2 = SampleType (processor.period * 0.5);
+
+            void run()
+            {
+                loop
+                {
+                    g << Omega * Tdiv2;
+    
+                    advance();
+                }
+            }
+        }
+    }
+    
     //==============================================================================
     // /** Timeless TDF-II Trapezoidal Differentiator 
     
@@ -838,22 +864,24 @@ namespace VA (using SampleType = float32,
         {
             graph Processor (int initialMode = 0, 
                         float initialFrequency = 200.f,
-                        float initialNonlinearity = 0.f)
+                        float initialNonlinearity = 0.f,
+                        float initialHysteresis = 0.f)
             {
                 input stream SampleType in;
                 output stream SampleType out;
         
-                input event
+                input
                 {
-                    //jaL.frequencyIn;
-                    //jaL.nonlinearityIn;
-                    //onepole.modeIn;
+                    onepole.modeIn;
+                    jaL.frequencyIn;
+                    jaL.hysteresisIn;
+                    jaL.nonlinearityIn;
                 }
         
                 let
                 {
+                    onepole = Onepole::Processor(initialMode, 0);
                     jaL = JA_L::Processor(initialFrequency, initialNonlinearity);
-                    onepole = Onepole::Processor(initialMode);
                 }
         
                 connection
@@ -910,8 +938,6 @@ namespace VA (using SampleType = float32,
     }
 }
 
-//TODO finish initialization parameters
-//TODO add input events
-//TODO over/undersampling
-//TODO add hysteresis back into JA_L
-//TODO octave test JA_L and JA_Onepole
+//TODO oversampling and ADAA
+//TODO parameter limits and annotations for HighLevel
+//TODO cutoff accuracy, linear behaviour
