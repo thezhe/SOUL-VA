@@ -1,25 +1,24 @@
-/*
-MIT License
+/** MIT License
 
-Copyright (c) 2021 Zhe Deng
+    Copyright (c) 2021 Zhe Deng
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
 */
 
 /** Title: VA (https://github.com/thezhe/SOUL-VA)
@@ -29,14 +28,167 @@ SOFTWARE.
 
     Notes:
     - The overall structure of this library is as close to that of soul::filters except for:
-        * Different initialization parameters (No CoeffType -- SampleType is used for minimzed nonsimd-simd casting; default updateInterval is 32)
+        * Different initialization parameters (default SampleType is float64 for floating point accuracy, no CoeffType, default updateInterval is 32)
         * The filters are optimized for 44.1kHz sampling rate and 24-bit bit depth with reccomendations for under/oversampling
 */
-namespace VA (using SampleType = float32,  
-              int updateInterval = 32)
+
+namespace VA (using SampleType = float64, int updateInterval = 32)
 {
     static_assert (SampleType.primitiveType.isFloat, "Primitive type of 'SampleType' must be float32 or float64");
     static_assert ((SampleType.isVector || SampleType.isFloat), "'SampleType' must be float64, float32, or a vector of float64/float32");
+
+/*==============================================================================
+    Utility
+==============================================================================*/
+
+    let ADAA_TOL = SampleType(0.0000001);
+
+    SampleType sgn(SampleType x)
+    {
+        if (x < SampleType (0.0))
+            return SampleType (-1.0);
+        else 
+            return SampleType (1.0);
+    }
+
+    //==============================================================================
+    /** Set a vector equal to the average of its elements. */
+    namespace StereoLink (bool initialEnabled = true)
+    {
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event SampleType enabledIn [[ name: "Enabled", min: 0, max: 1, init: initialEnabled, unit: "Off|On" ]];
+            
+            event enabledIn (SampleType v) { enabled = bool(v); }
+
+            bool enabled = initialEnabled;
+
+            void run()
+            {
+                loop
+                {
+                    out << (enabled ? SampleType(in.sum()/in.size()) : in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Clamp the min, max, or both by setting min and/or max to values >= 0 */
+    namespace Clamper
+    {       
+        processor Processor(float min = -1, float max = -1)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    if const (min < 0)
+                        out << min (in, SampleType(max));
+                    else if const (max < 0)
+                        out << max (in, SampleType(min));
+                    else
+                        out << clamp(in, SampleType(min), SampleType(max));
+            
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    namespace Abs
+    {
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << abs(in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    namespace Multiply
+    {
+        processor Processor()
+        {
+            input stream SampleType in1, in2;
+            output stream SampleType out;
+    
+            void run()
+            {
+                loop
+                {
+                    out << in1 * in2;
+    
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    namespace Reciprocal
+    {
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            void run()
+            {
+                loop
+                {
+                    out << SampleType (1.0) / in;
+    
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    namespace OmegaTog
+    {
+        processor Processor()
+        {
+            input stream SampleType Omega;
+            output stream SampleType g;
+    
+            let Tdiv2 = SampleType (processor.period * 0.5);
+
+            void run()
+            {
+                loop
+                {
+                    g << Omega * Tdiv2;
+    
+                    advance();
+                }
+            }
+        }
+    }
+
+/*==============================================================================
+    Effect Components
+==============================================================================*/
 
     //==============================================================================
     /** soul::tpt::onepole modified for cutoff modulation via an input stream
@@ -268,7 +420,8 @@ namespace VA (using SampleType = float32,
         }
         
         processor Processor(SampleType initialFrequency = 0,
-                            SampleType initialNonlinearity = 400)
+                            SampleType initialNonlinearity = 400,
+                            int p = 1)
         {
             input stream SampleType in;
             output stream SampleType Omega;
@@ -303,6 +456,118 @@ namespace VA (using SampleType = float32,
                     loop (updateInterval)
                     {   
                         Omega << process(in, c);
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** First order ADAA version of 'Lan'
+    */
+    namespace Lan1
+    {
+        struct Coeffs
+        {
+            Lan::Coeffs lanCoeffs;
+            SampleType cSq; //c*c
+            SampleType cN;
+            SampleType NSqDiv3; 
+        }
+
+        void clear (Coeffs& c)
+        {
+            Lan::clear(c.lanCoeffs);
+            c.cSq = SampleType();
+            c.cN = SampleType();
+            c.NSqDiv3 = SampleType();
+        }
+
+        void update (Coeffs& c, SampleType freqHz, SampleType nonlinearity)
+        {
+            c.lanCoeffs.c = sqrt(SampleType(twoPi) * freqHz);
+            c.lanCoeffs.N = nonlinearity;
+            c.cSq = c.lanCoeffs.c * c.lanCoeffs.c;
+            c.cN = c.lanCoeffs.c * c.lanCoeffs.N;
+            c.NSqDiv3 = (c.lanCoeffs.N * c.lanCoeffs.N) / SampleType (3.0);
+        }
+
+        struct State 
+        {
+            SampleType F1;
+            SampleType x;
+        }
+
+        void reset (State& s) 
+        {
+            s.F1 = 0;
+            s.x = 0;
+        }
+
+        SampleType F1(SampleType x, Coeffs& c)
+        {
+            let xSq = x * x;
+            let xCb = xSq * x;
+            return c.cSq * x + c.cN * xSq * sgn(x) + c.NSqDiv3 * xCb;   
+        }
+        
+        SampleType process (State& s, SampleType x, Coeffs& c) 
+        {
+            let denom = x - s.x;
+            SampleType temp;
+
+            let tF1 = F1(x, c); 
+
+            if (abs(denom) < ADAA_TOL)
+                temp = Lan::process(SampleType (0.5) * (x + s.x), c.lanCoeffs);
+            else
+                temp = (tF1 - s.F1) / denom;
+            
+            s.F1 = tF1;
+            s.x = x;
+
+            return temp;
+        }
+
+        processor Processor(SampleType initialFrequency = 0,
+                            SampleType initialNonlinearity = 400,
+                            int p = 1)
+        {
+            input stream SampleType in;
+            output stream SampleType Omega;
+            
+            input event
+            {
+                float frequencyIn [[ name: "Frequency", min: 20, max: 18000, init: initialFrequency, unit: "Hz" ]];
+                float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 1000, init: initialNonlinearity ]];
+            }
+
+            event frequencyIn (float v) { frequency = v; recalc = true; }
+            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
+
+            SampleType frequency = initialFrequency;
+            SampleType nonlinearity = initialNonlinearity;
+            bool recalc = true;
+
+            void run()
+            {
+                Coeffs c;
+                c.clear();
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        c.update(frequency, nonlinearity);
+                    }
+
+                    loop (updateInterval)
+                    {   
+                        Omega << s.process(in, c);
 
                         advance();
                     }
@@ -645,178 +910,9 @@ namespace VA (using SampleType = float32,
         }
     }
 
-    //==============================================================================
-    /** Set a vector equal to the average of its elements. */
-    namespace StereoLink (bool initialEnabled = true)
-    {
-        processor Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input event SampleType enabledIn [[ name: "Enabled", min: 0, max: 1, init: initialEnabled, unit: "Off|On" ]];
-            
-            event enabledIn (SampleType v) { enabled = bool(v); }
-
-            bool enabled = initialEnabled;
-
-            void run()
-            {
-                loop
-                {
-                    out << (enabled ? SampleType(in.sum()/in.size()) : in);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    /** Clamp the min, max, or both by setting min and/or max to values >= 0 */
-    namespace Clamper
-    {       
-        processor Processor(float min = -1, float max = -1)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            void run()
-            {
-                loop
-                {
-                    if const (min < 0)
-                        out << min (in, SampleType(max));
-                    else if const (max < 0)
-                        out << max (in, SampleType(min));
-                    else
-                        out << clamp(in, SampleType(min), SampleType(max));
-            
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    namespace Abs
-    {
-        processor Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            void run()
-            {
-                loop
-                {
-                    out << abs(in);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    namespace Multiply
-    {
-        processor Processor()
-        {
-            input stream SampleType in1, in2;
-            output stream SampleType out;
-    
-            void run()
-            {
-                loop
-                {
-                    out << in1 * in2;
-    
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    namespace Reciprocal
-    {
-        processor Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            void run()
-            {
-                loop
-                {
-                    out << SampleType (1.0) / in;
-    
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    namespace OmegaTog
-    {
-        processor Processor()
-        {
-            input stream SampleType Omega;
-            output stream SampleType g;
-    
-            let Tdiv2 = SampleType (processor.period * 0.5);
-
-            void run()
-            {
-                loop
-                {
-                    g << Omega * Tdiv2;
-    
-                    advance();
-                }
-            }
-        }
-    }
-    
-    //==============================================================================
-    // /** Timeless TDF-II Trapezoidal Differentiator 
-    
-    //     Find ((d/dx)^n)y using numerical differentiation  
-    // */
-    // namespace TimelessDiff (int order)
-    // {
-    //     struct State 
-    //     {
-    //         SampleType[order] z;
-    //     }
-
-    //     void reset (State& s) {}
-
-    //     SampleType process (State& s, SampleType y, SampleType x) 
-    //     {
-                
-    //     }
-
-    //     processor Processor()
-    //     {
-    //         input stream SampleType y, x;
-    //         output stream SampleType out;
-    
-    //         void run()
-    //         {
-    //             State s;
-    
-    //             loop
-    //             {
-    //                 out << s.process(y, x);
-
-    //                 advance();
-    //             }
-    //         }
-    //     }
-    // }
+/*==============================================================================
+    High-Level Effects
+==============================================================================*/
 
     //==============================================================================
     /** High-level Processors made using the 'VA' and 'soul' namespaces */
@@ -940,4 +1036,4 @@ namespace VA (using SampleType = float32,
 
 //TODO oversampling and ADAA
 //TODO parameter limits and annotations for HighLevel
-//TODO cutoff accuracy, linear behaviour
+//TODO Lan linear frequency doesnt need prewarp but check accuracy for low cutoffs

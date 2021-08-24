@@ -1,11 +1,16 @@
 
 # SOUL Virtual Analog Library
-*VA.[soul](https://github.com/soul-lang/SOUL)* is a collection of novel analog-inspired effects optimized for accuracy (anti-aliasing and minimal frequency warping) and efficiency (non-iterative SIMD algorithms). Each effect is packaged in an easy-to-use Processor in VA::HighLevel.
+*VA.soul* is a collection of novel analog-inspired effects optimized for accuracy and efficiency; each effect (in release versions) meets or exceeds the following criterion when used with recommended settings (fs >= 44.1kHz and bit-depth >= 24 bits; see code comments for effect-specific settings):
+- available as an easy-to-use 'Processor' in 'VA::HighLevel'
+- -100dB peak level of aliasing artifacts
+- Frequency warping is equivalent to a filter running @ fs = 88.2kHz
+- non-iterative and SIMD optimized using the latest stable release of [SOUL](https://github.com/soul-lang/SOUL)
 
 ## Contents
 - *VA.soul* - single-file library
 - *main.soul* and *main.soulpatch* - library test bench; use *main.soul* to connect Processor instances from *VA.soul*
 - *testMain.m* - [Octave](https://www.gnu.org/software/octave/index) script for running test cases on *main.soulpatch*
+- *soul.json* - [VSCode](https://github.com/Microsoft/vscode) snippets used in creating *VA.soul*; see the [VSCode docs](https://code.visualstudio.com/docs/editor/userdefinedsnippets) for help with adding the snippets
 
 ## Example: testMain(44100)
 Running this command with unmodified *main.soul* and *main.soulpatch* files should pass test signals through unchanged and produce these plots:

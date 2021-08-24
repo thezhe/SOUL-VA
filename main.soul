@@ -12,16 +12,18 @@ graph Processor [[main]]
 
     let
     { 
-        jaOnepole = va::JA_Onepole::Processor(0, 10.f, 100.f, 100.f);
-        op = soul::filters::tpt::onepole::Processor(0, 10.f);
+        // cross = soul::filters::tpt::crossover::Processor(16000.f);
+        // jaOnepole = va::JA_Onepole::Processor(2, 1.f, 100.f, 100.f) * 2;
+        // dcBlocker = soul::filters::dc_blocker::Processor(1.f);
     }
 
     connection
     {        
-       in -> jaOnepole.in; 
-       jaOnepole.out -> out;
-       //in -> op.in;
-       //op.out -> out;
+    //    in -> cross.in;
+    //    cross.lowOut -> jaOnepole.in; 
+    //    jaOnepole.out -> dcBlocker -> out;
+
+    //    cross.highOut -> out;
+        in -> out;
     }
 }
-
