@@ -365,7 +365,7 @@
 			"        let x_0mx_1 = x - s.x_1;",
 			"        let F2_0 = F2(x, c);",
 			"        if (abs(x_0mx_1) < ADAA_TOL)",
-			"            F1_0 = f(SampleType (0.5) * (x + s.x_1));",
+			"            F1_0 = F1(SampleType (0.5) * (x + s.x_1));",
 			"        else",
 			"            F1_0 = (F2_0 - s.F2_1) / x_0mx_1;",
 			"",
