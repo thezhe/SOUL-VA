@@ -35,7 +35,7 @@ function testMain(fs)
     %
     % Notes:
     % - Generates test inputs in 'inputs/'
-    % - All inputs normalized to 0.5 except for dBRamp and sinRamp
+    % - All inputs normalized to 0.5 except for dBRamp
     %%
 
     mkdir('inputs');
@@ -82,6 +82,7 @@ function testMain(fs)
     isStable('outputs/Pulse.wav');
     isStable('outputs/Impulse.wav');
     isStable('outputs/Sin.wav');
+    isStable('outputs/SinRamp.wav');
 
     plotSignal('outputs/Pulse.wav', 'Pulse', 1, [1, 1, 1]); 
     plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'dBRamp', 2, [1, 2, 1]);
@@ -180,7 +181,7 @@ function testMain(fs)
   function genSin()
     %% genSin
     %
-    % Generate sin with 18kHz frequency
+    % Generate sin with 9kHz frequency
     % 
     % Notes:
     % Tests: harmonic/inharmonic distortion ('outputs/Sin.wav' magnitude response plot), stability
@@ -189,7 +190,7 @@ function testMain(fs)
 
     n = 0:fs-1;
 
-    wd = pi*36000/fs;
+    wd = pi*18000/fs;
 
     y = 0.5*sin(wd*n); 
 
@@ -209,7 +210,7 @@ function testMain(fs)
     nMax = ceil(0.025*fs)-1;
     n = 0:nMax;
 
-    A = 0:1/nMax:1;
+    A = 0:0.5/nMax:0.5;
 
     wd = pi*880/fs;
 

@@ -38,7 +38,7 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
     static_assert ((SampleType.isVector || SampleType.isFloat), "'SampleType' must be float64, float32, or a vector of float64/float32");
 
 /*==============================================================================
-    Utility
+Utility
 ==============================================================================*/
 
     let ADAA_TOL = SampleType(0.0000001);
@@ -187,7 +187,7 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
     }
 
 /*==============================================================================
-    Effect Components
+Effect Components
 ==============================================================================*/
 
     //==============================================================================
@@ -420,8 +420,7 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
         }
         
         processor Processor(SampleType initialFrequency = 0,
-                            SampleType initialNonlinearity = 400,
-                            int p = 1)
+                            SampleType initialNonlinearity = 400)
         {
             input stream SampleType in;
             output stream SampleType Omega;
@@ -442,7 +441,6 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
             void run()
             {
                 Coeffs c;
-                c.clear();
 
                 loop
                 {
@@ -465,75 +463,126 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
     }
 
     //==============================================================================
-    /** First order ADAA version of 'Lan'
+    /** 'Lan' with second-order antiderivative antialiasing
+    
+        Notes:
+        - 2x oversampling recommended
     */
-    namespace Lan1
-    {
+    namespace LanADAA2
+    {   
         struct Coeffs
         {
+            //f
             Lan::Coeffs lanCoeffs;
+            //F1
             SampleType cSq; //c*c
             SampleType cN;
             SampleType NSqDiv3; 
+            //F2
+            SampleType NSqDiv12;
+            SampleType cNDiv3;
+            SampleType cSqDiv2;
         }
-
+    
+        struct State
+        {
+            SampleType x_2;
+            SampleType x_1;
+            SampleType F2_1;
+            SampleType F1_1;
+        }
+    
         void clear (Coeffs& c)
         {
             Lan::clear(c.lanCoeffs);
+
             c.cSq = SampleType();
             c.cN = SampleType();
             c.NSqDiv3 = SampleType();
-        }
 
+            c.NSqDiv12 = SampleType();
+            c.cNDiv3 = SampleType();
+            c.cSqDiv2 = SampleType();
+        }
+    
+        void reset (State& s)
+        {
+            s.x_2 = SampleType();
+            s.x_1 = SampleType();
+            s.F2_1 = SampleType();
+            s.F1_1 = SampleType(); 
+        }
+    
         void update (Coeffs& c, SampleType freqHz, SampleType nonlinearity)
         {
             c.lanCoeffs.c = sqrt(SampleType(twoPi) * freqHz);
             c.lanCoeffs.N = nonlinearity;
+            
             c.cSq = c.lanCoeffs.c * c.lanCoeffs.c;
             c.cN = c.lanCoeffs.c * c.lanCoeffs.N;
             c.NSqDiv3 = (c.lanCoeffs.N * c.lanCoeffs.N) / SampleType (3.0);
+        
+            c.cSqDiv2 = c.cSq / SampleType (2.0);
+            c.cNDiv3 = c.cN / SampleType (3.0);
+            c.NSqDiv12 = c.NSqDiv3 / SampleType (4.0);
         }
-
-        struct State 
+        
+        SampleType F2 (SampleType x, Coeffs& c)
         {
-            SampleType F1;
-            SampleType x;
+            let xSq = x * x;
+            return xSq * (c.cSqDiv2 + c.cNDiv3 * x * sgn(x) + c.NSqDiv12 * xSq);
         }
-
-        void reset (State& s) 
-        {
-            s.F1 = 0;
-            s.x = 0;
-        }
-
-        SampleType F1(SampleType x, Coeffs& c)
+    
+        SampleType F1 (SampleType x, Coeffs& c)
         {
             let xSq = x * x;
             let xCb = xSq * x;
             return c.cSq * x + c.cN * xSq * sgn(x) + c.NSqDiv3 * xCb;   
         }
-        
-        SampleType process (State& s, SampleType x, Coeffs& c) 
+    
+        SampleType f (SampleType x, Coeffs& c)
         {
-            let denom = x - s.x;
-            SampleType temp;
-
-            let tF1 = F1(x, c); 
-
-            if (abs(denom) < ADAA_TOL)
-                temp = Lan::process(SampleType (0.5) * (x + s.x), c.lanCoeffs);
-            else
-                temp = (tF1 - s.F1) / denom;
-            
-            s.F1 = tF1;
-            s.x = x;
-
-            return temp;
+            return Lan::process (x, c.lanCoeffs);
         }
-
-        processor Processor(SampleType initialFrequency = 0,
-                            SampleType initialNonlinearity = 400,
-                            int p = 1)
+    
+        SampleType process (State& s, SampleType x, Coeffs& c)
+        {
+            //Find F1_0
+            SampleType F1_0;
+            
+            let x_0mx_1 = x - s.x_1;
+            let F2_0 = F2(x, c);
+            if (abs(x_0mx_1) < ADAA_TOL)
+                F1_0 = F1(SampleType (0.5) * (x + s.x_1), c);
+            else
+                F1_0 = (F2_0 - s.F2_1) / x_0mx_1;
+    
+            //Find f_0
+            SampleType f_0;
+            let x_0mx_2 = x - s.x_2;
+            if (abs(x_0mx_2) < ADAA_TOL)
+            {
+                let xBar = SampleType (0.5) * (x + s.x_2);
+                let delta = xBar - x;
+    
+                if (abs (delta) < ADAA_TOL)
+                    f_0 = F1(SampleType (0.5) * (xBar + x), c);
+                else
+                    f_0 = (SampleType (2.0) / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta);
+            }
+            else
+                f_0 = (SampleType (2.0) / (x_0mx_2)) * (F1_0 - s.F1_1);
+    
+            //update s
+            s.x_2 = s.x_1;
+            s.x_1 = x;
+            s.F2_1 = F2_0;
+            s.F1_1 = F1_0;
+    
+            return f_0;
+        }
+    
+        processor Processor(SampleType initialFrequency = 0, SampleType initialNonlinearity = 400)
         {
             input stream SampleType in;
             output stream SampleType Omega;
@@ -553,8 +602,8 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
 
             void run()
             {
+                State s;
                 Coeffs c;
-                c.clear();
 
                 loop
                 {
@@ -575,6 +624,7 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
             }
         }
     }
+    
 
     //==============================================================================
     /** The input gain before a timeless trapezoidal integrator.
@@ -787,8 +837,7 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
             void run()
             {
                 Coeffs c;
-                c.clear();
-    
+            
                 loop
                 {
                     if (recalc)
@@ -835,7 +884,6 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
             void run()
             {
                 Coeffs c;
-                c.clear();
     
                 loop
                 {
@@ -911,7 +959,7 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
     }
 
 /*==============================================================================
-    High-Level Effects
+High-Level Effects
 ==============================================================================*/
 
     //==============================================================================
@@ -1034,6 +1082,6 @@ namespace VA (using SampleType = float64, int updateInterval = 32)
     }
 }
 
-//TODO oversampling and ADAA
+//TODO ADAA2 fix
 //TODO parameter limits and annotations for HighLevel
-//TODO Lan linear frequency doesnt need prewarp but check accuracy for low cutoffs
+//TODO SIMD branching for vector processing

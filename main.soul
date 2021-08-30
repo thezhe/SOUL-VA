@@ -5,16 +5,19 @@ Boilerplate code for testing instances of Processors from VA.soul
 
 graph Processor [[main]]
 {
-    input stream float in;
-    output stream float out;
+    input stream float64 in;
+    output stream float64 out;
 
-    namespace va = VA(float)::HighLevel;
+    using SampleType = float64;
+
+    namespace va = VA::HighLevel;
+    namespace filt = soul::filters(SampleType);
 
     let
     { 
-        // cross = soul::filters::tpt::crossover::Processor(16000.f);
+        // cross = filt::tpt::crossover::Processor(16000.f);
         // jaOnepole = va::JA_Onepole::Processor(2, 1.f, 100.f, 100.f) * 2;
-        // dcBlocker = soul::filters::dc_blocker::Processor(1.f);
+        // dcBlocker = filt::dc_blocker::Processor(1.f);
     }
 
     connection
