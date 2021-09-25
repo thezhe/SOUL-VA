@@ -1,6 +1,6 @@
 
 # SOUL Virtual Analog Library
-***VA.soul*** is a library of analog-inspired audio effects; then each effect meets the following criterion:<sup>[1](#f1)</sup>
+***VA.soul*** is a library of analog-inspired audio effects; each effect meets the following criterion:<sup>[1](#f1)</sup>
 - available as an easy-to-use *Processor* in *VA::HighLevel*
 - -80dB peak level of aliasing artifacts
 - non-iterative and SIMD optimized processing using the latest stable release of [SOUL](https://github.com/soul-lang/SOUL)
