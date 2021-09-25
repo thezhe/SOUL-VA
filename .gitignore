@@ -2,3 +2,4 @@ inputs/
 outputs/
 *.wav
 *.cpp
+*.png
