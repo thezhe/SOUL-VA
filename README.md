@@ -1,19 +1,21 @@
 
 # SOUL Virtual Analog Library
-*VA.soul* is a collection of novel analog-inspired effects optimized for accuracy and efficiency; each effect (in release versions) meets or exceeds the following criterion when used with recommended settings (fs >= 44.1kHz and bit-depth >= 24 bits; see code comments for effect-specific settings):
-- available as an easy-to-use 'Processor' in 'VA::HighLevel'
-- -100dB peak level of aliasing artifacts
-- Frequency warping is equivalent to a filter running @ fs = 88.2kHz
-- non-iterative and SIMD optimized using the latest stable release of [SOUL](https://github.com/soul-lang/SOUL)
+***VA.soul*** is a library of analog-inspired audio effects; then each effect meets the following criterion:<sup>[1](#f1)</sup>
+- available as an easy-to-use *Processor* in *VA::HighLevel*
+- -80dB peak level of aliasing artifacts
+- non-iterative and SIMD optimized processing using the latest stable release of [SOUL](https://github.com/soul-lang/SOUL)
+
+<sub><a name="f1">1</a>: This is only guaranteed under the following conditions: 1.) sampling rate and bit depth are at least 44.1kHz and 24-bit and 2.) effect-specific instructions are followed</sub>
 
 ## Contents
-- *VA.soul* - single-file library
-- *main.soul* and *main.soulpatch* - library test bench; use *main.soul* to connect Processor instances from *VA.soul*
-- *testMain.m* - [Octave](https://www.gnu.org/software/octave/index) script for running test cases on *main.soulpatch*
-- *soul.json* - [VSCode](https://github.com/Microsoft/vscode) snippets used in creating *VA.soul*; see the [VSCode docs](https://code.visualstudio.com/docs/editor/userdefinedsnippets) for help with adding the snippets
+- ***VA.soul*** - single-file library
+- ***main.soul***, ***main.soulpatch*** - define connections for effect testing
+- ***testMain.m*** - [Octave](https://www.gnu.org/software/octave/index) script that runs test cases on connected effects
+- ***soul.json*** - useful library snippets for [VSCode](https://code.visualstudio.com/docs/editor/userdefinedsnippets)
 
-## Example: testMain(44100)
-Running this command with unmodified *main.soul* and *main.soulpatch* files should pass test signals through unchanged and produce these plots:
-![Pulse](https://user-images.githubusercontent.com/42720670/129260847-08ae00e7-a749-4b68-9ca4-5907637cdd17.png)
-![dBRampSinRamp](https://user-images.githubusercontent.com/42720670/129260840-b48cffc3-1b7f-4f6a-9de4-2b68e3cf8e0c.png)
-![ImpulseSin](https://user-images.githubusercontent.com/42720670/129260843-f8e6d77c-5b68-4c2a-9a76-e3fad24f2987.png)
+## Example: *testMain(44100)*
+Running this command without modifying any files returns the following results:
+![Pulse](https://user-images.githubusercontent.com/42720670/134750716-e842f0a8-5329-417c-a848-25f1c27f6ba9.png)
+![IO](https://user-images.githubusercontent.com/42720670/134750715-c0b01c69-a387-46f8-a178-3460fb64d75b.png)
+![Bode](https://user-images.githubusercontent.com/42720670/134750714-80c45c04-65fb-4ab0-8757-d2d346345f54.png)
+![Sweep](https://user-images.githubusercontent.com/42720670/134750877-431ce4a0-81c2-4be5-a508-155aa602543a.png)
