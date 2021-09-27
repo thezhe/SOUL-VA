@@ -33,6 +33,9 @@
     - 'CoeffType' is not defined ('SampleType' is used internally for coefficients and samples)
     - SIMD-style bit masking is supported (see Sample-Agnostic Utilities)
     - 'Processors' are optimized for 44.1kHz/24-bit with specific recommendations for under/oversampling
+
+    Note:
+    - soul.exe has limited support for the primitive type float64. Compile to cpp or test on the playground on soul.dev
 */
 
 namespace VA (using SampleType = float64, int updateInterval = 32)
@@ -249,11 +252,11 @@ SampleType-Agnostic Utilities
     }
     
     //==============================================================================
-    /** A differentiable algebraic sigmoid function. 
+    /** An algebraic sigmoid function. 
 
             f(x) = x / sqrt (1 + x^2) 
     
-        Preferred over expensive functions such as 'tanh'
+        A cheap approximation of 'tanh'
     */
     SampleType vsigmoid (SampleType x)
     {
@@ -261,8 +264,7 @@ SampleType-Agnostic Utilities
     }
 
     //==============================================================================
-    /** A differentiable algebraic approximation of 'abs'.
-    */
+    /** A differentiable algebraic approximation of 'abs'. */
     SampleType vabsApprox (SampleType x)
     {
         return x * vsigmoid (SampleType (5.0) * x);
@@ -359,7 +361,7 @@ Effect Components
 ==============================================================================*/
 
     //==============================================================================
-    /** soul::tpt::onepole modified for cutoff modulation via an input stream
+    /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
 
         See oversampling reccomendation in endpoint comments
     */
@@ -367,63 +369,35 @@ Effect Components
     {   
         struct Coeffs
         {
-            SampleType b;
-            int m; //mode
-        }
-
-        void update (Coeffs& c, float mode)
-        {
-            c.m = int (mode);
+            SampleType G;
         }
 
         struct State
         {
-            SampleType z1;
+            SampleType s;
         }
 
-        void reset (State& s)
+        SampleType[2] process (State& s, SampleType x, Coeffs& c)
         {
-            s.z1 = SampleType();
-        }
-
-        SampleType processLPF (State& s, SampleType x, Coeffs& c)
-        {
-            let vn = (x - s.z1) * c.b;
-            let lpf = vn + s.z1;
+            let vn = (x - s.s) * c.G;
+            let lpf = vn + s.s;
             s.z1 = vn + lpf;
-            return lpf;
-        }
-
-        SampleType processHPF (State& s, SampleType x, Coeffs& c)
-        {
-            return x - processLPF (s, x, c);
-        }
-
-        SampleType processAPF (State& s, SampleType x, Coeffs& c)
-        {
-            let lpf = processLPF (s, x, c);
             let hpf = x - lpf;
-            return lpf - hpf;
+            return SampleType[2] (lpf, hpf);
         }
 
-        SampleType process (State& s, SampleType x, Coeffs& c)
+        void update (Coeffs& c, float frequency)
         {
-            if (c.m == 0) 
-                return s.processLPF (x, c);
-            else if (c.m == 1)  
-                return s.processHPF (x, c);
-            else //c.m == 2   
-                return s.processAPF (x, c);
+            let g = float (twoPi) * frequency;
+            c.G = SampleType (g / (1.f + g));
         }
 
-        processor Processor (int initialMode = 0, int cutoffMode = 0)
+        processor Processor (float initialFrequency, int cutoffMode = 0)
         {
             input stream SampleType in;
-            input stream  SampleType Omega; //angular cutoff; must be > 0; oversample x2; use for any cutoffs
-            input stream SampleType g; //integrator input gain; do not oversample; use for low cutoffs
-            output stream SampleType out;
+            output stream SampleType lowpassOut, highpassOut;
 
-            input event float modeIn [[ name: "Mode", min: 0, max: 2, init: float (initialMode), text: "Lowpass|Highpass|Allpass" ]];
+            input event float modeIn [[ name: "Frequency", min: 20, max: 20000, init: initialFrequency, text: "Hz" ]];
 
             event modeIn (float v) { mode = v; recalc = true; }
 
@@ -442,21 +416,16 @@ Effect Components
                     if (recalc)
                     {
                         recalc = false;
-    
-                        c.update (mode);
+
+
                     }
 
                     loop (updateInterval)
                     {
-                        if const (cutoffMode == 0)
-                        {
-                            let temp = Omega * Tdiv2; 
-                            c.b = temp / (SampleType (1.0) + temp);
-                        }
-                        else 
-                            c.b = g / (SampleType (1.0) + g);
+                        let y = s.process (in, c);
 
-                        out << s.process (in, c);
+                        lowpassOut << y[0];
+                        highpassOut << y[1];
 
                         advance();
                     }
@@ -465,6 +434,97 @@ Effect Components
         }
     }
 
+    //==============================================================================
+    /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
+
+        See oversampling reccomendation in endpoint comments
+    */
+    namespace OnepoleC
+    {   
+        processor Processor (int cutoffMode = 0)
+        {
+            input stream SampleType in;
+            input stream SampleType Omega; //angular cutoff; must be > 0; oversample x2; use for any cutoffs
+            input stream SampleType g; //integrator input gain; do not oversample; use for low cutoffs
+            output stream SampleType lowpassOut, highpassOut;
+
+            void run()
+            {   
+                Onepole::State s;
+                Onepole::Coeffs c;
+
+                let Tdiv2 = SampleType (processor.period * 0.5);
+
+                loop
+                {
+                    if const (cutoffMode == 0)
+                    {
+                        let temp = Omega * Tdiv2; 
+                        c.G = temp / (SampleType (1.0) + temp);
+                    }
+                    else 
+                        c.G = g / (SampleType (1.0) + g);
+
+                    let y = Onepole::process (s, in, c);
+
+                    lowpassOut << y[0];
+                    highpassOut << y[1];
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** soul::filters::tpt::onepole modified for state variable saturation */
+    namespace OnepoleS
+    {   
+        SampleType[2] process (Onepole::State& s, SampleType x, Onepole::Coeffs& c)
+        {
+            let vn = (x - s.s) * c.G;
+            let lpf = vn + s.s;
+            let hpf = x - lpf;
+
+            s.s = vsigmoid (vn + lpf);
+            return SampleType[2] (lpf, hpf);
+        }
+
+        processor Processor (float initialFrequency)
+        {
+            input stream SampleType in;
+            output stream SampleType lowpassOut, highpassOut;
+
+            void run()
+            {   
+                State s;
+                Coeffs c;
+
+                let Tdiv2 = SampleType (processor.period * 0.5);
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+
+
+                    }
+
+                    loop (updateInterval)
+                    {
+                        let y = s.process (in, c);
+
+                        lowpassOut << y[0];
+                        highpassOut << y[1];
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+    
     //==============================================================================
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
     
@@ -502,7 +562,7 @@ Effect Components
             return SampleType[3] (lpf, hpf, bpf);
         }
 
-        processor Processor
+        processor Processor()
         {
             input stream SampleType in;
             input stream SampleType Omega; //angular cutoff; must be > 0
@@ -1058,10 +1118,7 @@ High-Level Effects
     }
 }
 
-//TODO add APF to SVF
-//TODO parameter limits and annotations for HighLevel
-//TODO SIMD vs scalar performance
-//TODO change processor init to floats
-//TODO float64 on binary compiler or only soul.dev
+//TODO event endpoints and annotations
 //TODO BBD chorus/delay
-//TODO ADAA does not work on float 32
+//TODO SIMD vs scalar performance
+//TODO different linear filter output combos
