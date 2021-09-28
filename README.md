@@ -6,8 +6,6 @@
 
 <sub><a name="f1">1</a>: This is only guaranteed under the following conditions: 1.) sampling rate and bit depth are at least 44.1kHz and 24-bit and 2.) effect-specific instructions are followed</sub>
 
-## Background Knowledge
-
 ## Contents<sup>[2](#f2)</sup>
 - ***VA.soul*** - single-file library
 - ***main.soul***, ***main.soulpatch*** - define connections for effect testing
