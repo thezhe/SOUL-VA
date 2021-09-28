@@ -4,7 +4,7 @@
 - -80dB peak level of aliasing artifacts
 - non-iterative and SIMD optimized processing using the latest stable release of [SOUL](https://github.com/soul-lang/SOUL)
 
-<sub><a name="f1">1</a>: This is only guaranteed under the following conditions: 1.) sampling rate and bit depth are at least 44.1kHz and 24-bit and 2.) effect-specific instructions are followed</sub>
+<sub><a name="f1">1</a>: Sampling rate and bit depth must be at least 44.1kHz and 24-bit, and recommended effect settings must be applied. </sub>
 
 ## Contents<sup>[2](#f2)</sup>
 - ***VA.soul*** - single-file library
@@ -12,7 +12,7 @@
 - ***testMain.m*** - [Octave](https://www.gnu.org/software/octave/index) script that runs test cases on connected effects
 - ***soul.json*** - useful library snippets for [VSCode](https://code.visualstudio.com/docs/editor/userdefinedsnippets)
 
-<sub><a name="f2">2</a>: Before starting, developers should understand the key concepts of [the SOUL language guide](https://github.com/soul-lang/SOUL/blob/master/docs/SOUL_Language.md), [soul::filters](https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul), and [The Art of VA Filter Design](https://www.kvraudio.com/forum/viewtopic.php?t=350246) (up through Chapter 6). </sub>
+<sub><a name="f2">2</a>: Developers should be familiar with [the SOUL language guide](https://github.com/soul-lang/SOUL/blob/master/docs/SOUL_Language.md), [soul::filters](https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul), and [The Art of VA Filter Design](https://www.kvraudio.com/forum/viewtopic.php?t=350246) (up through Chapter 6). </sub>
 
 ## Example: *testMain(44100)*
 Running this command without modifying any files returns the following results:
