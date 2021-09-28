@@ -1,7 +1,4 @@
-/** Title: main Processor
-
-Boilerplate code for testing instances of Processors from VA.soul
-*/
+/** VA.soul test bench */
 
 graph Processor [[main]]
 {
@@ -15,9 +12,7 @@ graph Processor [[main]]
 
     let
     { 
-        cross = filt::tpt::crossover::Processor(11000.f);
-        onepoleL = va::OnepoleL::Processor(2, 1.f, 100.f) * 2;
-        dcBlocker = filt::dc_blocker::Processor(1.f);
+        //define 'Processor' instances here
     }
 
     connection

@@ -3,7 +3,7 @@
         "ID": "main",
         "version": "1.0",
         "name": "main",
-        "description": "Testbench for Processors",
+        "description": "link VA.soul to main.soul",
         "category": "effect",
         "manufacturer": "Zhe Deng",
         "isInstrument": false,
