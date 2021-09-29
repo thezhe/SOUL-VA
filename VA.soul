@@ -33,8 +33,6 @@
     - 'CoeffType' is not defined ('SampleType' is used internally for coefficients and samples)
     - SIMD-style bit masking is supported (see Sample-Agnostic Utilities)
     - The minimum settings are 44.1kHz/24-bit; see Processor-specific comments for other requirements
-
-    
 */
 
 namespace VA (using SampleType = float64<1>, int updateInterval = 32)
@@ -1150,6 +1148,7 @@ High-Level Effects
     }
 }
 
+//TODO library refactor
 //TODO 'soul render' float64 test using ADAA2
 //TODO float64 coeff update
 //TODO event endpoints and annotations
