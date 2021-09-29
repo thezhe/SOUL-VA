@@ -1,23 +1,33 @@
 /** VA.soul test bench */
 
-graph Processor [[main]]
+namespace main
 {
-    input stream float32 in;
-    output stream float32 out;
+    using BufferSampleType = float32<1>;
+    using SampleType = float64<1>;
 
-    using SampleType = float32;
+    graph Processor [[main]]
+    {
+        input stream BufferSampleType in;
+        output stream BufferSampleType out;
 
-    namespace va = VA(SampleType)::HighLevel;
-    namespace filt = soul::filters(SampleType);
+        namespace va = VA(SampleType);
+        namespace filt = soul::filters(SampleType);
 
-    let
-    { 
-        //define 'Processor' instances here
-    }
+        let
+        { 
+            //'soul render' only supports float32 primitive type buffers. To process float64, use casting. This is not an issue when 
+            //compiling to cpp, wasm, etc using 'soul generate ...' 
+            up = va::PrimitiveCaster(BufferSampleType, SampleType)::Processor;
+            down = va::PrimitiveCaster(SampleType, BufferSampleType)::Processor;
 
-    connection
-    {        
-        in -> out;
+            dcBlocker = filt::dc_blocker::Processor;
+
+        }
+
+        connection
+        {        
+            in -> up -> dcBlocker -> down -> out;
+        }
     }
 }
 

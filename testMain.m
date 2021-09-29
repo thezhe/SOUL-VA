@@ -1,16 +1,16 @@
 function testMain(fs)
-%% testMain
-% 
-% A script runs test cases on 'main.soulpatch'
-% 
-% Notes:
-% - All .wav files are lossless, 24-bit, and the sampling rates are 'fs' 
-% - See 'Inputs' section for more info on each test case
-% - Delete '/inputs' and/or '/outputs' to recalculate each folder
-%%
+  %% testMain
+  % 
+  % A script runs test cases on 'main.soulpatch'
+  % 
+  % Notes:
+  % - All .wav files are lossless, 24-bit, and the sampling rates are 'fs' 
+  % - See 'Inputs' section for more info on each test case
+  % - Delete '/inputs' and/or '/outputs' to recalculate each folder
+  %%
     
-%%==============================================================================
-%% Script
+  %%==============================================================================
+  %% Script
 
   %signals package is required
   pkg load signal;  
@@ -40,8 +40,8 @@ function testMain(fs)
   %plot results using '/inputs' and '/outputs'
   plotIO();
   
-%%==============================================================================
-%% High-Level
+  %%==============================================================================
+  %% High-Level
   function genInputs()
     %% genInputs
     %
@@ -58,7 +58,7 @@ function testMain(fs)
     genImpulse();
     genSinSweep();
     genBSin();
-  end
+  endfunction
   
   function genOutputs()
     %% genOutputs
@@ -116,8 +116,8 @@ function testMain(fs)
     endfunction
   endfunction
   
-%%==============================================================================
-%% Inputs
+  %%==============================================================================
+  %% Inputs
   function genBSin()
     %% genBSin
     %
@@ -229,8 +229,8 @@ function testMain(fs)
     audiowrite('inputs/SinRamp.wav', y, fs, 'BitsPerSample', 24);
   endfunction
   
-%%==============================================================================
-%% Plotting
+  %%==============================================================================
+  %% Plotting
   function plotBode(file, ttl, fig, sp)
     %% plotBode 
     % 
@@ -252,7 +252,6 @@ function testMain(fs)
     y = fft(x);
     y = y(1:(n/2)+1);
     y = y * 2;    
-    end
 
     %magnitude
     mag = gainTodB(abs(y));
@@ -267,13 +266,8 @@ function testMain(fs)
     hold on 
       set(gca,'xscale','log');
       set(gca, "linewidth", 1, "fontsize", 14)
-      if (linear)
-        xlim([fmag(1), 20000]);
-        ylim([-60, 0]);
-      else
-        xlim([fmag(1), fmag(end)]);
-        ylim([-100, 0]);
-      end
+      xlim([fmag(1), 20000]);
+      ylim([-60, 0]);
       title(['\fontsize{30}' ttl ' (|Y(0)| = ' dc ' dB, |Y(fs/2)| = ' ny ' dB)']);
       xlabel('\fontsize{20}frequency (Hz)');
       ylabel('\fontsize{20}magnitude (dB)');
@@ -414,8 +408,8 @@ function testMain(fs)
     hold off
   endfunction
 
-%%==============================================================================
-%% Utility
+  %%==============================================================================
+  %% Utility
   function y = gainTodB(x)
     y = 20.*log10(x);
     y(y<-100) = -100;
@@ -460,4 +454,6 @@ function testMain(fs)
     xR = x(idx);
     yR = y(idx);
   endfunction
+
 endfunction
+

@@ -21,24 +21,23 @@
     SOFTWARE.
 */
 
-/** Title: VA (https://github.com/thezhe/SOUL-VA)
+/** SOUL-VA (https://github.com/thezhe/SOUL-VA)
 
-    Virtual analog library -- a collection of mostly novel nonlinear filters. Interface based on
-    soul::filters (https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul).
+    See the README for an overview of this library
 
-    This library's structure is nearly identical to soul::filters EXCEPT:
-    - 'Processors' under 'VA::HighLevel' are standalone effects  
-    - Default 'SampleType' is float64
-    - Default updateInterval is 32
+    Use with SOUL 1.0.82 (https://github.com/soul-lang/SOUL/releases/tag/1.0.82)
+
+    The following interface is nearly identical to soul::filters EXCEPT:
+    - Each effect is a 'Processor' under 'VA::HighLevel'
+    - 'SampleType' must be a vector, even if the effect is mono
     - 'CoeffType' is not defined ('SampleType' is used internally for coefficients and samples)
     - SIMD-style bit masking is supported (see Sample-Agnostic Utilities)
-    - 'Processors' are optimized for 44.1kHz/24-bit with specific recommendations for under/oversampling
+    - The minimum settings are 44.1kHz/24-bit; see Processor-specific comments for other requirements
 
-    Note:
-    - soul.exe has limited support for the primitive type float64. Compile to cpp or test on the playground on soul.dev
+    
 */
 
-namespace VA (using SampleType = float64, int updateInterval = 32)
+namespace VA (using SampleType = float64<1>, int updateInterval = 32)
 {
 /*==============================================================================
 Constants
@@ -46,11 +45,12 @@ Constants
     
     //==============================================================================
     static_assert (SampleType.primitiveType.isFloat, "Primitive type of 'SampleType' must be float32 or float64");
-    static_assert ((SampleType.isVector || SampleType.isFloat), "'SampleType' must be float32, float64, or a vector of float64/float32");
+    static_assert (SampleType.isVector, "'SampleType' must be a vector");
     static_assert (updateInterval > 0, "'updateInterval' must be greater than 0");
 
     //==============================================================================
-    let SIMD = bool (SampleType.isVector);
+    let numChannels = SampleType.size;
+    let SIMD = bool (numChannels > 1);
 
     //==============================================================================
     let N100dB = float (0.00001);
@@ -250,6 +250,38 @@ SampleType-Agnostic Utilities
             }
         }
     }
+
+    //==============================================================================
+    /** Cast primitives from inType.primitiveType to outType.primitiveType */
+    namespace PrimitiveCaster (using inType, using outType)
+    {      
+        outType process (inType x)
+        {
+            outType y;
+
+            for (wrap<numChannels> i)
+                y[i] = outType.primitiveType (x[i]);
+
+            return y;
+
+        }
+
+        processor Processor()
+        {
+            input stream inType in;
+            output stream outType out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
     
     //==============================================================================
     /** An algebraic sigmoid function. 
@@ -360,170 +392,170 @@ SampleType-Agnostic Utilities
 Effect Components
 ==============================================================================*/
 
-    //==============================================================================
-    /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
+    // //==============================================================================
+    // /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
 
-        See oversampling reccomendation in endpoint comments
-    */
-    namespace Onepole
-    {   
-        struct Coeffs
-        {
-            SampleType G;
-        }
+    //     See oversampling reccomendation in endpoint comments
+    // */
+    // namespace Onepole
+    // {   
+    //     struct Coeffs
+    //     {
+    //         SampleType G;
+    //     }
 
-        struct State
-        {
-            SampleType s;
-        }
+    //     struct State
+    //     {
+    //         SampleType s;
+    //     }
 
-        SampleType[2] process (State& s, SampleType x, Coeffs& c)
-        {
-            let vn = (x - s.s) * c.G;
-            let lpf = vn + s.s;
-            s.z1 = vn + lpf;
-            let hpf = x - lpf;
-            return SampleType[2] (lpf, hpf);
-        }
+    //     SampleType[2] process (State& s, SampleType x, Coeffs& c)
+    //     {
+    //         let vn = (x - s.s) * c.G;
+    //         let lpf = vn + s.s;
+    //         s.z1 = vn + lpf;
+    //         let hpf = x - lpf;
+    //         return SampleType[2] (lpf, hpf);
+    //     }
 
-        void update (Coeffs& c, float frequency)
-        {
-            let g = float (twoPi) * frequency;
-            c.G = SampleType (g / (1.f + g));
-        }
+    //     void update (Coeffs& c, float frequency)
+    //     {
+    //         let g = float (twoPi) * frequency;
+    //         c.G = SampleType (g / (1.f + g));
+    //     }
 
-        processor Processor (float initialFrequency, int cutoffMode = 0)
-        {
-            input stream SampleType in;
-            output stream SampleType lowpassOut, highpassOut;
+    //     processor Processor (float initialFrequency, int cutoffMode = 0)
+    //     {
+    //         input stream SampleType in;
+    //         output stream SampleType lowpassOut, highpassOut;
 
-            input event float modeIn [[ name: "Frequency", min: 20, max: 20000, init: initialFrequency, text: "Hz" ]];
+    //         input event float modeIn [[ name: "Frequency", min: 20, max: 20000, init: initialFrequency, text: "Hz" ]];
 
-            event modeIn (float v) { mode = v; recalc = true; }
+    //         event modeIn (float v) { mode = v; recalc = true; }
 
-            float mode = float (initialMode);
+    //         float mode = float (initialMode);
 
-            bool recalc = true;
-            void run()
-            {   
-                State s;
-                Coeffs c;
+    //         bool recalc = true;
+    //         void run()
+    //         {   
+    //             State s;
+    //             Coeffs c;
 
-                let Tdiv2 = SampleType (processor.period * 0.5);
+    //             let Tdiv2 = SampleType (processor.period * 0.5);
 
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-
-
-                    }
-
-                    loop (updateInterval)
-                    {
-                        let y = s.process (in, c);
-
-                        lowpassOut << y[0];
-                        highpassOut << y[1];
-
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
-
-        See oversampling reccomendation in endpoint comments
-    */
-    namespace OnepoleC
-    {   
-        processor Processor (int cutoffMode = 0)
-        {
-            input stream SampleType in;
-            input stream SampleType Omega; //angular cutoff; must be > 0; oversample x2; use for any cutoffs
-            input stream SampleType g; //integrator input gain; do not oversample; use for low cutoffs
-            output stream SampleType lowpassOut, highpassOut;
-
-            void run()
-            {   
-                Onepole::State s;
-                Onepole::Coeffs c;
-
-                let Tdiv2 = SampleType (processor.period * 0.5);
-
-                loop
-                {
-                    if const (cutoffMode == 0)
-                    {
-                        let temp = Omega * Tdiv2; 
-                        c.G = temp / (SampleType (1.0) + temp);
-                    }
-                    else 
-                        c.G = g / (SampleType (1.0) + g);
-
-                    let y = Onepole::process (s, in, c);
-
-                    lowpassOut << y[0];
-                    highpassOut << y[1];
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    //==============================================================================
-    /** soul::filters::tpt::onepole modified for state variable saturation */
-    namespace OnepoleS
-    {   
-        SampleType[2] process (Onepole::State& s, SampleType x, Onepole::Coeffs& c)
-        {
-            let vn = (x - s.s) * c.G;
-            let lpf = vn + s.s;
-            let hpf = x - lpf;
-
-            s.s = vsigmoid (vn + lpf);
-            return SampleType[2] (lpf, hpf);
-        }
-
-        processor Processor (float initialFrequency)
-        {
-            input stream SampleType in;
-            output stream SampleType lowpassOut, highpassOut;
-
-            void run()
-            {   
-                State s;
-                Coeffs c;
-
-                let Tdiv2 = SampleType (processor.period * 0.5);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
+    //             loop
+    //             {
+    //                 if (recalc)
+    //                 {
+    //                     recalc = false;
 
 
-                    }
+    //                 }
 
-                    loop (updateInterval)
-                    {
-                        let y = s.process (in, c);
+    //                 loop (updateInterval)
+    //                 {
+    //                     let y = s.process (in, c);
 
-                        lowpassOut << y[0];
-                        highpassOut << y[1];
+    //                     lowpassOut << y[0];
+    //                     highpassOut << y[1];
 
-                        advance();
-                    }
-                }
-            }
-        }
-    }
+    //                     advance();
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    // //==============================================================================
+    // /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
+
+    //     See oversampling reccomendation in endpoint comments
+    // */
+    // namespace OnepoleC
+    // {   
+    //     processor Processor (int cutoffMode = 0)
+    //     {
+    //         input stream SampleType in;
+    //         input stream SampleType Omega; //angular cutoff; must be > 0; oversample x2; use for any cutoffs
+    //         input stream SampleType g; //integrator input gain; do not oversample; use for low cutoffs
+    //         output stream SampleType lowpassOut, highpassOut;
+
+    //         void run()
+    //         {   
+    //             Onepole::State s;
+    //             Onepole::Coeffs c;
+
+    //             let Tdiv2 = SampleType (processor.period * 0.5);
+
+    //             loop
+    //             {
+    //                 if const (cutoffMode == 0)
+    //                 {
+    //                     let temp = Omega * Tdiv2; 
+    //                     c.G = temp / (SampleType (1.0) + temp);
+    //                 }
+    //                 else 
+    //                     c.G = g / (SampleType (1.0) + g);
+
+    //                 let y = Onepole::process (s, in, c);
+
+    //                 lowpassOut << y[0];
+    //                 highpassOut << y[1];
+
+    //                 advance();
+    //             }
+    //         }
+    //     }
+    // }
+
+    // //==============================================================================
+    // /** soul::filters::tpt::onepole modified for state variable saturation */
+    // namespace OnepoleS
+    // {   
+    //     SampleType[2] process (Onepole::State& s, SampleType x, Onepole::Coeffs& c)
+    //     {
+    //         let vn = (x - s.s) * c.G;
+    //         let lpf = vn + s.s;
+    //         let hpf = x - lpf;
+
+    //         s.s = vsigmoid (vn + lpf);
+    //         return SampleType[2] (lpf, hpf);
+    //     }
+
+    //     processor Processor (float initialFrequency)
+    //     {
+    //         input stream SampleType in;
+    //         output stream SampleType lowpassOut, highpassOut;
+
+    //         void run()
+    //         {   
+    //             State s;
+    //             Coeffs c;
+
+    //             let Tdiv2 = SampleType (processor.period * 0.5);
+
+    //             loop
+    //             {
+    //                 if (recalc)
+    //                 {
+    //                     recalc = false;
+
+
+    //                 }
+
+    //                 loop (updateInterval)
+    //                 {
+    //                     let y = s.process (in, c);
+
+    //                     lowpassOut << y[0];
+    //                     highpassOut << y[1];
+
+    //                     advance();
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
     
     //==============================================================================
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
@@ -1040,40 +1072,40 @@ High-Level Effects
     /** High-level Processors made using the 'VA' and 'soul' namespaces */
     namespace HighLevel
     {   
-        //==============================================================================
-        /** VA::JA_L modulating VA::Onepole */
-        namespace OnepoleL
-        {
-            graph Processor (int initialMode = 0, 
-                        float initialFrequency = 200.f,
-                        float initialNonlinearity = 0.f)
-            {
-                input stream SampleType in;
-                output stream SampleType out;
+        // //==============================================================================
+        // /** VA::JA_L modulating VA::Onepole */
+        // namespace OnepoleL
+        // {
+        //     graph Processor (int initialMode = 0, 
+        //                 float initialFrequency = 200.f,
+        //                 float initialNonlinearity = 0.f)
+        //     {
+        //         input stream SampleType in;
+        //         output stream SampleType out;
         
-                input
-                {
-                    onepole.modeIn;
-                    L.frequencyIn;
-                    L.nonlinearityIn;
-                }
+        //         input
+        //         {
+        //             onepole.modeIn;
+        //             L.frequencyIn;
+        //             L.nonlinearityIn;
+        //         }
         
-                let
-                {
-                    onepole = Onepole::Processor(initialMode, 0);
-                    L = Lan::Processor(initialFrequency, initialNonlinearity);
-                }
+        //         let
+        //         {
+        //             onepole = Onepole::Processor(initialMode, 0);
+        //             L = Lan::Processor(initialFrequency, initialNonlinearity);
+        //         }
         
-                connection
-                {
-                    in -> L.in, onepole.in;
+        //         connection
+        //         {
+        //             in -> L.in, onepole.in;
 
-                    L.Omega -> onepole.Omega;
+        //             L.Omega -> onepole.Omega;
 
-                    onepole.out -> out;
-                }
-            }
-        }
+        //             onepole.out -> out;
+        //         }
+        //     }
+        // }
 
         //==============================================================================
         /** A modified classical compressor sidechain
@@ -1118,8 +1150,9 @@ High-Level Effects
     }
 }
 
+//TODO 'soul render' float64 test using ADAA2
 //TODO float64 coeff update
 //TODO event endpoints and annotations
 //TODO BBD chorus/delay
-//TODO SIMD vs scalar performance
+//TODO performance test
 //TODO different linear filter output combos
