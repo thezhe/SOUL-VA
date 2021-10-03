@@ -1,39 +1,37 @@
-%%    MIT License
+%%  MIT License
 %
-%     Copyright (c) 2021 Zhe Deng
+% Copyright (c) 2021 Zhe Deng
 %
-%     Permission is hereby granted, free of charge, to any person obtaining a copy
-%     of this software and associated documentation files (the "Software"), to deal
-%     in the Software without restriction, including without limitation the rights
-%     to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%     copies of the Software, and to permit persons to whom the Software is
-%     furnished to do so, subject to the following conditions:
+% Permission is hereby granted, free of charge, to any person obtaining a copy
+% of this software and associated documentation files (the "Software"), to deal
+% in the Software without restriction, including without limitation the rights
+% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+% copies of the Software, and to permit persons to whom the Software is
+% furnished to do so, subject to the following conditions:
 %
-%     The above copyright notice and this permission notice shall be included in all
-%     copies or substantial portions of the Software.
+% The above copyright notice and this permission notice shall be included in all
+% copies or substantial portions of the Software.
 %
-%     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%     AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%     SOFTWARE.
+% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+% SOFTWARE.
 %%
 
 function testMain(fs)
-  %% testMain
-  % 
-  % A script runs test cases on 'main.soulpatch'
+  %%  A script that runs test cases on 'main.soulpatch'
   % 
   % Notes:
   % - All .wav files are lossless, 24-bit, and the sampling rates are 'fs' 
-  % - See 'Inputs' section for more info on each test case
   % - Delete '/inputs' and/or '/outputs' to recalculate each folder
+  % - See 'Inputs' section for more info on each test case
   %%
-    
-  %%==============================================================================
-  %% Script
+  
+%%==============================================================================
+%% Script
 
   %signals package is required
   pkg load signal;  
@@ -63,14 +61,12 @@ function testMain(fs)
   %plot results using '/inputs' and '/outputs'
   plotIO();
   
-  %%==============================================================================
-  %% High-Level
+%%==============================================================================
+%% High-Level
   function genInputs()
-    %% genInputs
+    %%  Generate test inputs in 'inputs/'
     %
-    % Notes:
-    % - Generates test inputs in 'inputs/'
-    % - All inputs normalized to 0.5 except except for 'dBRamp.wav' and 'SinSweep.wav'
+    % All inputs normalized to 0.5 except except for 'dBRamp.wav' and 'SinSweep.wav'
     %%
 
     mkdir('inputs');
@@ -84,10 +80,7 @@ function testMain(fs)
   endfunction
   
   function genOutputs()
-    %% genOutputs
-    %
-    % Generate 'outputs/' by passing 'inputs/' thru 'main.soulpatch'
-    %%
+    %%  Generate 'outputs/' by passing 'inputs/' thru 'main.soulpatch'
 
     mkdir('outputs');
 
@@ -104,14 +97,12 @@ function testMain(fs)
   endfunction
   
   function plotIO()
-    %% plotIO
+    %%  Plot results using '/inputs' and '/outputs'
     %
-    % Plot results using '/inputs' and '/outputs'
-    %
-    % Note:
-    % - Shows a warning message if 0.5 normalized inputs have significantly higher output amplitudes
-    % - The magnitude and phase responses of 'Impulse.wav' is meaningless if the system is nonlinear
-    % - The phase response of 'Impulse.wav' may be distorted if the system is oversampled
+    % Notes:
+    % - Shows a warning message if 0.5 normalized inputs exceed 0.9 in the output
+    % - The Bode plot is only defined for linear systems
+    % - The phase response in the Bode plot may be distorted if the system is oversampled
     %%
 
     plotSignal('outputs/Pulse.wav', 'Pulse', 1, [1, 1, 1]); 
@@ -126,10 +117,7 @@ function testMain(fs)
     isStable('outputs/BSin.wav');
     
     function isStable(file)
-      %%  isStable
-      % 
-      % Print a warning if any samples > 0.9
-      %%  
+      %%  Print a warning if any samples > 0.9
 
       [y, ~] = audioread(file);
       
@@ -139,17 +127,15 @@ function testMain(fs)
     endfunction
   endfunction
   
-  %%==============================================================================
-  %% Inputs
+%%==============================================================================
+%% Inputs
   function genBSin()
-    %% genBSin
-    %
-    % Generate (0.5/6)*sin baised by (2.5/6)*cos with frequencies 2kHz and 18kHz
+    %%  Generate (0.5/6)*sin + (2.5/6)*cos with frequencies 2kHz and 18kHz
     %
     % Notes:
     % - Test: System stability. Test passes if no console warnings are printed.
-    % - See Fig. 4 in https://dafx2019.bcu.ac.uk/papers/DAFx2019_paper_3.pdf
     % - Length: 0.25 second
+    % - See Fig. 4 in https://dafx2019.bcu.ac.uk/papers/DAFx2019_paper_3.pdf
     %%
 
     n = 0:ceil((fs-1)/4);
@@ -166,9 +152,7 @@ function testMain(fs)
   endfunction
 
   function gendBRamp()
-    %% gendBRamp
-    %
-    % Generate a gradual linear ramp on the dB scale from -60 dB to 0 dB 
+    %% Generate a linear ramp on the dB scale from -60 dB to 0 dB 
     %
     % Notes:
     % - Tests: decibel mapping ('outputs/dBRamp.wav' vs 'input/dBRamp.wav' waveshaper plot), stability
@@ -181,9 +165,7 @@ function testMain(fs)
   endfunction 
 
   function genImpulse()  
-    %% genImpulse
-    %
-    % Generate an impulse with amplitude 0.5
+    %% Generate an impulse with amplitude 0.5
     %
     % Notes:
     % - Tests: frequency response ('outputs/Impulse.wav' Bode plot), stability
@@ -196,12 +178,10 @@ function testMain(fs)
   endfunction
 
   function genPulse()
-    %% genImpulse
-    %
-    % Generate a pulse signal with value 0.5 and 0.25 for the first and second halves
+    %% Generate a pulse signal with value 0.5 and 0.25 for the first and second halves
     % 
     % Notes:
-    % - Tests: step response and attack/release response ('outputs/Pulse.wav' plot), stability
+    % - Tests: step response and attack/release response ('outputs/Pulse.wav' signal plot), stability
     % - Length: 1 second
     %%
 
@@ -214,12 +194,10 @@ function testMain(fs)
   endfunction
 
   function genSinSweep()
-    %% genSinSweep
-    %
-    % Generate a sin sweep from 20 to 20kHz
+    %% Generate a sin sweep from 20 to 20kHz
     % 
     % Notes:
-    % Tests: harmonic/inharmonic distortion ('outputs/Sin.wav' magnitude response plot), stability
+    % Tests: harmonic/inharmonic distortion and aliasing ('outputs/SinSweep.wav' spectrogram), stability
     % Length: 10 seconds
     %%
 
@@ -231,9 +209,7 @@ function testMain(fs)
   endfunction
   
   function genSinRamp()
-    %% genSinRamp
-    %
-    % Generate a sin that fades in linearly
+    %% Generate a sin that fades in linearly
     % 
     % Notes:
     % - Length: 0.025 seconds
@@ -252,19 +228,16 @@ function testMain(fs)
     audiowrite('inputs/SinRamp.wav', y, fs, 'BitsPerSample', 24);
   endfunction
   
-  %%==============================================================================
-  %% Plotting
+%%==============================================================================
+%% Plotting
   function plotBode(file, ttl, fig, sp)
-    %% plotBode 
-    % 
-    % Plot magnitude (dB) and phase (radians) of an impulse response
+    %% Plot magnitude (dB) and phase (radians) responses of an impulse response
     %
     % Notes:
     % - 'file': audio file path
     % - 'ttl': title
     % - 'fig' - figure number
     % - 'sp' - three element array to set the subplot
-    % - See 'plotIO()' for examples
     %%
 
     %FFT
@@ -324,10 +297,7 @@ function testMain(fs)
   endfunction
 
   function plotSpec(file, ttl, fig, sp)
-    %% plotSpec 
-    % 
-    % Plot a spectogram of a file
-    %%
+    %%  Plot a spectrogram of a file
 
     [x, fs] = audioread(file);
 
@@ -358,10 +328,7 @@ function testMain(fs)
   endfunction
 
   function plotSignal(file, ttl, fig, sp)
-    %% plotSignal
-    %
-    % Plot a signal from an audio file
-    %%
+    %% Plot a signal from an audio file
 
     [y, fs] = audioread(file);
     info = audioinfo(file);
@@ -383,15 +350,11 @@ function testMain(fs)
   endfunction
 
   function plotWaveshaper(file2, file1, dB, res, ttl, fig, sp)
-    %% plotWaveshaper
-    %
-    % Plot samples of file2 vs file1
+    %% Plot samples of file2 vs file1
     %
     % Notes:
     % - 'dB': Set to true to make axes dB scale
-    % - 'res': Set number of points to plot; set to 0 to plot all points
-    % - See 'plotBode()' and 'plotSignal()' for other parameter descriptions
-    % - See 'plotIO()' for examples
+    % - 'res': Set number of points to plot (decimate the signal); set to 0 to plot all points
     %%
 
     [y, fs] = audioread(file2);
@@ -431,8 +394,8 @@ function testMain(fs)
     hold off
   endfunction
 
-  %%==============================================================================
-  %% Utility
+%%==============================================================================
+%% Utility
   function y = gainTodB(x)
     y = 20.*log10(x);
     y(y<-100) = -100;
@@ -444,9 +407,7 @@ function testMain(fs)
   endfunction
 
   function [xR, yR] = reducePlot(x, y, thrdy)
-    %% reducePlot
-    % 
-    % Reduce the points to plot by setting a threshold for dy
+    %% Reduce the points to plot by setting a threshold for dy
     %
     % Notes:
     % - First and last elements are always plotted
@@ -479,4 +440,3 @@ function testMain(fs)
   endfunction
 
 endfunction
-

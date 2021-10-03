@@ -47,29 +47,27 @@ Constants
     static_assert (updateInterval > 0, "'updateInterval' must be greater than 0");
 
     //==============================================================================
-    let numChannels = SampleType.size;
-    let SIMD = bool (numChannels > 1);
+    let SIMD = bool (SampleType.size > 1);
 
     //==============================================================================
     let N100dB = float (0.00001);
     let ADAA_TOL = SampleType (0.0000001);
     let inf32 = float (inf);
+    let div20 = SampleType (1.0) / SampleType (20.0);
 
 /*==============================================================================
-SampleType-Agnostic Utilities
+Vector-Optimized Functions
 ==============================================================================*/
 
     //==============================================================================
-    /** 'if' statement that supports vector and scalar inputs
+    /** 'if' statement
     
         Not necessarily faster with vectors; use conservatively!
     */
     SampleType vif<BoolType> (SampleType trueStatement, SampleType falseStatement, BoolType condition)
     {   
-        if (SIMD)
-        {
+        if const (SIMD)
             return trueStatement * SampleType (condition) + falseStatement * SampleType (!condition);
-        }
         else
         {
             if (condition)
@@ -110,6 +108,7 @@ SampleType-Agnostic Utilities
                     return min (x, h);           
             }
         }
+
         processor Processor ()
         {
             input stream SampleType in;
@@ -131,7 +130,7 @@ SampleType-Agnostic Utilities
     /** Convert gain to decibels and clamp results to greater than -100.0 dB */
     SampleType vgainTodB (SampleType x)
     {
-        if (SIMD)
+        if const (SIMD)
         {
             let temp = vclamp (N100dB, inf)::process(x);
 
@@ -150,18 +149,18 @@ SampleType-Agnostic Utilities
     /** Convert decibels to gain and clamp inputs to greater than -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
-        if (SIMD)
+        if const (SIMD)
         {
             let temp = vclamp (-100, inf)::process(x);
 
-            return pow (SampleType (10.0), temp / SampleType (20.0));
+            return pow (SampleType (10.0), temp * div20);
         }
         else
         {
             if (x < SampleType (-100.0))
                 return N100dB;
             
-            return pow (SampleType (10.0), x / SampleType (20.0));
+            return pow (SampleType (10.0), x * div20);
         }
     }
 
@@ -171,27 +170,150 @@ SampleType-Agnostic Utilities
     {
         return SampleType(x > SampleType (0.0)) - SampleType(x < SampleType (0.0));
     }
+    
+    //==============================================================================
+    /** An continuously differentiable algebraic sigmoid function. 
+
+            f(x) = x / sqrt (x^2 + 1) 
+    
+        A cheap approximation of 'tanh'
+    */
+    SampleType vsigmoidCD (SampleType x)
+    {
+        return x / sqrt (x * x + SampleType (1.0));
+    }
+    
+    //==============================================================================
+    /** An continuously differentiable algebraic bell-shaped function. 
+
+            f(x) = x / (x^2 + 1) ^ (3/2) 
+    
+        Derivative of 'vsigmoid'
+    */
+    SampleType vbellCD (SampleType x)
+    {
+        let temp = x * x + SampleType (1.0);
+
+        return SampleType (1.0) / sqrt (temp * temp * temp);
+    }
+
+    //==============================================================================
+    /** Reciprocal of 'vbellCD' 
+
+            f(x) = 1 / vbellCD(x) 
+    */
+    SampleType vrecbellCD (SampleType x)
+    {
+        let temp = x * x + SampleType (1.0);
+
+        return temp * temp * temp;
+    }
+
+    //==============================================================================
+    /** A continuously differentiable algebraic rectifying function. 
+
+            f(x) = x * vsigmoidCD(x)
+    */
+    SampleType vabsCD (SampleType x)
+    {
+        return x * vsigmoid (SampleType (5.0) * x);
+    }
 
     //==============================================================================
     SampleType vabs (SampleType x)
     {
         if const (SIMD)
         {
-            SampleType temp;
+            SampleType y;
 
             for (wrap<SampleType.size> i)
-                temp[i] = abs (x[i]);
+                y[i] = abs (x[i]);
             
-            return temp;
+            return y;
         }
         else 
             return abs (x);
     }
 
-    //==============================================================================
-    /** Set a vector equal to the average of its elements. 
+    /** An algebraic sigmoid function. 
+
+            f(x) = 1 / (abs(x) + 1) 
     
-        Do not use on scalar 'SampleTypes'!
+        A cheap approximation of 'tanh'
+    */
+    SampleType vsigmoid (SampleType x)
+    {
+        return x / (vabs(x) + SampleType (1.0));
+    }
+
+    //==============================================================================
+    /** An algebraic sigmoid function. 
+
+            f(x) = 1 / (abs(x) + 1) 
+    
+        A cheap approximation of 'tanh'
+    */
+    SampleType vbell (SampleType x)
+    {
+        let temp = vabs(x) + SampleType (1.0);
+        
+        return SampleType (1.0) / (temp * temp);
+    }
+
+    //==============================================================================
+    /** Reciprocal of 'vbell' 
+
+            f(x) = 1 / vbell(x) 
+    */
+    SampleType vrecbell (SampleType x)
+    {
+        let temp = vabs(x) + SampleType (1.0);
+
+        return temp * temp;
+    }
+
+/*==============================================================================
+Subgraphs and processors
+==============================================================================*/
+
+    //==============================================================================
+    /** Cast primitives inType to outType */
+    namespace Cast (using inType, using outType)
+    {      
+        static_assert (inType.isVector && outType.isVector, "inType must be a vector");
+        static_assert (inType.size == outType.size, "inType must be the same size as outType");
+        
+        outType process (inType x)
+        {
+            outType y;
+
+            for (wrap<inType.size> i)
+                y[i] = outType.primitiveType (x[i]);
+
+            return y;
+        }
+
+        processor Processor()
+        {
+            input stream inType in;
+            output stream outType out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    //==============================================================================
+    /** Set a each vector element equal to the average of its elements 
+    
+        Do not use if vector size is 1!
     */
     namespace StereoLink
     {   
@@ -207,10 +329,10 @@ SampleType-Agnostic Utilities
     
         SampleType process (SampleType x, Coeffs& c)
         {
-            if (SIMD)
+            if const (SIMD)
                 return (c.e ? SampleType (x.sum()/x.size) : x);
             else 
-                return SampleType (0.0);
+                return x;
         }
     
         processor Processor (bool initialEnabled = true)
@@ -250,62 +372,11 @@ SampleType-Agnostic Utilities
     }
 
     //==============================================================================
-    /** Cast primitives from inType.primitiveType to outType.primitiveType */
-    namespace PrimitiveCaster (using inType, using outType)
-    {      
-        outType process (inType x)
-        {
-            outType y;
-
-            for (wrap<numChannels> i)
-                y[i] = outType.primitiveType (x[i]);
-
-            return y;
-
-        }
-
-        processor Processor()
-        {
-            input stream inType in;
-            output stream outType out;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
-    
-    //==============================================================================
-    /** An algebraic sigmoid function. 
-
-            f(x) = x / sqrt (1 + x^2) 
-    
-        A cheap approximation of 'tanh'
-    */
-    SampleType vsigmoid (SampleType x)
-    {
-        return x / sqrt (SampleType (1.0) + x * x);
-    }
-
-    //==============================================================================
-    /** A differentiable algebraic approximation of 'abs'. */
-    SampleType vabsApprox (SampleType x)
-    {
-        return x * vsigmoid (SampleType (5.0) * x);
-    }
-
-    //==============================================================================
     /** 'Processor' wrapper of 'vabs' 
     
         See Sample-Agnostic Utility Functions
     */
-    namespace Abs
+    namespace Rectifier
     {
         processor Processor()
         {
@@ -325,7 +396,7 @@ SampleType-Agnostic Utilities
     }
 
     //==============================================================================
-    namespace Multiply
+    namespace Multiplier
     {
         processor Processor()
         {
@@ -345,129 +416,88 @@ SampleType-Agnostic Utilities
     }
 
     //==============================================================================
-    namespace Reciprocal
-    {
-        processor Processor()
+    /** SOUL-VA's version of soul::filters::tpt::onepole  
+
+        Notes:
+        - 2x oversampling recommended
+        - Structure is more consistent with SVF and oversampling is used instead of prewarping
+    */
+    namespace Onepole
+    {   
+        struct Coeffs
+        {
+            SampleType G;
+        }
+
+        struct State
+        {
+            SampleType s;
+        }
+
+        SampleType[2] process (State& s, SampleType x, Coeffs& c)
+        {
+            let v = (x - s.s) * c.G;
+            let lpf = v + s.s;
+            let hpf = x - lpf;
+
+            s.s = v + lpf;
+
+            return SampleType[2] (lpf, hpf);
+        }
+
+        void update (Coeffs& c, float64 frequency, float64 Tpi)
+        {
+            let g = Tpi * frequency;
+            c.G = SampleType (g / (1.0 + g));
+        }
+
+        processor Processor (float initialFrequency)
         {
             input stream SampleType in;
-            output stream SampleType out;
-    
+            output stream SampleType lowpassOut, highpassOut;
+
+            input event float frequencyIn [[ name: "Frequency", min: 20, max: 20000, init: initialFrequency, text: "Hz" ]];
+
+            event frequencyIn (float v) { frequency = v; recalc = true; }
+
+            float frequency = float (initialFrequency);
+            bool recalc = true;
+
             void run()
-            {
+            {   
+                State s;
+                Coeffs c;
+
+                let Tpi = processor.period * pi;
+
                 loop
                 {
-                    out << SampleType (1.0) / in;
-    
-                    advance();
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        c.update (float64 (frequency), Tpi);
+                    }
+
+                    loop (updateInterval)
+                    {
+                        let y = s.process (in, c);
+
+                        lowpassOut << y[0];
+                        highpassOut << y[1];
+
+                        advance();
+                    }
                 }
             }
         }
     }
 
-    //==============================================================================
-    namespace OmegaTog
-    {
-        processor Processor()
-        {
-            input stream SampleType Omega;
-            output stream SampleType g;
-    
-            void run()
-            {
-                let Tdiv2 = SampleType (processor.period * 0.5);
-
-                loop
-                {
-                    g << Omega * Tdiv2;
-    
-                    advance();
-                }
-            }
-        }
-    }
-
-/*==============================================================================
-Effect Components
-==============================================================================*/
-
     // //==============================================================================
-    // /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
+    // /** Onepole modified for cutoff modulation via an input stream
 
-    //     See oversampling reccomendation in endpoint comments
-    // */
-    // namespace Onepole
-    // {   
-    //     struct Coeffs
-    //     {
-    //         SampleType G;
-    //     }
-
-    //     struct State
-    //     {
-    //         SampleType s;
-    //     }
-
-    //     SampleType[2] process (State& s, SampleType x, Coeffs& c)
-    //     {
-    //         let vn = (x - s.s) * c.G;
-    //         let lpf = vn + s.s;
-    //         s.z1 = vn + lpf;
-    //         let hpf = x - lpf;
-    //         return SampleType[2] (lpf, hpf);
-    //     }
-
-    //     void update (Coeffs& c, float frequency)
-    //     {
-    //         let g = float (twoPi) * frequency;
-    //         c.G = SampleType (g / (1.f + g));
-    //     }
-
-    //     processor Processor (float initialFrequency, int cutoffMode = 0)
-    //     {
-    //         input stream SampleType in;
-    //         output stream SampleType lowpassOut, highpassOut;
-
-    //         input event float modeIn [[ name: "Frequency", min: 20, max: 20000, init: initialFrequency, text: "Hz" ]];
-
-    //         event modeIn (float v) { mode = v; recalc = true; }
-
-    //         float mode = float (initialMode);
-
-    //         bool recalc = true;
-    //         void run()
-    //         {   
-    //             State s;
-    //             Coeffs c;
-
-    //             let Tdiv2 = SampleType (processor.period * 0.5);
-
-    //             loop
-    //             {
-    //                 if (recalc)
-    //                 {
-    //                     recalc = false;
-
-
-    //                 }
-
-    //                 loop (updateInterval)
-    //                 {
-    //                     let y = s.process (in, c);
-
-    //                     lowpassOut << y[0];
-    //                     highpassOut << y[1];
-
-    //                     advance();
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-
-    // //==============================================================================
-    // /** soul::filters::tpt::onepole modified for cutoff modulation via an input stream
-
-    //     See oversampling reccomendation in endpoint comments
+    //     Notes:
+    //     - 2x oversampling recommended
     // */
     // namespace OnepoleC
     // {   
@@ -506,54 +536,74 @@ Effect Components
     //     }
     // }
 
-    // //==============================================================================
-    // /** soul::filters::tpt::onepole modified for state variable saturation */
-    // namespace OnepoleS
-    // {   
-    //     SampleType[2] process (Onepole::State& s, SampleType x, Onepole::Coeffs& c)
-    //     {
-    //         let vn = (x - s.s) * c.G;
-    //         let lpf = vn + s.s;
-    //         let hpf = x - lpf;
+    //==============================================================================
+    /** Onepole modified for state variable saturation
 
-    //         s.s = vsigmoid (vn + lpf);
-    //         return SampleType[2] (lpf, hpf);
-    //     }
+        Notes:
+        - 2x oversampling recommended
+    */
+    namespace OnepoleS
+    {   
+        struct Coeffs
+        {
+            SampleType b;
+        }
 
-    //     processor Processor (float initialFrequency)
-    //     {
-    //         input stream SampleType in;
-    //         output stream SampleType lowpassOut, highpassOut;
+        void update (Coeffs& c, float drive)
+        {
+            c.b = dBtoGain (drive);
+        }
 
-    //         void run()
-    //         {   
-    //             State s;
-    //             Coeffs c;
+        SampleType[2] process (Onepole::State& s, SampleType x, Coeffs& c)
+        {
+            let v = (x - s.s);
+            let lpf = v + s.s;
+            let hpf = x - lpf;
 
-    //             let Tdiv2 = SampleType (processor.period * 0.5);
+            s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
 
-    //             loop
-    //             {
-    //                 if (recalc)
-    //                 {
-    //                     recalc = false;
+            return SampleType[2] (lpf, hpf);
+        }
 
+        processor Processor (float initialDrive)
+        {
+            input stream SampleType in;
+            output stream SampleType lowpassOut, highpassOut;
 
-    //                 }
+            input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
 
-    //                 loop (updateInterval)
-    //                 {
-    //                     let y = s.process (in, c);
+            event driveIn (float v) { drive = v; recalc = true; }
 
-    //                     lowpassOut << y[0];
-    //                     highpassOut << y[1];
+            float drive = dBtoGain (initialDrive);
+            bool recalc = true;
 
-    //                     advance();
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+            void run()
+            {   
+                Onepole::State s;
+                Coeffs c;
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        c.update (drive);
+                    }
+
+                    loop (updateInterval)
+                    {
+                        let y = s.process (in, c);
+
+                        lowpassOut << y[0];
+                        highpassOut << y[1];
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
     
     //==============================================================================
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
@@ -572,12 +622,6 @@ Effect Components
         struct State
         {
             SampleType[2] z;
-        }
-
-        void reset (State& s)
-        {
-            s.z[0] = SampleType();
-            s.z[1] = SampleType();
         }
 
         SampleType[3] process (State& s, SampleType x, Coeffs& c)
@@ -623,8 +667,6 @@ Effect Components
             }
         }
     }
-
-
 
     //==============================================================================
     /** Anhysteretic inductance (Lan).
@@ -726,14 +768,6 @@ Effect Components
             SampleType x_1;
             SampleType F2_1;
             SampleType F1_1;
-        }
-    
-        void reset (State& s)
-        {
-            s.x_2 = SampleType();
-            s.x_1 = SampleType();
-            s.F2_1 = SampleType();
-            s.F1_1 = SampleType(); 
         }
     
         void update (Coeffs& c, float frequency, float nonlinearity)
@@ -875,6 +909,8 @@ Effect Components
         }
     }
 
+
+
     //==============================================================================
     /** A compressor transfer function (CTF) with color
         
@@ -896,9 +932,9 @@ Effect Components
         void update (Coeffs& c, float threshold, float ratio, float colorHeight, float colorWidth) 
         {
             c.thr = SampleType (threshold);
-            c.divR = SampleType(1.0) / SampleType (ratio);
+            c.divR = SampleType (1.0) / SampleType (ratio);
             c.height = SampleType (colorHeight);
-            c.divWidth = SampleType(1.0) / SampleType (colorWidth);
+            c.divWidth = SampleType (1.0) / SampleType (colorWidth);
         }
     
         SampleType process (SampleType x, Coeffs& c) 
@@ -975,8 +1011,7 @@ Effect Components
         }
     }
 
-
-     //==============================================================================
+    //==============================================================================
     /** Nonlinear branching cutoff for making a nonlinear ballistics filter */
     // namespace BranchingCutoffFK
     // {
@@ -1034,6 +1069,7 @@ Effect Components
     // }
 
     //==============================================================================
+    /** Modulating low pass with two different cutoffs for rising and falling input */
     namespace BallisticsFilter
     {
         graph Processor (float initialAttack,
@@ -1063,7 +1099,7 @@ Effect Components
     }
 
 /*==============================================================================
-High-Level Effects
+High-Level Graphs
 ==============================================================================*/
 
     //==============================================================================
@@ -1104,7 +1140,7 @@ High-Level Effects
         //         }
         //     }
         // }
-
+        
         //==============================================================================
         /** A modified classical compressor sidechain
         
@@ -1131,9 +1167,9 @@ High-Level Effects
             
                 let
                 {
-                    detector = Abs::Processor;
-                    ctf = CTF::Processor(initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
+                    detector = Rectifier::Processor;
                     ballistics = BallisticsFilter::Processor(initialAttack, initialRelease);
+                    ctf = CTF::Processor(initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
                 }
             
                 connection
@@ -1148,6 +1184,8 @@ High-Level Effects
     }
 }
 
+//TODO OnepoleS constant c.G value and use soul::dBtoGain for primitives 
+//TODO combine Onepoles into one nonlinear version
 //TODO library refactor
 //TODO 'soul render' float64 test using ADAA2
 //TODO float64 coeff update
@@ -1155,3 +1193,4 @@ High-Level Effects
 //TODO BBD chorus/delay
 //TODO performance test
 //TODO different linear filter output combos
+//TODO soultest which intrinsics support SIMD

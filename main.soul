@@ -10,6 +10,11 @@ namespace main
         input stream BufferSampleType in;
         output stream BufferSampleType out;
 
+        input
+        {
+            onepoleS.driveIn;
+        }
+
         namespace va = VA(SampleType);
         namespace filt = soul::filters(SampleType);
 
@@ -17,16 +22,16 @@ namespace main
         { 
             //'soul render' only supports float32 primitive type buffers. To process float64, use casting. This is not an issue when 
             //compiling to cpp, wasm, etc using 'soul generate ...' 
-            up = va::PrimitiveCaster(BufferSampleType, SampleType)::Processor;
-            down = va::PrimitiveCaster(SampleType, BufferSampleType)::Processor;
+            up = va::Cast(BufferSampleType, SampleType)::Processor;
+            down = va::Cast(SampleType, BufferSampleType)::Processor;
 
-            dcBlocker = filt::dc_blocker::Processor;
-
+            onepoleS = va::OnepoleS::Processor (20.f) * 8;
         }
 
         connection
         {        
-            in -> up -> dcBlocker -> down -> out;
+            in -> up -> onepoleS.in;
+            onepoleS.lowpassOut -> down -> out;
         }
     }
 }
