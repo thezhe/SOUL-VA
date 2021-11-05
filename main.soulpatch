@@ -5,7 +5,8 @@
         "name": "main",
         "description": "link VA.soul to main.soul",
         "category": "effect",
-        "manufacturer": "Zhe Deng",
+        "manufacturer": "TheZhe",
+        "website": "https://github.com/thezhe/SOUL-VA",
         "isInstrument": false,
         "source": [
             "main.soul",

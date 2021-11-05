@@ -1,38 +1,52 @@
-/** VA.soul test bench */
+/** VA.soul test bench (for use with testMain.m) */
 
 namespace main
 {
-    using BufferSampleType = float32<1>;
-    using SampleType = float64<1>;
+    let initialVolume = 0.f;
+    let initialNonlinearity = 0.f;
 
     graph Processor [[main]]
     {
-        input stream BufferSampleType in;
-        output stream BufferSampleType out;
+        input stream VA::DebugBufferType in;
+        output stream VA::DebugBufferType out;
 
         input
         {
-            onepoleS.driveIn;
-        }
+            event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity ]];
 
-        namespace va = VA(SampleType);
-        namespace filt = soul::filters(SampleType);
+            //expose effect endpoints
+            effect.stereoLinkIn;
+
+            //define manual output volume compensation
+            volumeOut.volumeIn;
+
+            event float resetIn;
+        }
 
         let
         { 
-            //'soul render' only supports float32 primitive type buffers. To process float64, use casting. This is not an issue when 
-            //compiling to cpp, wasm, etc using 'soul generate ...' 
-            up = va::Cast(BufferSampleType, SampleType)::Processor;
-            down = va::Cast(SampleType, BufferSampleType)::Processor;
+            //convert between DebugBufferType and SampleType
+            up = VA::Debug::DebugToSample::Processor;
+            down = VA::Debug::SampleToDebug::Processor;
 
-            onepoleS = va::OnepoleS::Processor (20.f) * 8;
+            //define effect
+            effect = VA::HighLevel::OnepoleC_Lan::Processor (275.f);
+
+            volumeOut = VA::Common::Volume::Processor (initialVolume, 0.1f, VA::Internal::AutoVolume::Patterns::OnepoleC_Lan);
         }
 
         connection
-        {        
-            in -> up -> onepoleS.in;
-            onepoleS.lowpassOut -> down -> out;
+        {       
+            in -> up -> effect.in;
+            
+            nonlinearityIn -> effect.nonlinearityIn;
+            nonlinearityIn ->  volumeOut.parameterIn;
+            
+            resetIn -> effect.resetIn;
+
+            effect.out -> volumeOut.in;
+            
+            volumeOut.out -> down -> out;
         }
     }
 }
-

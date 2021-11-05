@@ -17,6 +17,15 @@
 %    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 %%
 
+%% Task List
+%
+% test selection
+% test signal < 0.01
+% -60 dB or less aliasing for inputs with peak -6dB, any parameter combination
+% verify FFT weights
+%%
+
+%% IMPORTANT: The SOUL CLI (soul.exe) must be part of the system PATH
 function testMain(fs)
   %%  A script that runs test cases on 'main.soulpatch'
   % 
@@ -73,6 +82,8 @@ function testMain(fs)
     genImpulse();
     genSinSweep();
     genBSin();
+    genSin1k();
+    genZerosSin1k();
   endfunction
   
   function genOutputs()
@@ -86,6 +97,8 @@ function testMain(fs)
     renderSoul('outputs/Impulse.wav', 'inputs/Impulse.wav');
     renderSoul('outputs/SinSweep.wav', 'inputs/SinSweep.wav');
     renderSoul('outputs/Bsin.wav', 'inputs/BSin.wav');
+    renderSoul('outputs/Sin1k.wav', 'inputs/Sin1k.wav');
+    renderSoul('outputs/ZerosSin1k.wav', 'inputs/ZerosSin1k.wav');
 
     function renderSoul(target_file, source_audio_file)
       system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(fs) ' --bitdepth=24 main.soulpatch']); 
@@ -105,21 +118,43 @@ function testMain(fs)
     plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'dBRamp', 2, [1, 2, 1]);
     plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp', 2, [1, 2, 2]);
     plotBode('outputs/Impulse.wav', 'Impulse', 3, [2, 1, 1]);
-    plotSpec('outputs/SinSweep.wav', 'SinSweep', 4, [1, 1, 1]);
+    plotSpec('outputs/SinSweep.wav', false, 'SinSweep (grayscale)', 4, [1, 2, 1]);
+    plotSpec('outputs/SinSweep.wav', true, 'SinSweep (BW)', 4, [1, 2, 2]);
 
     isStable('outputs/Pulse.wav');
     isStable('outputs/Impulse.wav');
     isStable('outputs/SinRamp.wav');
+    isStable('outputs/SinSweep.wav');
     isStable('outputs/BSin.wav');
+    isStable('outputs/Sin1k.wav');
+    isStable('outputs/ZerosSin1k.wav');
+    
+    #the output dB difference is the max gain compensation needed across all frequencies
+    gainDiff ('outputs/SinSweep.wav', 'inputs/SinSweep.wav'); 
     
     function isStable(file)
-      %%  Print a warning if any samples > 0.9
+      %%  Print a warning if any samples > 0.99 or < 0.01
 
       [y, ~] = audioread(file);
       
-      if (any(abs(y) > 0.9))
-        printf("%s: Output is unstable or significantly increases peak level. \n", file);
+      if (any(abs(y) > 0.99))
+        printf("%s: Output is unstable or increases peak level to clipping.\n", file);
       endif
+
+      if (max(y) < 0.01)
+        printf("%s: Output is very quite or slient.\n", file);
+      endif 
+    endfunction
+
+    function gainDiff (file2, file1)
+      %% Find change in peak amplitude between input and output
+      [y, ~] = audioread(file2);
+      [x, ~] = audioread(file1); #assume input is normalized to 0.5
+
+      dBDiff = gainTodB (max(y) / 0.5);
+
+      printf("Approximate output/input peak amplitude change is %f dB.\n", dBDiff);
+ 
     endfunction
   endfunction
   
@@ -193,13 +228,13 @@ function testMain(fs)
     %% Generate a sin sweep from 20 to 20kHz
     % 
     % Notes:
-    % Tests: harmonic/inharmonic distortion and aliasing ('outputs/SinSweep.wav' spectrogram), stability
+    % Tests: harmonic/inharmonic distortion and aliasing ('outputs/SinSweep.wav' spectrogram), peak amplitude change, stability
     % Length: 10 seconds
     %%
 
     t = 0:1/fs:10;
 
-    y = chirp(t, 20, 11, 20000);
+    y = 0.5 * chirp(t, 20, 11, 20000);
     
     audiowrite('inputs/SinSweep.wav', y, fs, 'BitsPerSample', 24);
   endfunction
@@ -222,6 +257,45 @@ function testMain(fs)
     y = A.*sin(wd*n);
 
     audiowrite('inputs/SinRamp.wav', y, fs, 'BitsPerSample', 24);
+  endfunction
+
+  function genSin1k()
+    %% Generate a 1kHz sin
+    % 
+    % Notes:
+    % - Length: 1 second
+    % - Tests: stability
+    %%
+
+    n = 0:ceil(fs-1);
+
+    wd = pi*2000/fs;
+
+    y = 0.5 * sin (wd*n);
+
+    audiowrite('inputs/Sin1k.wav', y, fs, 'BitsPerSample', 24);
+  endfunction
+
+  function genZerosSin1k()
+    %% Generate 0.5 seconds of zeros followed by 0.5 seconds of Sin1k
+    % 
+    % Notes:
+    % - Length: 1 second
+    % - Tests: stability
+    %%
+
+    half = ceil((fs-1)/2);
+
+    n = 0:half;
+
+    y = zeros (1, 2*half);
+
+    wd = pi*2000/fs;
+
+    y(half:end) = 0.5 * sin (wd * n);
+
+    audiowrite('inputs/ZerosSin1k.wav', y, fs, 'BitsPerSample', 24);
+
   endfunction
   
 %%==============================================================================
@@ -292,7 +366,7 @@ function testMain(fs)
     hold off
   endfunction
 
-  function plotSpec(file, ttl, fig, sp)
+  function plotSpec(file, binary, ttl, fig, sp)
     %%  Plot a spectrogram of a file
 
     [x, fs] = audioread(file);
@@ -305,8 +379,13 @@ function testMain(fs)
     S = S((f>=20 & f <= 20000), :);
     S = abs(S)./(max(max(abs(S))));
     
-    %clamp to [0dB, -80dB]
-    S(abs(S)<0.0001) = 0.0001;
+    %Black and white binary image
+    if (binary)
+      S(abs(S) > 0.001) = 1;
+    endif
+
+    %clamp to [-60, 0dB]
+    S(abs(S)<0.001) = 0.001;
     
     %spectogram
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);

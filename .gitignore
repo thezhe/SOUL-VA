@@ -1,5 +1,6 @@
 inputs/
 outputs/
 *.wav
+*.h
 *.cpp
 *.png
