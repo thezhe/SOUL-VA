@@ -3,7 +3,7 @@
 namespace main
 {
     let initialVolume = 0.f;
-    let initialNonlinearity = 0.f;
+    let initialNonlinearity = 275.f;
 
     graph Processor [[main]]
     {
@@ -12,15 +12,11 @@ namespace main
 
         input
         {
-            event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity ]];
-
             //expose effect endpoints
+            event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity, step: 1]];
             effect.stereoLinkIn;
 
-            //define manual output volume compensation
-            volumeOut.volumeIn;
-
-            event float resetIn;
+           // volumeOut.volumeIn;
         }
 
         let
@@ -30,23 +26,19 @@ namespace main
             down = VA::Debug::SampleToDebug::Processor;
 
             //define effect
-            effect = VA::HighLevel::OnepoleC_Lan::Processor (275.f);
+            effect = VA::HighLevel::OnepoleC_Lan::Processor (initialNonlinearity);
 
-            volumeOut = VA::Common::Volume::Processor (initialVolume, 0.1f, VA::Internal::AutoVolume::Patterns::OnepoleC_Lan);
+            //define output volume
+          //  volumeOut = VA::Common::Volume::Processor (VA::AutoVolume::Modes::OnepoleC_Lan);
         }
 
         connection
         {       
             in -> up -> effect.in;
+            effect.out -> down -> out;
             
-            nonlinearityIn -> effect.nonlinearityIn;
-            nonlinearityIn ->  volumeOut.parameterIn;
-            
-            resetIn -> effect.resetIn;
-
-            effect.out -> volumeOut.in;
-            
-            volumeOut.out -> down -> out;
+            //auto volume parameter
+            nonlinearityIn -> effect.nonlinearityIn;//, volumeOut.parameterIn;
         }
     }
 }

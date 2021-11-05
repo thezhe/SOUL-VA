@@ -40,7 +40,7 @@
     Future Tasks:
     - initialization lists only for Processors and not namespaces
     - state reset event input
-    - refactor snippets, fix adaa and add init to va::processor
+    - refactor snippets, fix adaa and add init to va::processor, namespace constants, process(..., const Coeffs&)
     - SVF/OnepoleS/Compressor Components refactor and use
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
     - BBD chorus/delay
@@ -69,7 +69,6 @@ High-Level Processors
                 {
                     internal.nonlinearityIn;
                     stereoLink.stereoLinkIn;
-                    internal.resetIn;
                 }
         
                 let
@@ -144,7 +143,7 @@ High-Level Processors
         /** Set the volume in dB via VA::SmoothedParameter */
         namespace Volume
         {
-            graph Processor (float initialVolume, float slewRateSeconds = 0.1f, int initialPattern = -1)
+            graph Processor (int Mode, float slewRateSeconds = 0.1f)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -157,9 +156,9 @@ High-Level Processors
         
                 let
                 {
-                    autoVolume = Internal::AutoVolume::Processor (initialVolume, initialPattern);
+                    autoVolume = AutoVolume::Processor (Mode);
 
-                    smoothedGain = SmoothedParameter::Processor (initialVolume, slewRateSeconds,  1);
+                    smoothedGain = SmoothedParameter::Processor (AutoVolume::ModeInfo(Mode)::InitialVolume, slewRateSeconds,  1);
                     multiplier = Multiplier::Processor;
                 }
         
@@ -193,7 +192,7 @@ High-Level Processors
                 c.mix = mix;
             }
         
-            SampleType process (SampleType in1, SampleType in2, Coeffs& c)
+            SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
             {
                 if (c.mix == 0.f)
                     return in1;
@@ -246,7 +245,7 @@ High-Level Processors
 High-Level Helper Processors
 ==============================================================================*/
 
-    /** Internal Processors made for 'VA::HighLevel' and 'VA::Common'*/
+    /** Internal Processors made for 'VA::HighLevel'*/
     namespace Internal
     {
         namespace OnepoleC_Lan 
@@ -259,7 +258,6 @@ High-Level Helper Processors
                 input
                 {
                     L.nonlinearityIn;
-                    L.resetIn;
                 }
 
                 let
@@ -280,106 +278,6 @@ High-Level Helper Processors
                 }
             }
         }    
-
-        //==============================================================================
-        /** Automatic output volume compensation for VA::HighLevel Processors 
-    
-        pattern:
-        - 0: for use with OnepoleC_Lan and the nonlinearity parameter
-        */
-        namespace AutoVolume
-        {   
-            struct Coeffs
-            {
-                bool auto;
-                float[MAX_ARRAY_SIZE] pts;
-            }
-            
-            struct State
-            {
-                float prevParam;
-            }
-
-            namespace Patterns
-            {
-                let None = -1;
-                let OnepoleC_Lan = 0;
-                let Size = 1;
-            }
-
-            namespace MinVolumes
-            {
-                let None = -12.f;
-                let OnepoleC_Lan = -6.1f;
-            }
-
-            float processOnepoleC_Lan (float x, Coeffs& c)
-            {
-                    return c.pts.readLinearInterpolated (min (x * (float (c.pts.size - 1)/60.f), float (c.pts.size)));
-            }
-        
-            void initializeOnepoleC_Lan (Coeffs& c)
-            {
-                    c.pts = float[8] ( -0.f, -1.f, -2.f, -3.5f, -3.5f, -3.5f, -3.5f, -3.5f);
-            }
-
-            processor Processor (float initialVolume = 0.f, int initialPattern = Patterns::None, bool initialAutoVolume = true)
-            {
-                input event float parameterIn; //auto mode only
-                output event float volumeOut;
-
-                input event float volumeIn [[name: "Volume", min: MinVolumes::OnepoleC_Lan, max: 0, init: initialVolume, step: 0.1, unit: "dB"]];
-
-                Coeffs c;
-                State s;
-
-                void initialize (Coeffs& c)
-                {
-                    if const (initialPattern == Patterns::OnepoleC_Lan)
-                        initializeOnepoleC_Lan (c);
-                }
-
-                float process (float x, Coeffs& c)
-                {
-                    if const (initialPattern == Patterns::OnepoleC_Lan)
-                        return processOnepoleC_Lan (x, c);
-                    else if const (initialPattern == Patterns::None)
-                        return x;
-                }
-
-                event parameterIn (float v) 
-                { 
-                    s.prevParam = v;
-                    if (c.auto)
-                        volumeOut << process (v, c); 
-                }
-
-                event volumeIn (float v)
-                {
-                    if (v < (MinVolumes::OnepoleC_Lan + 0.1f))
-                    {
-                        volumeOut << process (s.prevParam, c);
-                        c.auto = true;
-                    }
-                    else
-                    {
-                        c.auto = false;
-                        volumeOut << v;
-                    }
-                }
-
-                void init ()
-                {
-                    c.initialize();
-                }
-
-                void run() 
-                { 
-                    advance();
-                }
-            }
-        }
-
     } //namespace Internal
 
     /** Tools for CLI debugging */
@@ -401,7 +299,7 @@ High-Level Helper Processors
                 c.power = bool (power); 
             }
         
-            SampleType process (SampleType dry, SampleType wet, Coeffs& c)
+            SampleType process (SampleType dry, SampleType wet, const Coeffs& c)
             {
                 if (c.power)
                     return wet;
@@ -521,17 +419,17 @@ Effect-Specific Processors
             c.N = nonlinearity;
         }    
     
-        SampleType f (SampleType x, Coeffs& c)
+        SampleType f (SampleType x, const Coeffs& c)
         {
             return vpowi (c.N * vabs (x) + SampleType (1.0), 2);
         }
     
-        SampleType F1 (SampleType x, Coeffs& c)
+        SampleType F1 (SampleType x, const Coeffs& c)
         {
             return vpowi (x, 3) * vpowi (c.N, 2) * SampleType (1.0 / 3.0) + c.N * vpowi (x, 2) * vsgn (x) + x;
         }
     
-        SampleType F2 (SampleType x, Coeffs& c)
+        SampleType F2 (SampleType x, const Coeffs& c)
         {
             return vpowi (x, 2) * (SampleType (0.5) + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpowi (c.N, 2) * SampleType (1.0 / 12.0) * vpowi (x, 2));
         }
@@ -552,7 +450,7 @@ Effect-Specific Processors
             s.F1_1 = ZERO;
         }
 
-        SampleType processADAA2 (State& s, SampleType x, Coeffs& c)
+        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
         {
             //Find F1_0
             
@@ -588,7 +486,7 @@ Effect-Specific Processors
             return f_0;
         }
     
-        SampleType processADAA1 (State& s, SampleType x, Coeffs& c)
+        SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)
         {
             //Find f_0
             let x_0mx_1 = x - s.x_1;
@@ -605,7 +503,7 @@ Effect-Specific Processors
             return f_0;
         }
     
-        SampleType process (State& s, SampleType x, Coeffs& c)
+        SampleType process (State& s, SampleType x, const Coeffs& c)
         {
             return s.processADAA2 (x, c);
         }
@@ -616,10 +514,8 @@ Effect-Specific Processors
             output stream SampleType Omega;
 
             input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity ]];
-            input event float resetIn [[ name: "Reset Internal State", hidden ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
-            event resetIn (float v) { s.reset(); }
             
             float nonlinearity = initialNonlinearity;
             bool recalc = true;
@@ -678,7 +574,7 @@ Effect-Specific Processors
             c.divWidth = SampleType (1.0) / SampleType (colorWidth);
         }
     
-        SampleType process (SampleType x, Coeffs& c) 
+        SampleType process (SampleType x, const Coeffs& c) 
         {
             const SampleType xdB = vgainTodB(x);
 
@@ -759,7 +655,7 @@ Effect-Specific Processors
     //         Lan::updateStep(c.release, release, nonlinearity);
     //     }
 
-    //     SampleType process (SampleType x, SampleType y, Coeffs& c) 
+    //     SampleType process (SampleType x, SampleType y, const Coeffs& c) 
     //     {
     //         return x > y ? Lan::process(x, c.attack) : Lan::process(x, c.release);   
     //     }
@@ -832,7 +728,7 @@ Effect-Specific Processors
     }
 
 /*==============================================================================
-Nonlinear TPT Filter Processors
+Nonlinear Recursive Processors
 ==============================================================================*/
 
     /** Onepole modified for cutoff modulation via an input stream
@@ -893,7 +789,7 @@ Nonlinear TPT Filter Processors
             c.b = soul::dBtoGain (drive);
         }
 
-        SampleType[2] process (Onepole::State& s, SampleType x, Coeffs& c)
+        SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
         {
             let v = (x - s.s);
             let lpf = v + s.s;
@@ -947,7 +843,7 @@ Nonlinear TPT Filter Processors
     }
 
 /*==============================================================================
-Linear TPT Filter Processors
+Linear Recursive Processors
 ==============================================================================*/
 
     /** SOUL-VA's version of soul::filters::tpt::onepole  
@@ -968,7 +864,7 @@ Linear TPT Filter Processors
             SampleType s;
         }
 
-        SampleType[2] process (State& s, SampleType x, Coeffs& c)
+        SampleType[2] process (State& s, SampleType x, const Coeffs& c)
         {
             let v = (x - s.s) * c.G;
             let lpf = v + s.s;
@@ -1041,7 +937,7 @@ Linear TPT Filter Processors
             c.m = int (mode);
         }
     
-        SampleType process (SampleType hpf, SampleType lpf, Coeffs& c)
+        SampleType process (SampleType hpf, SampleType lpf, const Coeffs& c)
         {
             if (c.m == 0)
                 return hpf;
@@ -1109,7 +1005,7 @@ Linear TPT Filter Processors
             SampleType[2] z;
         }
 
-        SampleType[3] process (State& s, SampleType x, Coeffs& c)
+        SampleType[3] process (State& s, SampleType x, const Coeffs& c)
         {
             let hpf = c.a0 * (x - c.p * s.z[0] - s.z[1]);
             let bpf = c.a * hpf + s.z[0];
@@ -1157,6 +1053,90 @@ Linear TPT Filter Processors
 Common Internal Processors
 ==============================================================================*/
 
+    
+
+    /** Automatic/manual output volume compensation for VA::HighLevel Processors 
+
+        pattern:
+        - 0: for use with OnepoleC_Lan and the nonlinearity parameter
+    */
+    namespace AutoVolume
+    {   
+        struct State
+        {
+            float prevVol;
+            float prevParam;
+        }
+
+        namespace Modes
+        {
+            let None = 0;
+            let OnepoleC_Lan = 1;
+            let NumModes = 2;
+        }
+
+        namespace ModeInfo (int Mode = Modes::None)
+        {
+           // static_assert ((Mode < NumModes && Mod), "Auto Volume Mode must be less than Modes::NumModes.");
+
+            let MaxVolume = (Mode == Modes::None ? 12.f : 0.f);
+            let MinVolume = (Mode == Modes::None ? -12.f : -6.1f);
+            let InitialVolume = (Mode == Modes::None ? 0.f : MinVolume);
+            let MinManualVolume = (Mode == Modes::None ? -inf : MinVolume + 0.1f);
+            let PtsSize = (Mode == Modes::None ? 1 : 4);
+            let Pts = (Mode == Modes::None ? float[PtsSize] (0) : float[PtsSize] (-0.f, -1.f, -2.f, -3.5f));
+
+            float process (float x, float[] pts)
+            {
+                if const (Mode == Modes::None)
+                    return x;
+                else if const (Mode == Modes::OnepoleC_Lan)
+                    return pts.readLinearInterpolated (min (x * 0.1f, 3.f));
+            }
+        }
+
+        processor Processor (int Mode = Modes::None)
+        {
+            input event float parameterIn; //auto mode only
+            output event float volumeOut;
+
+            input event float volumeIn [[name: "Volume", min: ModeInfo(Mode)::MinVolume, max: ModeInfo(Mode)::MaxVolume, init: ModeInfo(Mode)::InitialVolume, step: 0.1, unit: "dB"]];
+
+            namespace M = ModeInfo(Mode);
+            
+            let pts = M::Pts;
+            State s;
+
+            float process (float x)
+            {
+                return M::process (x, pts);
+            }
+
+            event parameterIn (float v) 
+            { 
+                s.prevParam = v;
+
+                if (s.prevVol < M::MinManualVolume)
+                    volumeOut << process (s.prevParam); 
+            }
+
+            event volumeIn (float v)
+            {
+                s.prevVol = v;
+                
+                if (v < M::MinManualVolume)
+                    volumeOut << process (s.prevParam);
+                else
+                    volumeOut << v;
+            }
+
+            void run() 
+            { 
+                advance();
+            }
+        }
+    }
+
     /** Set a each vector element equal to a weighted average with all other elements */
     namespace StereoLink
     {   
@@ -1172,7 +1152,7 @@ Common Internal Processors
             c.stereoLink = stereoLink;
         }
     
-        SampleType process (SampleType x, Coeffs& c)
+        SampleType process (SampleType x, const Coeffs& c)
         {
             if (c.stereoLink == 0.f)
                 return x;
@@ -1237,7 +1217,7 @@ Common Internal Processors
             c.stereoLink = bool (stereoLink);
         }
     
-        SampleType process (SampleType x, Coeffs& c)
+        SampleType process (SampleType x, const Coeffs& c)
         {
             return (c.stereoLink ? SampleType (x.sum()/x.size) : x);
         }
@@ -1565,3 +1545,4 @@ Constants
     namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
 } //namespace VA
+
