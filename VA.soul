@@ -36,14 +36,13 @@
 
     Current Tasks:
     - double check LanADAA
+    - BBD chorus/vibrato/flanger/delay/echo with compression and NL moog ladder
 
     Future Tasks:
     - initialization lists only for Processors and not namespaces
-    - state reset event input
-    - refactor snippets, fix adaa and add init to va::processor, namespace constants, process(..., const Coeffs&)
+    - refactor snippets, fix adaa, namespace constants, process(..., const Coeffs&)
     - SVF/OnepoleS/Compressor Components refactor and use
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
-    - BBD chorus/delay
     - state saturation
     - fix all vlt and vgt to viflt and vifgt
 */
@@ -51,7 +50,7 @@
 namespace VA 
 {
 /*==============================================================================
-High-Level Processors
+SOUL-VA Interface
 ==============================================================================*/
 
     /** High-level Processors made using the 'VA' and 'soul' namespaces */
@@ -76,7 +75,7 @@ High-Level Processors
                     dcBlocker = filt::dc_blocker::Processor (5.f);
                     stereoLink = StereoLink::Processor (initialStereoLink);
 
-                    internal = Internal::OnepoleC_Lan::Processor (initialNonlinearity) * 2;
+                    internal = Internal::Processor (initialNonlinearity) * 2;
 
                     onepoleMixer = OnepoleMixer::Processor (2);
                 }
@@ -93,44 +92,141 @@ High-Level Processors
                     onepoleMixer.out -> out;
                 }
             }
+
+            namespace Internal 
+            {
+                graph Processor (float initialNonlinearity = 0.f)
+                {
+                    input stream SampleType in, Lin;
+                    output stream SampleType highpassOut, lowpassOut;
+            
+                    input
+                    {
+                        L.nonlinearityIn;
+                    }
+
+                    let
+                    {
+                        L = LanADAA::Processor (initialNonlinearity);
+                        onepoleC = OnepoleC::Processor;
+                    }
+            
+                    connection
+                    {
+                        in -> onepoleC.in;
+
+                        Lin -> L.in;
+                        L.Omega -> onepoleC.Omega;
+
+                        onepoleC.highpassOut -> highpassOut;
+                        onepoleC.lowpassOut -> lowpassOut;
+                    }
+                }
+            }    
         }
         
         /** A modified classical compressor sidechain
         
-            Notes:
-            - Maps sample to sample.
-            - Nonlinear, time-invariant, and stateful.
-            - 3 sidechain blocks:
-            * Detector: ideal rectifier
-            * Envelope Filter: nonlinear ballistics filter
-            * Compressor Transfer Function: hard-knee with color  
+            3 sidechain blocks:
+            - Detector: ideal rectifier
+            - Envelope Filter: nonlinear ballistics filter based on Lan
+            - Compressor Transfer Function: hard-knee with color  
         */
-        namespace Sidechain
+        // namespace DynamicsProcessor_Lan_Color
+        // {
+        //     graph Processor (float initialThreshold,
+        //                     float initialRatio,
+        //                     float initialColorHeight,
+        //                     float initialColorWidth,
+        //                     float initialAttack,
+        //                     float initialRelease,
+        //                     float initialNonlinearity)
+        //     {
+        //         input stream SampleType in;
+        //         output stream SampleType out;
+            
+        //         input
+        //         {
+        //             ballisticsFilter.attackIn;
+        //             ballisticsFilter.releaseIn;
+        //             stereoLink.stereoLinkIn;
+        //             ctf.thresholdIn;
+        //             ctf.ratioIn;
+        //             ctf.colorHeight;
+        //             ctf.colorWidth;
+        //         }
+
+        //         let
+        //         {
+        //             detector = Abs::Processor;
+        //             ballisticsFilter = BallisticsFilter_Lan::Processor (initialAttack, initialRelease);
+        //             stereoLink = StereoLink::Processor;
+        //             ctf = CTF_Color::Processor (initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
+        //         }
+            
+        //         connection
+        //         {
+        //             in -> detector.in;
+        //             detector.out -> ballistics.in;
+        //             ballistics.out -> stereoLinkIn;
+        //             stereoLink.out -> ctf.in;
+        //             ctf.out -> out;
+        //         }
+        //     }
+        // }
+
+        /** A modified downward compressor/ upward expander 
+        
+            3 sidechain blocks:
+            - Detector: ideal rectifier
+            - Envelope Filter: nonlinear ballistics filter based on Lan
+            - Compressor Transfer Function: hard-knee 
+        */
+        namespace DynamicsProcessor_Lan
         {
-            graph Processor (float initialThreshold,
-                        float initialRatio,
-                        float initialColorHeight,
-                        float initialColorWidth,
-                        float initialAttack,
-                        float initialRelease,
-                        float initialNonlinearity)
+            graph Processor (float initialAttack,
+                            float initialAttackNonlinearity,
+                            float initialRelease,
+                            float initialReleaseNonlinearity,
+                            float initialStereoLink,
+                            float initialThreshold,
+                            float initialRatio1,
+                            float initialRatio2)
             {
                 input stream SampleType in;
                 output stream SampleType out;
             
+                input
+                {
+                    ballisticsFilter_Lan.attackIn;
+                    ballisticsFilter_Lan.attackNonlinearityIn;
+                    ballisticsFilter_Lan.releaseIn;
+                    ballisticsFilter_Lan.releaseNonlinearityIn;
+                    stereoLink.stereoLinkIn;
+                    ctf.thresholdIn;
+                    ctf.ratio1In;
+                    ctf.ratio2In;
+                }
+
                 let
                 {
-                    detector = Abs::Processor;
-                    ballistics = BallisticsFilter::Processor(initialAttack, initialRelease);
-                    ctf = CTF::Processor(initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
+                    abs_ = Abs::Processor;
+                    ballisticsFilter_Lan = BallisticsFilter_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
+                    stereoLink = StereoLink::Processor (initialStereoLink);
+                    ctf = CTF::Processor (initialThreshold, initialRatio1, initialRatio2);
+                    multiplier = Multiplier::Processor;
                 }
             
                 connection
                 {
-                    in -> detector.in;
-                    detector.out -> ballistics.in;
-                    ballistics.out -> ctf.in;
-                    ctf.out -> out;
+                    in -> abs_.in, multiplier.in1;
+
+                    abs_.out -> ballisticsFilter_Lan.in;
+                    ballisticsFilter_Lan.out -> stereoLink.in;
+                    stereoLink.out -> ctf.in;
+                    ctf.out -> multiplier.in2;
+
+                    multiplier -> out;
                 }
             }
         }
@@ -240,45 +336,6 @@ High-Level Processors
             }
         }
     } //namespace Common
-
-/*==============================================================================
-High-Level Helper Processors
-==============================================================================*/
-
-    /** Internal Processors made for 'VA::HighLevel'*/
-    namespace Internal
-    {
-        namespace OnepoleC_Lan 
-        {
-            graph Processor (float initialNonlinearity = 0.f)
-            {
-                input stream SampleType in, Lin;
-                output stream SampleType highpassOut, lowpassOut;
-        
-                input
-                {
-                    L.nonlinearityIn;
-                }
-
-                let
-                {
-                    L = LanADAA::Processor (initialNonlinearity);
-                    onepoleC = OnepoleC::Processor;
-                }
-        
-                connection
-                {
-                    in -> onepoleC.in;
-
-                    Lin -> L.in;
-                    L.Omega -> onepoleC.Omega;
-
-                    onepoleC.highpassOut -> highpassOut;
-                    onepoleC.lowpassOut -> lowpassOut;
-                }
-            }
-        }    
-    } //namespace Internal
 
     /** Tools for CLI debugging */
     namespace Debug
@@ -398,350 +455,275 @@ High-Level Helper Processors
     } //namespace Debug
 
 /*==============================================================================
-Effect-Specific Processors
+Effect-Specific Stateful Processors
 ==============================================================================*/
-   
-    /** Anhysteretic RL circuit cutoff 
     
-        Notes:
-        - optimized for use with OnepoleC
-        - If sampling rate is 44.1kHz, use 2x oversampling
+    /** Automatic/manual output volume compensation for VA::HighLevel Processors 
+
+        pattern:
+        - 0: for use with OnepoleC_Lan and the nonlinearity parameter
     */
-    namespace LanADAA
+    namespace AutoVolume
     {   
-        struct Coeffs
-        {
-            SampleType N;
-        }
-    
-        void update (Coeffs& c, SampleType nonlinearity)
-        {
-            c.N = nonlinearity;
-        }    
-    
-        SampleType f (SampleType x, const Coeffs& c)
-        {
-            return vpowi (c.N * vabs (x) + SampleType (1.0), 2);
-        }
-    
-        SampleType F1 (SampleType x, const Coeffs& c)
-        {
-            return vpowi (x, 3) * vpowi (c.N, 2) * SampleType (1.0 / 3.0) + c.N * vpowi (x, 2) * vsgn (x) + x;
-        }
-    
-        SampleType F2 (SampleType x, const Coeffs& c)
-        {
-            return vpowi (x, 2) * (SampleType (0.5) + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpowi (c.N, 2) * SampleType (1.0 / 12.0) * vpowi (x, 2));
-        }
-    
         struct State
         {
-            SampleType x_2;
-            SampleType x_1;
-            SampleType F2_1;
-            SampleType F1_1;
-        }
-    
-        void reset (State& s)
-        {
-            s.x_2 = ZERO;
-            s.x_1 = ZERO;
-            s.F2_1 = ZERO;
-            s.F1_1 = ZERO;
+            float prevVol;
+            float prevParam;
         }
 
-        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
+        namespace Modes
         {
-            //Find F1_0
+            let None = 0;
+            let OnepoleC_Lan = 1;
+            let NumModes = 2;
+        }
+
+        namespace ModeInfo (int Mode = Modes::None)
+        {
+           // static_assert ((Mode < NumModes && Mod), "Auto Volume Mode must be less than Modes::NumModes.");
+
+            let MaxVolume = (Mode == Modes::None ? 12.f : 0.f);
+            let MinVolume = (Mode == Modes::None ? -12.f : -6.1f);
+            let InitialVolume = (Mode == Modes::None ? 0.f : MinVolume);
+            let MinManualVolume = (Mode == Modes::None ? -inf : MinVolume + 0.1f);
+            let PtsSize = (Mode == Modes::None ? 1 : 4);
+            let Pts = (Mode == Modes::None ? float[PtsSize] (0) : float[PtsSize] (-0.f, -1.f, -2.f, -3.5f));
+
+            float process (float x, float[] pts)
+            {
+                if const (Mode == Modes::None)
+                    return x;
+                else if const (Mode == Modes::OnepoleC_Lan)
+                    return pts.readLinearInterpolated (min (x * 0.1f, 3.f));
+            }
+        }
+
+        processor Processor (int Mode = Modes::None)
+        {
+            input event float parameterIn; //auto mode only
+            output event float volumeOut;
+
+            input event float volumeIn [[name: "Volume", min: ModeInfo(Mode)::MinVolume, max: ModeInfo(Mode)::MaxVolume, init: ModeInfo(Mode)::InitialVolume, step: 0.1, unit: "dB"]];
+
+            namespace M = ModeInfo(Mode);
             
-            let x_0mx_1 = x - s.x_1;
-            let F2_0 = F2 (x, c);
-    
-            let F1_0 = viflt (F1 (SampleType (0.5) * (x + s.x_1), c), 
-                (F2_0 - s.F2_1) / x_0mx_1,
-                vabs (x_0mx_1), ADAA_TOL);
-    
-            //Find f_0
-            let x_0mx_2 = x - s.x_2;
-    
-            let xBar = SampleType (0.5) * (x + s.x_2);
-            let delta = xBar - x;
-    
-            let f_0 = viflt (
-                viflt (
-                    F1 (SampleType (0.5) * (xBar + x), c),
-                    (SampleType (2.0) / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta),
-                    vabs (delta), ADAA_TOL
-                ),
-                (SampleType (2.0) / (x_0mx_2)) * (F1_0 - s.F1_1),
-                vabs (x_0mx_2), ADAA_TOL
-            );
-    
-            //update s
-            s.x_2 = s.x_1;
-            s.x_1 = x;
-            s.F2_1 = F2_0;
-            s.F1_1 = F1_0;
-    
-            return f_0;
-        }
-    
-        SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)
-        {
-            //Find f_0
-            let x_0mx_1 = x - s.x_1;
-            let F1_0 = F1 (x, c);
-    
-            let f_0 = viflt (f (SampleType (0.5) * (x + s.x_1), c), 
-                (F1_0 - s.F1_1) / x_0mx_1,
-                vabs (x_0mx_1), ADAA_TOL);
-    
-            //update s
-            s.x_1 = x;
-            s.F1_1 = F1_0;
-    
-            return f_0;
-        }
-    
-        SampleType process (State& s, SampleType x, const Coeffs& c)
-        {
-            return s.processADAA2 (x, c);
-        }
-    
-        processor Processor (float initialNonlinearity = 0.f)
-        {
-            input stream SampleType in;
-            output stream SampleType Omega;
-
-            input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity ]];
-
-            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
-            
-            float nonlinearity = initialNonlinearity;
-            bool recalc = true;
-
+            let pts = M::Pts;
             State s;
+
+            float process (float x)
+            {
+                return M::process (x, pts);
+            }
+
+            event parameterIn (float v) 
+            { 
+                s.prevParam = v;
+
+                if (s.prevVol < M::MinManualVolume)
+                    volumeOut << process (s.prevParam); 
+            }
+
+            event volumeIn (float v)
+            {
+                s.prevVol = v;
+                
+                if (v < M::MinManualVolume)
+                    volumeOut << process (s.prevParam);
+                else
+                    volumeOut << v;
+            }
+
+            void run() 
+            { 
+                advance();
+            }
+        }
+    }
+    
+    /** Map input events to a smoothed output stream; Modified version of soul::gain::SmoothedGainParameter
+
+        Notes:
+        - parameterIn requires an annotation (no default annotation)
+        - modes:
+            *0: linear scale
+            *1: dB scale
+    */    
+    namespace SmoothedParameter
+    {
+        processor Processor (float initialTarget, float slewRateSeconds = 0.1f, int mode = 0)
+        {
+            input event float parameterIn;
+            output stream SampleType out;
+
+            SampleType target;
+            SampleType current;
+            SampleType increment = SampleType (0);
+            int remainingRampSamples = 0;
+           
+            SampleType divMaxDelta;
+
+            void init()
+            {
+                current = SampleType (mode == 0 ? initialTarget : soul::dBtoGain (initialTarget));
+                divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
+            }
+
+            event parameterIn (float v)
+            {
+                if const (mode == 0)
+                    target = v;
+                else
+                    target = vdBtoGain (v);
+
+                remainingRampSamples = int (vclamp (1, inf32)::process (vabs (target - current) * divMaxDelta) [0]);
+                increment = (target - current) / SampleType (remainingRampSamples);
+            }
 
             void run()
             {
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
                 loop
                 {
-                    if (recalc)
+                    if (remainingRampSamples != 0)
                     {
-                        recalc = false;
-
-                        c.update (nonlinearity);
-                        s.reset();
+                        if (--remainingRampSamples == 0)
+                            current = target;
+                        else
+                            current += increment;
                     }
 
-                    loop (updateIntervalSamples)
-                    {
-                        Omega << (SampleType (twoPi - 1) + s.process (in, c));
+                    out << current;
 
-                        advance();
-                    }
+                    advance();
                 }
             }
         }
     }
 
-    /** A compressor transfer function (CTF) with color
-        
-        Notes:
-        - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color
-        - See https://ocw.mit.edu/courses/mathematics/18-01sc-single-variable-calculus-fall-2010/1.-differentiation/part-falseStatement-implicit-differentiation-and-inverse-functions/session-15-implicit-differentiation-and-inverse-functions/MIT18_01SCF10_Ses15b.pdf
-        - See https://blog.audio-tk.com/2015/09/08/audio-toolkit-additional-gain-functions/
-    */
-    namespace CTF
+    /** OnepoleC with differing cutoff depending on rising/falling output relative to stored output (feedback)*/
+    namespace BallisticsFilter_Lan
+    {
+        graph Processor (float initialAttackNonlinearity,
+                        float initialAttack,
+                        float initialReleaseNonlinearity,
+                        float initialRelease)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                branchingCutoff.attackIn;
+                branchingCutoff.attackNonlinearityIn;
+                branchingCutoff.releaseIn;
+                branchingCutoff.releaseNonlinearityIn;
+            }
+    
+            let
+            {
+                branchingCutoff = BranchingCutoff_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
+                onepoleC = OnepoleC::Processor;
+            }
+    
+            connection
+            {
+                in -> onepoleC.in;
+
+                onepoleC.lowpassOut -> [1] -> branchingCutoff.x;
+                onepoleC.lowpassOut -> [2] -> branchingCutoff.y;
+                branchingCutoff.Omega -> onepoleC.Omega;
+
+                onepoleC.lowpassOut -> out;
+            }
+        }
+    }
+    
+    /** Nonlinear branching cutoff for making a nonlinear ballistics filter */
+    namespace BranchingCutoff_Lan
     {
         struct Coeffs 
         {
-            SampleType thr;
-            SampleType divR;
-            SampleType height;
-            SampleType divWidth; 
-        }
-    
-        void update (Coeffs& c, float threshold, float ratio, float colorHeight, float colorWidth) 
-        {
-            c.thr = SampleType (threshold);
-            c.divR = SampleType (1.0) / SampleType (ratio);
-            c.height = SampleType (colorHeight);
-            c.divWidth = SampleType (1.0) / SampleType (colorWidth);
-        }
-    
-        SampleType process (SampleType x, const Coeffs& c) 
-        {
-            const SampleType xdB = vgainTodB(x);
-
-            const SampleType xdBmthr = xdB - c.thr;
-            const SampleType temp = c.divWidth * (xdBmthr);
-            const SampleType color = c.height / (SampleType(1.0) + temp * temp);
-            
-            let ydB = vifgt (c.thr + (xdBmthr) * c.divR + color, xdB + color, xdB, c.thr);
-
-            return vdBtoGain(ydB) / x;
+            Lan::Coeffs attack;
+            Lan::Coeffs release;
         }
 
-        processor Processor(float initialThreshold = -20,
-                            float initialRatio = 5,
-                            float initialColorHeight = 5,
-                            float initialColorWidth = 3)
+        void update (Coeffs& c, float attack, float attackNonlinearity, float release, float releaseNonlinearity) 
         {
-            input stream SampleType in;
-            output stream SampleType out;
+            Lan::update (c.attack, attackNonlinearity, attack);
+            Lan::update (c.release, releaseNonlinearity, release);
+        }
+
+        SampleType process (SampleType x, SampleType y, const Coeffs& c) 
+        {
+            return vifgt (Lan::process (x, c.attack), Lan::process(x, c.release), x, y);  
+        }
+
+        processor Processor(float initialAttackNonlinearity,
+                            float initialAttack,
+                            float initialReleaseNonlinearity,
+                            float initialRelease)
+        {
+            input stream SampleType x, y;
+            output stream SampleType Omega;
     
             input event
-            {
-                float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB" ]];
-                float ratioIn [[ name: "Ratio", min: 1.f, max: 100.f, init: initialRatio ]];
-                float colorHeightIn [[ name: "Color Height", min: -12.f, max: 12.f, init: initialColorHeight, unit: "dB" ]];
-                float colorWidthIn [[ name: "Color Width", min: -12.f, max: 12.f, init: initialColorWidth, unit: "dB" ]];
+            { 
+                float attackIn [[ name: "Attack", min: 1, max: 200, init: initialAttack, unit: "ms", step: 1 ]];
+                float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 1000, init: initialAttackNonlinearity, step: 1 ]];
+                float releaseIn [[ name: "Release", min: 1, max: 500, init: initialRelease, unit: "ms", step: 1 ]];
+                float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 1000, init: initialReleaseNonlinearity, step: 1]];
             }
 
-            event thresholdIn (float v) { threshold = v; recalc = true; }
-            event ratioIn (float v) { ratio = v; recalc = true; }
-            event colorHeightIn (float v) { colorHeight = v; recalc = true; }
-            event colorWidthIn (float v) { colorWidth = v; recalc = true; }
+            event attackIn (float v) { attack = v; recalc = true; }
+            event attackNonlinearityIn (float v) { attackNonlinearity = v; recalc = true; }
+            event releaseIn (float v) { release = v; recalc = true; }
+            event releaseNonlinearityIn (float v) { releaseNonlinearity = v; recalc = true; }
 
-            float threshold = initialThreshold;
-            float ratio = initialRatio;
-            float colorHeight = initialColorHeight;
-            float colorWidth = initialColorWidth;
+            float attack = initialAttack;
+            float attackNonlinearity = initialAttackNonlinearity;
+            float release = initialRelease;
+            float releaseNonlinearity = initialReleaseNonlinearity;
             bool recalc = true;
-
+    
             void run()
             {
                 Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-            
+    
                 loop
                 {
                     if (recalc)
                     {
                         recalc = false;
     
-                        c.update (threshold, ratio, colorHeight, colorWidth);
+                        c.update (attack, attackNonlinearity, release, releaseNonlinearity);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        out << process (in, c);
+                        Omega << process(x, y, c);
     
                         advance();
                     }
                 }
-            }
-        }
-    }
-
-/** Nonlinear branching cutoff for making a nonlinear ballistics filter */
-    // namespace BranchingCutoffFK
-    // {
-    //     struct Coeffs 
-    //     {
-    //         Lan::Coeffs attack;
-    //         Lan::Coeffs release;
-    //     }
-
-    //     void update (Coeffs& c, MonoType attack, MonoType release, MonoType nonlinearity) 
-    //     {
-    //         Lan::updateStep(c.attack, attack, nonlinearity);
-    //         Lan::updateStep(c.release, release, nonlinearity);
-    //     }
-
-    //     SampleType process (SampleType x, SampleType y, const Coeffs& c) 
-    //     {
-    //         return x > y ? Lan::process(x, c.attack) : Lan::process(x, c.release);   
-    //     }
-
-    //     processor Processor(MonoType initialAttack,
-    //                         MonoType initialRelease,
-    //                         MonoType initialNonlinearity)
-    //     {
-    //         input stream SampleType x, y;
-    //         output stream SampleType L;
-    
-    //         MonoType attack = initialAttack;
-    //         MonoType release = initialRelease;
-    //         MonoType nonlinearity = initialNonlinearity;
-    //         bool recalc = true;
-    
-    //         void run()
-    //         {
-    //             Coeffs c;
-
-                // let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-    //             loop
-    //             {
-    //                 if (recalc)
-    //                 {
-    //                     recalc = false;
-    
-    //                     c.update(attack, release, nonlinearity);
-    //                 }
-    
-    //                 loop (updateIntervalSamples)
-    //                 {
-    //                     L << process(x, y, c);
-    
-    //                     advance();
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-
-/** Modulating low pass with two different cutoffs for rising and falling input */
-    namespace BallisticsFilter
-    {
-        graph Processor (float initialAttack,
-                    float initialRelease)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-        
-            let
-            {
-                onepole = Onepole::Processor;
-                branchingCutoff = BranchingCutoff::Processor(initialAttack, initialRelease);
-            }
-        
-            connection
-            {
-                in -> onepole.in;
-
-                in -> branchingCutoff.x;
-                onepole.out -> [1] -> branchingCutoff.y;
-
-                branchingCutoff.Omega -> onepole.Omega;
-                
-                onepole.out -> out;
             }
         }
     }
 
 /*==============================================================================
-Nonlinear Recursive Processors
+Nonlinear Stateful Processors
 ==============================================================================*/
 
     /** Onepole modified for cutoff modulation via an input stream
         
-        Oversampling recommendations differ depending on modulation input
+        - 2x oversampling reccomended if using as a frequency effect
     */
     namespace OnepoleC
     {   
-        processor Processor (int cutoffMode = 0)
+        processor Processor
         {
             input stream SampleType in;
-            input stream SampleType Omega; //angular cutoff; must be > 0; oversample x2; use for any cutoffs
-            input stream SampleType G; //integrator input gain; do not oversample; use for low cutoffs
+            input stream SampleType Omega;
             output stream SampleType lowpassOut, highpassOut;
 
             void run()
@@ -753,13 +735,8 @@ Nonlinear Recursive Processors
 
                 loop
                 {
-                    if const (cutoffMode == 0)
-                    {
-                        let temp = Omega * Tdiv2; 
-                        c.G = temp / (SampleType (1.0) + temp);
-                    }
-                    else 
-                        c.G = G;
+                    let temp = Omega * Tdiv2; 
+                    c.G = temp / (SampleType (1.0) + temp);
 
                     let y = Onepole::process (s, in, c);
 
@@ -772,78 +749,8 @@ Nonlinear Recursive Processors
         }
     }
 
-    /** Onepole modified for state variable saturation
-
-        Notes:
-        - 2x oversampling recommended
-    */
-    namespace OnepoleS
-    {   
-        struct Coeffs
-        {
-            SampleType b;
-        }
-
-        void update (Coeffs& c, float drive)
-        {
-            c.b = soul::dBtoGain (drive);
-        }
-
-        SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
-        {
-            let v = (x - s.s);
-            let lpf = v + s.s;
-            let hpf = x - lpf;
-
-            s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
-
-            return SampleType[2] (lpf, hpf);
-        }
-
-        processor Processor (float initialDrive)
-        {
-            input stream SampleType in;
-            output stream SampleType lowpassOut, highpassOut;
-
-            input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
-
-            event driveIn (float v) { drive = v; recalc = true; }
-
-            float drive = dBtoGain (initialDrive);
-            bool recalc = true;
-
-            void run()
-            {   
-                Onepole::State s;
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-
-                        c.update (drive);
-                    }
-
-                    loop (updateIntervalSamples)
-                    {
-                        let y = s.process (in, c);
-
-                        lowpassOut << y[0];
-                        highpassOut << y[1];
-
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
 /*==============================================================================
-Linear Recursive Processors
+Linear Stateful Processors
 ==============================================================================*/
 
     /** SOUL-VA's version of soul::filters::tpt::onepole  
@@ -986,158 +893,212 @@ Linear Recursive Processors
             }
         }
     }
-    
-    /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
-    
-        2x oversampling recommended
-    */  
-    namespace SVF
-    {
-        struct Coeffs
-        {
-            SampleType a0;
-            SampleType a;
-            SampleType p;
-        }
 
-        struct State
-        {
-            SampleType[2] z;
-        }
-
-        SampleType[3] process (State& s, SampleType x, const Coeffs& c)
-        {
-            let hpf = c.a0 * (x - c.p * s.z[0] - s.z[1]);
-            let bpf = c.a * hpf + s.z[0];
-            let lpf = c.a * bpf + s.z[1];
-
-            s.z[0] = c.a * hpf + bpf;
-            s.z[1] = c.a * bpf + lpf;
-
-            return SampleType[3] (lpf, hpf, bpf);
-        }
-
-        processor Processor()
+    /** Modified version of https://soul.dev/lab/?id=Delay */
+    namespace DelayLine
+    {   
+        processor Processor (float initialDelayMs = 50)
         {
             input stream SampleType in;
-            input stream SampleType Omega; //angular cutoff; must be > 0
-            input stream SampleType R; //resonance; must be > 0
-            output stream SampleType lowpassOut, highpassOut, bandpassOut;
+            input stream float modIn;
+            output stream SampleType out;
+
+            input event float delayLength [[ name: "Delay", min: 0, max: 1000, init: initialDelayMs, unit: "ms", step: 1 ]];
+
+            event delayLength (float v) { delayMs = v; recalc = true; }
+            
+            //state
+            wrap<MAX_BUFFER_SIZE> readPos, writePos;
+            SampleType[MAX_BUFFER_SIZE] buffer;
+
+            //coeffs
+            float delayMs = initialDelayMs;
+            bool recalc = true;
+    
+            void run()
+            {   
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        let delaySamples = max (1, int (processor.frequency * (delayMs * (1.f/1000.0f))));
+                        readPos = wrap<MAX_BUFFER_SIZE> (writePos - delaySamples);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        buffer[writePos] = in;
+                
+                        out << buffer.readLinearInterpolated (float (readPos) + modIn);
+
+                        ++readPos;
+                        ++writePos;
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+    
+/*==============================================================================
+Vectorized Stateless Function Wrapper Processors
+==============================================================================*/
+
+    /** A standard CTF (compressor transfer function)
+
+        See: https://www.dropbox.com/s/cjq4t08u6pqkaas/ADC17FiftyShadesDistortion.zip?dl=0&file_subpath=%2FCode%2FDynamicsCompressor.cpp
+    */
+    namespace CTF
+    {
+        struct Coeffs 
+        {
+            SampleType threshold;
+            SampleType ratio1;
+            SampleType ratio2;
+        }
+    
+        void update (Coeffs& c, float threshold, float ratio1, float ratio2) 
+        {
+            c.threshold = SampleType (threshold);
+            c.ratio1 = SampleType (ratio1);
+            c.ratio2 = SampleType (ratio2);
+        }
+    
+        SampleType process (SampleType x, const Coeffs& c) 
+        {
+            return vCTF (x, c.threshold, c.ratio1, c.ratio2);
+        }
+
+        processor Processor(float initialThreshold = -20.f, float initialRatio1 = 2.f, float initialRatio2 = 2.f)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB" ]];
+            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 50.f, init: initialRatio1 ]];
+            input event float ratio2In [[ name: "Ratio 2", min: 0.5f, max: 50.f, init: initialRatio2 ]];
+
+            event thresholdIn (float v) { threshold = v; recalc = true; }
+            event ratio1In (float v) { ratio1 = v; recalc = true; }
+            event ratio2In (float v) { ratio2 = v; recalc = true; }
+
+            float threshold = initialThreshold;
+            float ratio1 = initialRatio1;
+            float ratio2 = initialRatio2;
+            bool recalc = true;
 
             void run()
             {
-                State s;
                 Coeffs c;
 
-                let Tdiv2 = SampleType (processor.period * 0.5); 
-
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+            
                 loop
                 {
-                    c.a = Omega * Tdiv2; //g
-                    c.a0 = SampleType (1.0) / (SampleType (1.0) + SampleType (2.0) * R * c.a + c.a * c.a); //d
-                    c.p = SampleType (2.0) * R + c.a; //g1
-
-                    let y = s.process(in, c);
-
-                    lowpassOut  << y[0];
-                    highpassOut << y[1];
-                    bandpassOut << y[2];
-                    
-                    advance();
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (threshold, ratio1, ratio2);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << process (in, c);
+    
+                        advance();
+                    }
                 }
             }
         }
     }
 
-/*==============================================================================
-Common Internal Processors
-==============================================================================*/
-
-    
-
-    /** Automatic/manual output volume compensation for VA::HighLevel Processors 
-
-        pattern:
-        - 0: for use with OnepoleC_Lan and the nonlinearity parameter
+    /** A compressor transfer function (CTF) with color
+        
+        Notes:
+        - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color
+        - See https://ocw.mit.edu/courses/mathematics/18-01sc-single-variable-calculus-fall-2010/1.-differentiation/part-falseStatement-implicit-differentiation-and-inverse-functions/session-15-implicit-differentiation-and-inverse-functions/MIT18_01SCF10_Ses15b.pdf
+        - See https://blog.audio-tk.com/2015/09/08/audio-toolkit-additional-gain-functions/
     */
-    namespace AutoVolume
-    {   
-        struct State
+    namespace CTF_Color
+    {
+        struct Coeffs 
         {
-            float prevVol;
-            float prevParam;
+            SampleType threshold;
+            SampleType ratio;
+            SampleType height;
+            SampleType width; 
+        }
+    
+        void update (Coeffs& c, float threshold, float ratio, float colorHeight, float colorWidth) 
+        {
+            c.threshold = SampleType (threshold);
+            c.ratio = SampleType (ratio);
+            c.height = SampleType (colorHeight);
+            c.width = SampleType (colorWidth);
+        }
+    
+        SampleType process (SampleType x, const Coeffs& c) 
+        {
+            return vCTF_Color (x, c.threshold, c.ratio, c.height, c.width);
         }
 
-        namespace Modes
+        processor Processor(float initialThreshold = -20,
+                            float initialRatio = 5,
+                            float initialHeight = 5,
+                            float initialWidth = 3)
         {
-            let None = 0;
-            let OnepoleC_Lan = 1;
-            let NumModes = 2;
-        }
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB" ]];
+            input event float ratioIn [[ name: "Ratio", min: 1.f, max: 100.f, init: initialRatio ]];
+            input event float heightIn [[ name: "Height", min: -12.f, max: 12.f, init: initialHeight, unit: "dB" ]];
+            input event float widthIn [[ name: "Width", min: -12.f, max: 12.f, init: initialWidth, unit: "dB" ]];
 
-        namespace ModeInfo (int Mode = Modes::None)
-        {
-           // static_assert ((Mode < NumModes && Mod), "Auto Volume Mode must be less than Modes::NumModes.");
+            event thresholdIn (float v) { threshold = v; recalc = true; }
+            event ratioIn (float v) { ratio = v; recalc = true; }
+            event colorHeightIn (float v) { height = v; recalc = true; }
+            event colorWidthIn (float v) { width = v; recalc = true; }
 
-            let MaxVolume = (Mode == Modes::None ? 12.f : 0.f);
-            let MinVolume = (Mode == Modes::None ? -12.f : -6.1f);
-            let InitialVolume = (Mode == Modes::None ? 0.f : MinVolume);
-            let MinManualVolume = (Mode == Modes::None ? -inf : MinVolume + 0.1f);
-            let PtsSize = (Mode == Modes::None ? 1 : 4);
-            let Pts = (Mode == Modes::None ? float[PtsSize] (0) : float[PtsSize] (-0.f, -1.f, -2.f, -3.5f));
+            float threshold = initialThreshold;
+            float ratio = initialRatio;
+            float height = initialHeight;
+            float width = initialWidth;
+            bool recalc = true;
 
-            float process (float x, float[] pts)
+            void run()
             {
-                if const (Mode == Modes::None)
-                    return x;
-                else if const (Mode == Modes::OnepoleC_Lan)
-                    return pts.readLinearInterpolated (min (x * 0.1f, 3.f));
-            }
-        }
+                Coeffs c;
 
-        processor Processor (int Mode = Modes::None)
-        {
-            input event float parameterIn; //auto mode only
-            output event float volumeOut;
-
-            input event float volumeIn [[name: "Volume", min: ModeInfo(Mode)::MinVolume, max: ModeInfo(Mode)::MaxVolume, init: ModeInfo(Mode)::InitialVolume, step: 0.1, unit: "dB"]];
-
-            namespace M = ModeInfo(Mode);
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
             
-            let pts = M::Pts;
-            State s;
-
-            float process (float x)
-            {
-                return M::process (x, pts);
-            }
-
-            event parameterIn (float v) 
-            { 
-                s.prevParam = v;
-
-                if (s.prevVol < M::MinManualVolume)
-                    volumeOut << process (s.prevParam); 
-            }
-
-            event volumeIn (float v)
-            {
-                s.prevVol = v;
-                
-                if (v < M::MinManualVolume)
-                    volumeOut << process (s.prevParam);
-                else
-                    volumeOut << v;
-            }
-
-            void run() 
-            { 
-                advance();
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (threshold, ratio, height, width);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << process (in, c);
+    
+                        advance();
+                    }
+                }
             }
         }
     }
 
-    /** Set a each vector element equal to a weighted average with all other elements */
+    /** Set a each vector element equal to a weighted average using 'vlerp' */
     namespace StereoLink
     {   
         struct Coeffs
@@ -1204,55 +1165,130 @@ Common Internal Processors
         }
     }
 
-    /** Set a each vector element equal to the average of its elements */
-    namespace BinaryStereoLink
+    /** 'vLan' with ADAA and a linear angular cutoff of 2pi
+    
+        Notes:
+        - optimized for use with OnepoleC or modulating frequency domain filters
+        - If sampling rate is 44.1kHz, use 2x oversampling
+    */
+    namespace LanADAA
     {   
         struct Coeffs
         {
-            bool stereoLink;
+            SampleType N;
         }
     
-        void update (Coeffs& c, float stereoLink)
+        void update (Coeffs& c, float nonlinearity)
         {
-            c.stereoLink = bool (stereoLink);
-        }
+            c.N = SampleType (nonlinearity);
+        }    
     
-        SampleType process (SampleType x, const Coeffs& c)
+        SampleType f (SampleType x, const Coeffs& c)
         {
-            return (c.stereoLink ? SampleType (x.sum()/x.size) : x);
+            return vLan (x, c.N);
         }
     
-        processor Processor (bool initialStereoLink = true)
+        SampleType F1 (SampleType x, const Coeffs& c)
+        {
+            return vpowi (x, 3) * vpowi (c.N, 2) * SampleType (1.0 / 3.0) + c.N * vpowi (x, 2) * vsgn (x) + x;
+        }
+    
+        SampleType F2 (SampleType x, const Coeffs& c)
+        {
+            return vpowi (x, 2) * (SampleType (0.5) + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpowi (c.N, 2) * SampleType (1.0 / 12.0) * vpowi (x, 2));
+        }
+    
+        struct State
+        {
+            SampleType x_2;
+            SampleType x_1;
+            SampleType F2_1;
+            SampleType F1_1;
+        }
+    
+        void reset (State& s)
+        {
+            s.x_2 = ZERO;
+            s.x_1 = ZERO;
+            s.F2_1 = ZERO;
+            s.F1_1 = ZERO;
+        }
+
+        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
+        {
+            //Find F1_0
+            
+            let x_0mx_1 = x - s.x_1;
+            let F2_0 = F2 (x, c);
+    
+            let F1_0 = viflt (F1 (SampleType (0.5) * (x + s.x_1), c), 
+                (F2_0 - s.F2_1) / x_0mx_1,
+                vabs (x_0mx_1), ADAA_TOL);
+    
+            //Find f_0
+            let x_0mx_2 = x - s.x_2;
+    
+            let xBar = SampleType (0.5) * (x + s.x_2);
+            let delta = xBar - x;
+    
+            let f_0 = viflt (
+                viflt (
+                    F1 (SampleType (0.5) * (xBar + x), c),
+                    (SampleType (2.0) / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta),
+                    vabs (delta), ADAA_TOL
+                ),
+                (SampleType (2.0) / (x_0mx_2)) * (F1_0 - s.F1_1),
+                vabs (x_0mx_2), ADAA_TOL
+            );
+    
+            //update s
+            s.x_2 = s.x_1;
+            s.x_1 = x;
+            s.F2_1 = F2_0;
+            s.F1_1 = F1_0;
+    
+            return f_0;
+        }
+    
+        SampleType process (State& s, SampleType x, const Coeffs& c)
+        {
+            return s.processADAA2 (x, c);
+        }
+    
+        processor Processor (float initialNonlinearity = 0.f)
         {
             input stream SampleType in;
-            output stream SampleType out;
-    
-            input event float stereoLinkIn [[ name: "Stereo Link", boolean, init: float (initialStereoLink), text: "Off|On" ]];
-            
-            event stereoLinkIn (float v) { stereoLink = v; recalc = true; }
+            output stream SampleType Omega;
 
-            float stereoLink = float (initialStereoLink);
+            input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity ]];
+
+            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
+            
+            float nonlinearity = initialNonlinearity;
             bool recalc = true;
-    
+
+            State s;
+
             void run()
-            {   
+            {
                 Coeffs c;
-    
-                let updateIntervalSamples = int ((processor.frequency/44100.0) * updateInterval);
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
 
                 loop
                 {
                     if (recalc)
                     {
                         recalc = false;
-    
-                        c.update (stereoLink);
+
+                        c.update (nonlinearity);
+                        s.reset();
                     }
-    
+
                     loop (updateIntervalSamples)
                     {
-                        out << process (in, c);
-    
+                        Omega << (SampleType (twoPi - 1) + s.process (in, c));
+
                         advance();
                     }
                 }
@@ -1260,113 +1296,71 @@ Common Internal Processors
         }
     }
 
-    /** Map input events directly to an output stream 
-
-        Notes:
-        - For parameters that need to be updated per sample
-        - parameterIn requires an annotation (no default annotation)
-        - modes:
-            *0: linear scale  
-            *1: dB scale 
-    */   
-    namespace UnsmoothedParameter
-    { 
-        processor Processor (float initialTarget = 0, int mode = 0)
-        {
-            input event float parameterIn;
-            output stream SampleType out;
-                
-            SampleType target;
-
-            void init()
-            {
-                target = SampleType (mode == 0 ? initialTarget : soul::dBtoGain (initialTarget));
-            }
-
-            event parameterIn (float v)
-            {
-                if const (mode == 0)
-                    target = SampleType (v);
-                else
-                    target = SampleType (soul::dBtoGain (v));
-            }
+    /** 'VLan' Processor wrapper
     
-            void run()
-            {
-                loop
-                {
-                    out << target;
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    /** Map input events to a smoothed output stream; Modified version of soul::gain::SmoothedGainParameter
-
         Notes:
-        - parameterIn requires an annotation (no default annotation)
-        - modes:
-            *0: linear scale
-            *1: dB scale
-    */    
-    namespace SmoothedParameter
-    {
-        processor Processor (float initialTarget, float slewRateSeconds = 0.1f, int mode = 0)
+        - optimized for use with step-reponse filters
+    */
+    namespace Lan
+    {   
+        struct Coeffs
         {
-            input event float parameterIn;
-            output stream SampleType out;
+            SampleType N;
+            SampleType bias;
+        }
+    
+        void update (Coeffs& c, float nonlinearity, float tau)
+        {
+            c.N = SampleType (nonlinearity);
+            c.bias = SampleType (1000.0) / SampleType (tau) - ONE;
+        }    
 
-            SampleType target;
-            SampleType current;
-            SampleType increment = SampleType (0);
-            int remainingRampSamples = 0;
-           
-            SampleType divMaxDelta;
+        SampleType process (SampleType x, const Coeffs& c)
+        {
+            return c.bias + vLan (x, c.N);
+        }
+    
+        processor Processor (float initialNonlinearity = 0.f, float initialTau = 20.f)
+        {
+            input stream SampleType in;
+            output stream SampleType Omega;
 
-            void init()
-            {
-                current = SampleType (mode == 0 ? initialTarget : soul::dBtoGain (initialTarget));
-                divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
-            }
+            input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity, step: 1 ]];
+            input event float tauIn [[ name: "Tau", min: 0, max: 500, init: initialTau, step: 1 ]];
 
-            event parameterIn (float v)
-            {
-                if const (mode == 0)
-                    target = v;
-                else
-                    target = vdBtoGain (v);
+            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
+            event tauIn (float v) { tau = v; recalc = true; }
 
-                remainingRampSamples = int (vclamp (1, inf32)::process (vabs (target - current) * divMaxDelta) [0]);
-                increment = (target - current) / SampleType (remainingRampSamples);
-            }
+            float tau = initialTau;
+            float nonlinearity = initialNonlinearity;
+            bool recalc = true;
 
             void run()
             {
+                Coeffs c;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                 loop
                 {
-                    if (remainingRampSamples != 0)
+                    if (recalc)
                     {
-                        if (--remainingRampSamples == 0)
-                            current = target;
-                        else
-                            current += increment;
+                        recalc = false;
+
+                        c.update (nonlinearity, tau);
                     }
 
-                    out << current;
+                    loop (updateIntervalSamples)
+                    {
+                        Omega << process (in, c);
 
-                    advance();
+                        advance();
+                    }
                 }
             }
         }
     }
 
-/*==============================================================================
-Vector Operation Wrapper Processors
-==============================================================================*/
-
-    /** Processor wrapper of 'vabs' */
     namespace Abs
     {
         processor Processor()
@@ -1406,8 +1400,40 @@ Vector Operation Wrapper Processors
     }
 
 /*==============================================================================
-Vector Operations
+Vectorized Stateless Functions
 ==============================================================================*/
+
+    SampleType vCTF_Color (SampleType x, SampleType thr, SampleType ratio, SampleType height, SampleType width)
+    {
+        let xdB = vgainTodB(x);
+        let xdBmthr = xdB - thr;
+
+        let color = height / (ONE + vpowi (xdBmthr * ONE/width, 2));
+        let ydB = vifgt (thr + xdBmthr * ONE/ratio + color, xdB + color, xdB, thr);
+
+        return vdBtoGain(ydB) / x;
+    }
+
+    SampleType vCTF (SampleType x, SampleType threshold, SampleType ratio1, SampleType ratio2)
+    {
+        let divRatio1m1 = ONE/ratio1 - ONE;
+        let divRatio2m1 = ONE/ratio2 - ONE;
+        let thrlin = vdBtoGain (threshold);
+
+        let y = vifgt (vpow (x * (ONE/thrlin), divRatio1m1), vpow (x * (ONE/thrlin), divRatio2m1), x, thrlin);
+        return vifgt (y, ONE, x, SampleType(0.001));
+    }
+
+    /** Cutoff (Omega) modulation from an anhysteretic first-order nonlinear inductor circuit
+    
+        The linear cutoff is 1. Add a bias if a different linear cutoff is desired
+        ie:
+        vLan(x, N) + bias
+    */
+    SampleType vLan (SampleType x, SampleType N)
+    {
+        return vpowi (N * vabs (x) + ONE, 2);
+    }
 
     /** linear interpolation */
     SampleType vlerp (SampleType a, SampleType b, SampleType t)
@@ -1540,9 +1566,146 @@ Constants
     let N100dB = float (0.00001);
     let inf32 = float (inf);
     let ZERO = SampleType (0.0);
-    let MAX_ARRAY_SIZE = 8;
+    let ONE = SampleType (1.0);
+    let MAX_BUFFER_SIZE = 192000; //for arrays of SampleType
+    let MAX_ARRAY_SIZE = 8; //for all other array
 
     namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
 } //namespace VA
 
+
+namespace VA::Experimental
+{
+    /** Onepole modified for state variable saturation
+
+        Notes:
+        - 2x oversampling recommended
+    */
+    namespace OnepoleS
+    {   
+        struct Coeffs
+        {
+            SampleType b;
+        }
+
+        void update (Coeffs& c, float drive)
+        {
+            c.b = soul::dBtoGain (drive);
+        }
+
+        SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
+        {
+            let v = (x - s.s);
+            let lpf = v + s.s;
+            let hpf = x - lpf;
+
+            s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
+
+            return SampleType[2] (lpf, hpf);
+        }
+
+        processor Processor (float initialDrive)
+        {
+            input stream SampleType in;
+            output stream SampleType lowpassOut, highpassOut;
+
+            input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
+
+            event driveIn (float v) { drive = v; recalc = true; }
+
+            float drive = dBtoGain (initialDrive);
+            bool recalc = true;
+
+            void run()
+            {   
+                Onepole::State s;
+                Coeffs c;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        c.update (drive);
+                    }
+
+                    loop (updateIntervalSamples)
+                    {
+                        let y = s.process (in, c);
+
+                        lowpassOut << y[0];
+                        highpassOut << y[1];
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
+    
+        2x oversampling recommended
+    */  
+    namespace SVF
+    {
+        struct Coeffs
+        {
+            SampleType a0;
+            SampleType a;
+            SampleType p;
+        }
+
+        struct State
+        {
+            SampleType[2] z;
+        }
+
+        SampleType[3] process (State& s, SampleType x, const Coeffs& c)
+        {
+            let hpf = c.a0 * (x - c.p * s.z[0] - s.z[1]);
+            let bpf = c.a * hpf + s.z[0];
+            let lpf = c.a * bpf + s.z[1];
+
+            s.z[0] = c.a * hpf + bpf;
+            s.z[1] = c.a * bpf + lpf;
+
+            return SampleType[3] (lpf, hpf, bpf);
+        }
+
+        processor Processor()
+        {
+            input stream SampleType in;
+            input stream SampleType Omega; //angular cutoff; must be > 0
+            input stream SampleType R; //resonance; must be > 0
+            output stream SampleType lowpassOut, highpassOut, bandpassOut;
+
+            void run()
+            {
+                State s;
+                Coeffs c;
+
+                let Tdiv2 = SampleType (processor.period * 0.5); 
+
+                loop
+                {
+                    c.a = Omega * Tdiv2; //g
+                    c.a0 = SampleType (1.0) / (SampleType (1.0) + SampleType (2.0) * R * c.a + c.a * c.a); //d
+                    c.p = SampleType (2.0) * R + c.a; //g1
+
+                    let y = s.process(in, c);
+
+                    lowpassOut  << y[0];
+                    highpassOut << y[1];
+                    bandpassOut << y[2];
+                    
+                    advance();
+                }
+            }
+        }
+    }
+} //namespace VA::Experimental
