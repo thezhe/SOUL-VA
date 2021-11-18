@@ -26,24 +26,27 @@
         *The internal 'CoeffType' is float64<2>
         *Coefficient 'updateInterval' is every 128 samples at 44.1kHz 
         or scaled as needed (i.e. every 256 samples at 88.2kHz)
-    - Expanded set of vector-friendly functions (see 'Vector Operations')
+    - Expanded set of vector-friendly functions (see 'Vectorized Stateless Functions')
     - All effects are optimized for 44.1kHz/24-bit/stereo. 
     Higher sample rates and bit depths degrade performance 
-    without guaranteeing better quality!
+    without guaranteed better quality! Any sampling rate beyond 96000
+    is not supported.
 */
 
 /** Task List
 
     Current Tasks:
     - double check LanADAA
-    - BBD chorus/vibrato/flanger/delay/echo with compression and NL moog ladder
+    - BBD chorus/vibrato/flanger/delay/echo with NL moog ladder
+    - ladder multimode LP
 
     Future Tasks:
     - initialization lists only for Processors and not namespaces
-    - refactor snippets, fix adaa, namespace constants, process(..., const Coeffs&)
+    - refactor snippets, fix adaa, namespace constants
     - SVF/OnepoleS/Compressor Components refactor and use
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
     - state saturation
+    - array vs vectors; if use array use .at()
     - fix all vlt and vgt to viflt and vifgt
 */
 
@@ -125,111 +128,44 @@ SOUL-VA Interface
             }    
         }
         
-        /** A modified classical compressor sidechain
-        
-            3 sidechain blocks:
-            - Detector: ideal rectifier
-            - Envelope Filter: nonlinear ballistics filter based on Lan
-            - Compressor Transfer Function: hard-knee with color  
-        */
-        // namespace DynamicsProcessor_Lan_Color
-        // {
-        //     graph Processor (float initialThreshold,
-        //                     float initialRatio,
-        //                     float initialColorHeight,
-        //                     float initialColorWidth,
-        //                     float initialAttack,
-        //                     float initialRelease,
-        //                     float initialNonlinearity)
-        //     {
-        //         input stream SampleType in;
-        //         output stream SampleType out;
-            
-        //         input
-        //         {
-        //             ballisticsFilter.attackIn;
-        //             ballisticsFilter.releaseIn;
-        //             stereoLink.stereoLinkIn;
-        //             ctf.thresholdIn;
-        //             ctf.ratioIn;
-        //             ctf.colorHeight;
-        //             ctf.colorWidth;
-        //         }
-
-        //         let
-        //         {
-        //             detector = Abs::Processor;
-        //             ballisticsFilter = BallisticsFilter_Lan::Processor (initialAttack, initialRelease);
-        //             stereoLink = StereoLink::Processor;
-        //             ctf = CTF_Color::Processor (initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
-        //         }
-            
-        //         connection
-        //         {
-        //             in -> detector.in;
-        //             detector.out -> ballistics.in;
-        //             ballistics.out -> stereoLinkIn;
-        //             stereoLink.out -> ctf.in;
-        //             ctf.out -> out;
-        //         }
-        //     }
-        // }
-
-        /** A modified downward compressor/ upward expander 
-        
-            3 sidechain blocks:
-            - Detector: ideal rectifier
-            - Envelope Filter: nonlinear ballistics filter based on Lan
-            - Compressor Transfer Function: hard-knee 
-        */
-        namespace DynamicsProcessor_Lan
+        /** Delay line with a nonlinear ladder filter in feedback */
+        namespace DelayLine_Ladder_NL
         {
-            graph Processor (float initialAttack,
-                            float initialAttackNonlinearity,
-                            float initialRelease,
-                            float initialReleaseNonlinearity,
-                            float initialStereoLink,
-                            float initialThreshold,
-                            float initialRatio1,
-                            float initialRatio2)
+            graph Processor(float initialDelay = 50, float initialFeedback = 0, float initialMix = 50.f)
             {
                 input stream SampleType in;
                 output stream SampleType out;
-            
+        
                 input
                 {
-                    ballisticsFilter_Lan.attackIn;
-                    ballisticsFilter_Lan.attackNonlinearityIn;
-                    ballisticsFilter_Lan.releaseIn;
-                    ballisticsFilter_Lan.releaseNonlinearityIn;
-                    stereoLink.stereoLinkIn;
-                    ctf.thresholdIn;
-                    ctf.ratio1In;
-                    ctf.ratio2In;
+                    delayLine.delayIn;
+                    mixer.mixIn;
+                    feedback.mixIn feedbackIn;
+                    ladder.cutoffIn;
+                    ladder.resonanceIn;
                 }
-
+        
                 let
                 {
-                    abs_ = Abs::Processor;
-                    ballisticsFilter_Lan = BallisticsFilter_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
-                    stereoLink = StereoLink::Processor (initialStereoLink);
-                    ctf = CTF::Processor (initialThreshold, initialRatio1, initialRatio2);
-                    multiplier = Multiplier::Processor;
+                    ladder = LadderFilter::Processor;
+                    delayLine = DelayLine::Processor(initialDelay);
+                    feedback = Common::Mixer::Processor(initialFeedback);
+                    mixer = Common::Mixer::Processor(initialMix);
                 }
-            
+        
                 connection
                 {
-                    in -> abs_.in, multiplier.in1;
+                    in -> mixer.in1, feedback.in1;
+                    delayLine.out -> [1] -> mixer.in2, feedback.in2;
+                    
+                    feedback.out -> ladder.in;
+                    ladder.y4 -> delayLine.in;
 
-                    abs_.out -> ballisticsFilter_Lan.in;
-                    ballisticsFilter_Lan.out -> stereoLink.in;
-                    stereoLink.out -> ctf.in;
-                    ctf.out -> multiplier.in2;
-
-                    multiplier -> out;
+                    mixer.out -> out;
                 }
             }
         }
+        
 
     } //namespace HighLevel
 
@@ -903,9 +839,9 @@ Linear Stateful Processors
             input stream float modIn;
             output stream SampleType out;
 
-            input event float delayLength [[ name: "Delay", min: 0, max: 1000, init: initialDelayMs, unit: "ms", step: 1 ]];
+            input event float delayIn [[ name: "Delay", min: 0, max: 1000, init: initialDelayMs, unit: "ms", step: 1 ]];
 
-            event delayLength (float v) { delayMs = v; recalc = true; }
+            event delayIn (float v) { delayMs = v; recalc = true; }
             
             //state
             wrap<MAX_BUFFER_SIZE> readPos, writePos;
@@ -931,13 +867,107 @@ Linear Stateful Processors
     
                     loop (updateIntervalSamples)
                     {
-                        buffer[writePos] = in;
+                        buffer.at(writePos) = in;
                 
                         out << buffer.readLinearInterpolated (float (readPos) + modIn);
 
                         ++readPos;
                         ++writePos;
 
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+    
+    /** 4 Pole Ladder Filter 
+
+        Notes:
+        - If sampling rate is 44.1kHz, use 2x oversampling
+    */
+    namespace LadderFilter
+    {   
+        struct Coeffs
+        {
+            SampleType g;
+            SampleType k;
+        }
+    
+        void update (Coeffs& c, float cutoff, float resonance, SampleType Tpi)
+        {
+            let gOnepole = SampleType (cutoff) * Tpi;
+            c.g = gOnepole / (ONE + gOnepole);
+            c.k = SampleType (resonance);
+        }
+        
+        struct State
+        {
+            SampleType[4] s;
+        }
+    
+        SampleType[5] process (State& s, SampleType x, const Coeffs& c)
+        {
+            let G = vpowi (c.g, 4);
+            let S = vpowi (c.g, 3) * s.s.at(0) + vpowi (c.g, 2) * s.s.at(1) + c.g * s.s.at(2) + s.s.at(3);
+
+            SampleType[5] y;
+
+            y[0] = (x - c.k * S) / (ONE + c.k * G); //u
+
+            //4x LPF
+            for (int i = 0; i < 4; ++i)
+            {
+                let v = (y.at(i) - s.s.at(i)) * c.g;
+                y.at(i + 1) = v  + s.s.at(i);
+                s.s.at(i) = vsigmoidCD_S (v + y.at(i +1), SampleType(1.0));
+            }
+            
+            return y;
+        }
+    
+        processor Processor (float initialCutoff = 1000, float initialResonance = 1)
+        {
+            input stream SampleType in;
+            output stream SampleType y0, y1, y2, y3, y4;
+
+            input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
+            input event float resonanceIn [[ name: "Resonance", min: 1, max: 10, init: initialResonance ]];
+            
+            event cutoffIn (float v) { cutoff = v; recalc = true; }
+            event resonanceIn (float v) { resonance = v; recalc = true; }
+
+            float cutoff = initialCutoff;
+            float resonance = initialResonance;
+            bool recalc = true;
+    
+            void run()
+            {   
+                State s;
+                Coeffs c;
+    
+                let Tpi = SampleType (processor.period * pi);
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (cutoff, resonance, Tpi);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        let y = s.process (in, c);
+
+                        y0 << y[0];
+                        y1 << y[1];
+                        y2 << y[2];
+                        y3 << y[3];
+                        y4 << y[4];
+    
                         advance();
                     }
                 }
@@ -1536,6 +1566,12 @@ Vectorized Stateless Functions
         //SampleType (x > SampleType (0.0)) - SampleType (x < SampleType (0.0));
     }
     
+    /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b, good for state saturation */
+    SampleType vsigmoidCD_S (SampleType x, SampleType b)
+    {
+        return vsigmoidCD(b * x) * (ONE / b); 
+    }
+
     /** An continuously differentiable algebraic sigmoid function. 
 
             f(x) = x / sqrt (x^2 + 1) 
@@ -1559,16 +1595,19 @@ Constants
 
     using DebugBufferType = float;
     using SampleType = float64<2>; //also used internally as 'CoeffType'
-    using MaskType = bool<SampleType.size>;
 
     let updateInterval = 128;
-    let ADAA_TOL = SampleType (0.0000001);
+    
     let N100dB = float (0.00001);
     let inf32 = float (inf);
+
+    let ADAA_TOL = SampleType (0.0000001);
     let ZERO = SampleType (0.0);
     let ONE = SampleType (1.0);
-    let MAX_BUFFER_SIZE = 192000; //for arrays of SampleType
+    let MAX_BUFFER_SIZE = 96000; //for arrays of SampleType
     let MAX_ARRAY_SIZE = 8; //for all other array
+    let MAX_CUTOFF_HZ = 20000;
+    let MIN_CUTOFF_HZ = 20;
 
     namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
@@ -1577,6 +1616,113 @@ Constants
 
 namespace VA::Experimental
 {
+            /** A modified classical compressor sidechain
+        
+            3 sidechain blocks:
+            - Detector: ideal rectifier
+            - Envelope Filter: nonlinear ballistics filter based on Lan
+            - Compressor Transfer Function: hard-knee with color  
+        */
+        // namespace DynamicsProcessor_Lan_Color
+        // {
+        //     graph Processor (float initialThreshold,
+        //                     float initialRatio,
+        //                     float initialColorHeight,
+        //                     float initialColorWidth,
+        //                     float initialAttack,
+        //                     float initialRelease,
+        //                     float initialNonlinearity)
+        //     {
+        //         input stream SampleType in;
+        //         output stream SampleType out;
+            
+        //         input
+        //         {
+        //             ballisticsFilter.attackIn;
+        //             ballisticsFilter.releaseIn;
+        //             stereoLink.stereoLinkIn;
+        //             ctf.thresholdIn;
+        //             ctf.ratioIn;
+        //             ctf.colorHeight;
+        //             ctf.colorWidth;
+        //         }
+
+        //         let
+        //         {
+        //             detector = Abs::Processor;
+        //             ballisticsFilter = BallisticsFilter_Lan::Processor (initialAttack, initialRelease);
+        //             stereoLink = StereoLink::Processor;
+        //             ctf = CTF_Color::Processor (initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
+        //         }
+            
+        //         connection
+        //         {
+        //             in -> detector.in;
+        //             detector.out -> ballistics.in;
+        //             ballistics.out -> stereoLinkIn;
+        //             stereoLink.out -> ctf.in;
+        //             ctf.out -> out;
+        //         }
+        //     }
+        // }
+
+        /** A modified downward compressor/ upward expander 
+        
+            3 sidechain blocks:
+            - Detector: ideal rectifier
+            - Envelope Filter: nonlinear ballistics filter based on Lan
+            - Compressor Transfer Function: hard-knee 
+        */
+        // namespace DynamicsProcessor_Lan
+        // {
+        //     graph Processor (float initialAttack,
+        //                     float initialAttackNonlinearity,
+        //                     float initialRelease,
+        //                     float initialReleaseNonlinearity,
+        //                     float initialStereoLink,
+        //                     float initialThreshold,
+        //                     float initialRatio1,
+        //                     float initialRatio2)
+        //     {
+        //         input stream SampleType in;
+        //         output stream SampleType out;
+            
+        //         input
+        //         {
+        //             ballisticsFilter_Lan.attackIn;
+        //             ballisticsFilter_Lan.attackNonlinearityIn;
+        //             ballisticsFilter_Lan.releaseIn;
+        //             ballisticsFilter_Lan.releaseNonlinearityIn;
+        //             stereoLink.stereoLinkIn;
+        //             ctf.thresholdIn;
+        //             ctf.ratio1In;
+        //             ctf.ratio2In;
+        //         }
+
+        //         let
+        //         {
+        //             abs_ = Abs::Processor;
+        //             ballisticsFilter_Lan = BallisticsFilter_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
+        //             stereoLink = StereoLink::Processor (initialStereoLink);
+        //             ctf = CTF::Processor (initialThreshold, initialRatio1, initialRatio2);
+        //             multiplier = Multiplier::Processor;
+        //         }
+            
+        //         connection
+        //         {
+        //             in -> abs_.in, multiplier.in1;
+
+        //             abs_.out -> ballisticsFilter_Lan.in;
+        //             ballisticsFilter_Lan.out -> stereoLink.in;
+        //             stereoLink.out -> ctf.in;
+        //             ctf.out -> multiplier.in2;
+
+        //             multiplier -> out;
+        //         }
+        //     }
+        // }
+
+
     /** Onepole modified for state variable saturation
 
         Notes:

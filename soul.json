@@ -2,7 +2,6 @@
 	"VA::graph": {
 		"prefix": "VA::graph",
 		"body": [
-			"//==============================================================================",
 			"/** ${2:Description} */",
 			"namespace ${1:Name}",
 			"{",
@@ -35,7 +34,6 @@
 	"VA::processor": {
 		"prefix": "VA::processor",
 		"body": [
-			"//==============================================================================",
 			"/** ${2:Description} */",
 			"namespace ${1:Name}",
 			"{   ",
@@ -54,7 +52,7 @@
 			"        ${6:'SampleType' state variables}",
 			"    }",
 			"",
-			"    SampleType process (State& s, SampleType x, Coeffs& c)",
+			"    SampleType process (State& s, SampleType x, const Coeffs& c)",
 			"    {",
 			"        ${8:Process one frame}",
 			"    }",
@@ -70,7 +68,7 @@
 			"",
 			"        ${11:Define 'event' parameters (example below)}",
 			"",
-			"        /*input event float paramIn [[ name: \"Param\", min: 0, max: 1, init: initialParam, unit: \"units\" ]];",
+			"        /*input event float paramIn [[ name: \"Param\", min: 0, max: 1, init: initialParam, unit: \"units\", step: 1 ]];",
 			"",
 			"        event paramIn (float v) { param = v; recalc = true; }",
 			"",
@@ -119,7 +117,6 @@
 	"VA::processorADAA": {
         "prefix": "VA::processorADAA",
         "body": [
-            "//==============================================================================",
             "/** ${2:Description}",
             "",
             "    Notes:",
@@ -140,17 +137,17 @@
             "        c.adaa = ${7:ADAA rule}",
             "    }    ",
 			"",
-            "    SampleType f (SampleType x, Coeffs& c)",
+            "    SampleType f (SampleType x, const Coeffs& c)",
             "    {",
             "        ${8:Process one frame}",
             "    }",
             "",
-            "    SampleType F1 (SampleType x, Coeffs& c)",
+            "    SampleType F1 (SampleType x, const Coeffs& c)",
             "    {",
             "        ${9:Process one frame of the first antiderivative of 'f'}",
             "    }",
             "",
-            "    SampleType F2 (SampleType x, Coeffs& c)",
+            "    SampleType F2 (SampleType x, const Coeffs& c)",
             "    {",
             "        ${10:Process one frame of the second antiderivative of 'f'}",
             "    }",
@@ -163,7 +160,7 @@
             "        SampleType F1_1;",
             "    }",
             "",
-            "    SampleType processADAA2 (State& s, SampleType x, Coeffs& c)",
+            "    SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)",
             "    {",
             "        //Find F1_0",
             "        ",
@@ -199,7 +196,7 @@
             "        return f_0;",
             "    }",
             "",
-            "    SampleType processADAA1 (State& s, SampleType x, Coeffs& c)",
+            "    SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)",
             "    {",
             "        //Find f_0",
             "        let x_0mx_1 = x - s.x_1;",
@@ -216,7 +213,7 @@
             "        return f_0;",
             "    }",
             "",
-            "    SampleType process (State& s, SampleType x, Coeffs& c)",
+            "    SampleType process (State& s, SampleType x, const Coeffs& c)",
             "    {",
             "        if (c.adaa == 0)",
             "           return f (x, c);",
@@ -237,7 +234,7 @@
             "",
             "        ${12:Define 'event' parameters (example below)}",
             "",
-            "        /*input event float paramIn [[ name: \"Param\", min: 0, max: 1, init: initialParam, unit: \"units\" ]];",
+            "        /*input event float paramIn [[ name: \"Param\", min: 0, max: 1, init: initialParam, unit: \"units\" , step: 1]];",
             "",
             "        event paramIn (float v) { param = v; recalc = true; }",
             "",
@@ -281,5 +278,16 @@
             ""
         ],
         "description": "Processor implementing STATELESS function 'f' and parameter-dependent ADAA order; do not change the ADAA boilerplate ('State' and all 'process' functions)"
+    },
+
+    "EventParam": {
+        "prefix": "VA::eventParam",
+        "body": [
+            "input event float ${1:param}In [[ name: \"${3:ParamName}\", min: 0, max: 1, init: initial${2:Param}, unit: \"units\", step: 1 ]];",
+            "event ${1:param}In (float v) { ${1:param} = v; recalc = true; }",
+            "float ${1:param} = initial${2:Param};",
+            ""
+        ],
+        "description": "eventParam"
     }
 }

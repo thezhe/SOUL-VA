@@ -14,7 +14,11 @@ namespace main
             //expose effect endpoints
            // event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity, step: 1]];
 
-           // volumeOut.volumeIn;
+            effect.delayIn;
+            effect.mixIn;
+            effect.feedbackIn;
+            effect.cutoffIn;
+            effect.resonanceIn;
         }
 
         let
@@ -25,7 +29,9 @@ namespace main
 
             //define effect
             //effect = VA::HighLevel::DynamicsProcessor_Lan::Processor (25.f, 20.f, 50, 0, 0, -20.f, 1.5f, 1.5f);
-            effect = VA::DelayLine::Processor (500);
+            //effect = VA::DelayLine::Processor (500);
+            //effect = VA::LadderFilter::Processor (1000, 1.f);
+            effect = VA::HighLevel::DelayLine_Ladder_NL::Processor;
         }
 
         connection
