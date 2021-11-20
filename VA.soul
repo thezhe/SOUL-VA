@@ -41,6 +41,7 @@
     - ladder multimode LP
 
     Future Tasks:
+    - rename params with units
     - initialization lists only for Processors and not namespaces
     - refactor snippets, fix adaa, namespace constants
     - SVF/OnepoleS/Compressor Components refactor and use
@@ -53,7 +54,7 @@
 namespace VA 
 {
 /*==============================================================================
-SOUL-VA Interface
+Main Interface
 ==============================================================================*/
 
     /** High-level Processors made using the 'VA' and 'soul' namespaces */
@@ -129,271 +130,189 @@ SOUL-VA Interface
         }
         
         /** Delay line with a nonlinear ladder filter in feedback */
-        namespace DelayLine_Ladder_NL
+        namespace DelayLine_LadderS
         {
-            graph Processor(float initialDelay = 50, float initialFeedback = 0, float initialMix = 50.f)
+            graph Processor(float initialDelay = 50, float initialFeedbackdB = NOISE_FLOOR_DB, float initialMix = 50.f)
             {
                 input stream SampleType in;
                 output stream SampleType out;
         
                 input
                 {
+                    depth.volume depthIn; 
+                    sine.frequencyIn rateIn [[ name: "Rate", min: 0, max: 100, init: 0, unit: "Hz" ]];
+                    
                     delayLine.delayIn;
+
+                    volumeFeedback.volumeIn feedbackIn;
+                    ladderS.cutoffIn;
+                    ladderS.resonanceIn;
+                    ladderS.driveIn;
                     mixer.mixIn;
-                    feedback.mixIn feedbackIn;
-                    ladder.cutoffIn;
-                    ladder.resonanceIn;
                 }
         
                 let
                 {
-                    ladder = LadderFilter::Processor;
                     delayLine = DelayLine::Processor(initialDelay);
-                    feedback = Common::Mixer::Processor(initialFeedback);
-                    mixer = Common::Mixer::Processor(initialMix);
+                    
+                    sine = osc::Sine (0);
+                    depth = soul::gain::SmoothedGain;
+
+                    ladderS = LadderFilterS::Processor;
+                    adderFeedback = Adder::Processor;
+                    volumeFeedback = Volume::Processor(initialFeedbackdB);
+
+                    mixer = Mixer::Processor(initialMix);
                 }
         
                 connection
                 {
-                    in -> mixer.in1, feedback.in1;
-                    delayLine.out -> [1] -> mixer.in2, feedback.in2;
+                    sine.out -> depth.in;
+                    depth.out -> delayLine.lfoIn;
                     
-                    feedback.out -> ladder.in;
-                    ladder.y4 -> delayLine.in;
+                    in -> mixer.in1, adderFeedback.in1;
 
+                    delayLine.out -> [1] -> volumeFeedback.in;
+                    volumeFeedback.out -> adderFeedback.in2; 
+
+                    adderFeedback -> ladderS.in;
+                    ladderS.y4 -> delayLine.in;
+
+                    delayLine.out -> mixer.in2;
                     mixer.out -> out;
                 }
             }
         }
-        
-
     } //namespace HighLevel
 
-    /** Common Processors that wrap High-Level Processors*/
-    namespace Common
-    {
-        /** Set the volume in dB via VA::SmoothedParameter */
-        namespace Volume
-        {
-            graph Processor (int Mode, float slewRateSeconds = 0.1f)
-            {
-                input stream SampleType in;
-                output stream SampleType out;
-        
-                input
-                {
-                    autoVolume.volumeIn;
-                    autoVolume.parameterIn;
-                }
-        
-                let
-                {
-                    autoVolume = AutoVolume::Processor (Mode);
-
-                    smoothedGain = SmoothedParameter::Processor (AutoVolume::ModeInfo(Mode)::InitialVolume, slewRateSeconds,  1);
-                    multiplier = Multiplier::Processor;
-                }
-        
-                connection
-                {
-                    in -> multiplier.in1;
-
-                    autoVolume.volumeOut -> smoothedGain.parameterIn;
-                    smoothedGain.out -> multiplier.in2;
-
-                    multiplier.out -> out;
-                }
-            }
-        }
-        
-        /** Mix two signals 
-
-            out << in2 when c.mix = 100.f
-        */
-        namespace Mixer
-        {   
-            struct Coeffs
-            {
-                SampleType t;
-                float mix;
-            }
-        
-            void update (Coeffs& c, float mix)
-            {
-                c.t = SampleType (mix) * SampleType (1.0/100.0);
-                c.mix = mix;
-            }
-        
-            SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
-            {
-                if (c.mix == 0.f)
-                    return in1;
-                else if (c.mix == 100.f)
-                    return in2;
-                else
-                    return vlerp (in1, in2, c.t);
-            }
-        
-            processor Processor (float initialMix = 100.f)
-            {
-                input stream SampleType in1, in2;
-                output stream SampleType out;
-        
-                input event float mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%" ]];
-        
-                event mixIn (float v) { mix = v; recalc = true; }
-        
-                float mix = initialMix;
-                bool recalc = true;
-        
-                void run()
-                {   
-                    Coeffs c;
-        
-                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-        
-                    loop
-                    {
-                        if (recalc)
-                        {
-                            recalc = false;
-        
-                            c.update (mix);
-                        }
-        
-                        loop (updateIntervalSamples)
-                        {
-                            out << process (in1, in2, c);
-        
-                            advance();
-                        }
-                    }
-                }
-            }
-        }
-    } //namespace Common
-
-    /** Tools for CLI debugging */
-    namespace Debug
-    {
-        /** Switch between 2 signals 
-        
-            out << in2 when c.power == true
-        */
-        namespace Bypass
-        {   
-            struct Coeffs
-            {
-                bool power;
-            }
-        
-            void update (Coeffs& c, float power)
-            {
-                c.power = bool (power); 
-            }
-        
-            SampleType process (SampleType dry, SampleType wet, const Coeffs& c)
-            {
-                if (c.power)
-                    return wet;
-                else 
-                    return dry;
-            }
-        
-            processor Processor (bool initialPower = true)
-            {
-                input stream SampleType dry, wet;
-                output stream SampleType out;
-        
-                input event float powerIn [[ name: "Power", boolean, init: float (initialPower), text: "Off|On" ]];
-        
-                event powerIn (float v) { power = v; recalc = true; }
-        
-                float power = float (initialPower);
-                bool recalc = true;
-        
-                void run()
-                {   
-                    Coeffs c;
-        
-                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-        
-                    loop
-                    {
-                        if (recalc)
-                        {
-                            recalc = false;
-        
-                            c.update (power);
-                        }
-        
-                        loop (updateIntervalSamples)
-                        {
-                            out << process (dry, wet, c);
-        
-                            advance();
-                        }
-                    }
-                }
-            }
-        }
-
-        /** Map DebugBufferType to SampleType (float32 mono to float64 stereo) */
-        namespace DebugToSample
-        {     
-            SampleType process (DebugBufferType x)
-            {
-                return SampleType (x);
-            }
-
-            processor Processor()
-            {
-                input stream DebugBufferType in;
-                output stream SampleType out;
-        
-                void run()
-                {   
-                    loop
-                    {
-                        out << process (in);
-
-                        advance();
-                    }
-                }
-            }
-        }
-
-        /** Map SampleType to DebugBufferType (float64 stereo to float32 mono) */
-        namespace SampleToDebug
-        {     
-            DebugBufferType process (SampleType x)
-            {
-                return DebugBufferType (x.sum()/SampleType.size);
-            }
-
-            processor Processor()
-            {
-                input stream SampleType in;
-                output stream DebugBufferType out;
-        
-                void run()
-                {   
-                    loop
-                    {
-                        out << process (in);
-
-                        advance();
-                    }
-                }
-            }
-        }
-
-    } //namespace Debug
-
 /*==============================================================================
-Effect-Specific Stateful Processors
+Helper Processors
 ==============================================================================*/
+ 
+    /** Set the volume in dB via VA::SmoothedParameter */
+    namespace Volume
+    {
+        graph Processor (float initialVolume = NOISE_FLOOR_DB, float slewRateSeconds = 0.1f)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
     
+            input
+            {
+                smoothedGain.parameterIn volumeIn [[name: "Volume", min: NOISE_FLOOR_DB, max: 0, init: initialVolume, step: 0.1f, unit: "dB"]];
+            }
+    
+            let
+            {
+                smoothedGain = SmoothedParameter::Processor (initialVolume, slewRateSeconds, 1);
+                multiplier = Multiplier::Processor;
+            }
+    
+            connection
+            {
+                in -> multiplier.in1;
+                smoothedGain.out -> multiplier.in2;
+
+                multiplier.out -> out;
+            }
+        }
+    }
+
+    /** Set the gain via VA::SmoothedParameter */
+    namespace Gain
+    {
+        graph Processor (float initialGain = 0, float slewRateSeconds = 0.1f)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedGain.parameterIn gainIn [[name: "Gain", min: 0, max: 1, init: 1, step: 0.01f]];
+            }
+    
+            let
+            {
+                smoothedGain = SmoothedParameter::Processor (initialGain, slewRateSeconds, 0);
+                multiplier = Multiplier::Processor;
+            }
+    
+            connection
+            {
+                in -> multiplier.in1;
+                smoothedGain.out -> multiplier.in2;
+
+                multiplier.out -> out;
+            }
+        }
+    }
+
+    /** Mix two signals 
+
+        out << in2 when c.mix = 100.f
+    */
+    namespace Mixer
+    {   
+        struct Coeffs
+        {
+            SampleType t;
+            float mix;
+        }
+    
+        void update (Coeffs& c, float mix)
+        {
+            c.t = SampleType (mix) * SampleType (1.0/100.0);
+            c.mix = mix;
+        }
+    
+        SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
+        {
+            if (c.mix == 0.f)
+                return in1;
+            else if (c.mix == 100.f)
+                return in2;
+            else
+                return vlerp (in1, in2, c.t);
+        }
+    
+        processor Processor (float initialMix = 100.f)
+        {
+            input stream SampleType in1, in2;
+            output stream SampleType out;
+    
+            input event float mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%" ]];
+    
+            event mixIn (float v) { mix = v; recalc = true; }
+    
+            float mix = initialMix;
+            bool recalc = true;
+    
+            void run()
+            {   
+                Coeffs c;
+    
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (mix);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << process (in1, in2, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
     /** Automatic/manual output volume compensation for VA::HighLevel Processors 
 
         pattern:
@@ -511,7 +430,7 @@ Effect-Specific Stateful Processors
                 else
                     target = vdBtoGain (v);
 
-                remainingRampSamples = int (vclamp (1, inf32)::process (vabs (target - current) * divMaxDelta) [0]);
+                remainingRampSamples = int (vclamp (1, INF32)::process (vabs (target - current) * divMaxDelta) [0]);
                 increment = (target - current) / SampleType (remainingRampSamples);
             }
 
@@ -530,6 +449,91 @@ Effect-Specific Stateful Processors
                     out << current;
 
                     advance();
+                }
+            }
+        }
+    }
+
+/*==============================================================================
+Effect-Specific Stateful Processors
+==============================================================================*/
+
+    /** Modified version of soul::oscillators::Sine
+      
+       Sine oscilator to be used as an lfo 
+    */
+    namespace Sine
+    {
+        
+
+        struct Coeffs
+        {
+            SampleType phaseIncr;
+            SampleType amp;
+        }
+
+        struct State
+        {
+            SampleType phase;
+        }
+
+        void update (Coeffs& c, float rateHz, float depth, float width, SampleType twoPiT)
+        {
+            let phaseDiff = SampleType.primitiveType (width) * SampleType.primitiveType (pi/100.0);
+            c.phaseIncr = SampleType (rateHz) * twoPiT;
+            c.phaseIncr[1] -= phaseDiff;
+            c.amp = SampleType (depth);
+        }
+
+        SampleType process (State& s, const Coeffs& c)
+        {
+            let y = c.amp * sin (s.phase);
+            
+            s.phase += c.phaseIncr;
+
+            if (s.phase[0] > MAX_PHASE)
+                s.phase -= SampleType (MAX_PHASE);
+
+            return y;
+        }
+
+        processor Processor (float initialRateHz = 0, float initialDepth = 0.f)
+        {
+            output stream SampleType out;
+            
+            input event float rateHzIn  [[ name: "Rate", min: 0, max: 100, init: 0, unit: "Hz" ]];
+            input event float depthIn  [[ name: "Depth", min: 0, max: 1, init: 0, step: 0.01f ]];
+            
+            event rateHzIn (float v) { rateHz = v; recalc = true; }
+            event depthIn (float v) { depth = v; recalc = true; }
+
+            float rateHz = initialRateHz;
+            float depth = initialDepth;
+            bool recalc = true;
+
+            void run()
+            {
+                Coeffs c;
+                State s;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                let twoPiT = SampleType (twoPi * processor.period);
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        c.update (rateHz, depth, twoPiT);
+                    }
+
+                    loop (updateIntervalSamples)
+                    {
+                        out << s.process (c);
+                    
+                        advance();
+                    }
                 }
             }
         }
@@ -672,7 +676,7 @@ Nonlinear Stateful Processors
                 loop
                 {
                     let temp = Omega * Tdiv2; 
-                    c.G = temp / (SampleType (1.0) + temp);
+                    c.G = temp / (ONE + temp);
 
                     let y = Onepole::process (s, in, c);
 
@@ -680,6 +684,100 @@ Nonlinear Stateful Processors
                     highpassOut << y[1];
 
                     advance();
+                }
+            }
+        }
+    }
+
+    /** 4 Pole Ladder Filter with state saturation
+
+        Notes:
+        - same as LadderFilter but the state variable is saturated in each LP1
+        - If sampling rate is 44.1kHz, use 2x oversampling
+    */
+    namespace LadderFilterS
+    {   
+        struct Coeffs
+        {
+            LadderFilter::Coeffs lf; //linear filter coeffs
+            SampleType b; //drive gain
+        }
+
+        void update (Coeffs& c, float cutoff, float resonance, float drivedB, SampleType Tpi)
+        {
+            let gOnepole = SampleType (cutoff) * Tpi;
+            c.lf.g = gOnepole / (ONE + gOnepole);
+            c.lf.k = SampleType (resonance);
+            c.b = SampleType (soul::dBtoGain (drivedB));
+        }
+
+        SampleType[5] processS (LadderFilter::State& s, SampleType x, const Coeffs& c)
+        {
+            let G = vpowi (c.lf.g, 4);
+            let S = vpowi (c.lf.g, 3) * s.s.at(0) + vpowi (c.lf.g, 2) * s.s.at(1) + c.lf.g * s.s.at(2) + s.s.at(3);
+
+            SampleType[5] y;
+
+            y[0] = (x - c.lf.k * S) / (ONE + c.lf.k * G); //u
+
+            //4x LPF
+            for (int i = 0; i < 4; ++i)
+            {
+                let v = (y.at(i) - s.s.at(i)) * c.lf.g;
+                y.at(i + 1) = v  + s.s.at(i);
+                s.s.at(i) = vsigmoidCD_S (v + y.at(i +1), c.b);
+            }
+            
+            return y;
+        }
+    
+        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialDrivedB = 0)
+        {
+            input stream SampleType in;
+            output stream SampleType y0, y1, y2, y3, y4;
+
+            input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
+            input event float resonanceIn [[ name: "Resonance", min: 0, max: 4, init: initialResonance, step: 0.01f ]];
+            input event float driveIn [[ name: "Drive", min: 0, max: 40, init: initialDrivedB, unit: "dB", step: 0.1f ]];
+            
+            event cutoffIn (float v) { cutoff = v; recalc = true; }
+            event resonanceIn (float v) { resonance = v; recalc = true; }
+            event driveIn (float v) { drivedB = v; recalc = true; }
+
+            float cutoff = initialCutoff;
+            float resonance = initialResonance;
+            float drivedB = initialDrivedB;
+            bool recalc = true;
+    
+            void run()
+            {   
+                LadderFilter::State s;
+                Coeffs c;
+    
+                let Tpi = SampleType (processor.period * pi);
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        update (c, cutoff, resonance, drivedB, Tpi);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        let y = s.processS (in, c);
+
+                        y0 << y[0];
+                        y1 << y[1];
+                        y2 << y[2];
+                        y3 << y[3];
+                        y4 << y[4];
+    
+                        advance();
+                    }
                 }
             }
         }
@@ -707,6 +805,12 @@ Linear Stateful Processors
             SampleType s;
         }
 
+        void update (Coeffs& c, float frequency, SampleType Tpi)
+        {
+            let g = Tpi * SampleType (frequency);
+            c.G = g / (ONE + g);
+        }
+
         SampleType[2] process (State& s, SampleType x, const Coeffs& c)
         {
             let v = (x - s.s) * c.G;
@@ -716,12 +820,6 @@ Linear Stateful Processors
             s.s = v + lpf;
 
             return SampleType[2] (lpf, hpf);
-        }
-
-        void update (Coeffs& c, float frequency, SampleType Tpi)
-        {
-            let g = Tpi * SampleType (frequency);
-            c.G = g / (SampleType (1.0) + g);
         }
 
         processor Processor (float initialFrequency)
@@ -836,32 +934,34 @@ Linear Stateful Processors
         processor Processor (float initialDelayMs = 50)
         {
             input stream SampleType in;
-            input stream float modIn;
+            input stream float lfoIn; //lfo between 1 and 0
             output stream SampleType out;
 
-            input event float delayIn [[ name: "Delay", min: 0, max: 1000, init: initialDelayMs, unit: "ms", step: 1 ]];
+            input event float delayIn [[ name: "Delay", min: 0, max: 500, init: initialDelayMs, unit: "ms", step: 1 ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
-            
+
+            float delayMs = initialDelayMs;
+            bool recalc = true;
+
             //state
             wrap<MAX_BUFFER_SIZE> readPos, writePos;
             SampleType[MAX_BUFFER_SIZE] buffer;
-
-            //coeffs
-            float delayMs = initialDelayMs;
-            bool recalc = true;
     
             void run()
             {   
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                let freqDiv1k = float (processor.frequency) / 1000.f;
                 
+                int delaySamples = int (freqDiv1k * initialDelayMs);
+
                 loop
                 {
                     if (recalc)
                     {
                         recalc = false;
     
-                        let delaySamples = max (1, int (processor.frequency * (delayMs * (1.f/1000.0f))));
+                        delaySamples = int (freqDiv1k * delayMs);
                         readPos = wrap<MAX_BUFFER_SIZE> (writePos - delaySamples);
                     }
     
@@ -869,7 +969,7 @@ Linear Stateful Processors
                     {
                         buffer.at(writePos) = in;
                 
-                        out << buffer.readLinearInterpolated (float (readPos) + modIn);
+                        out << buffer.readLinearInterpolated (float (readPos) + (delaySamples * lfoIn));
 
                         ++readPos;
                         ++writePos;
@@ -920,7 +1020,7 @@ Linear Stateful Processors
             {
                 let v = (y.at(i) - s.s.at(i)) * c.g;
                 y.at(i + 1) = v  + s.s.at(i);
-                s.s.at(i) = vsigmoidCD_S (v + y.at(i +1), SampleType(1.0));
+                s.s.at(i) = v + y.at(i +1);
             }
             
             return y;
@@ -932,7 +1032,7 @@ Linear Stateful Processors
             output stream SampleType y0, y1, y2, y3, y4;
 
             input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
-            input event float resonanceIn [[ name: "Resonance", min: 1, max: 10, init: initialResonance ]];
+            input event float resonanceIn [[ name: "Resonance", min: 0, max: 4, init: initialResonance, step: 0.01f ]];
             
             event cutoffIn (float v) { cutoff = v; recalc = true; }
             event resonanceIn (float v) { resonance = v; recalc = true; }
@@ -1429,6 +1529,25 @@ Vectorized Stateless Function Wrapper Processors
         }
     }
 
+    namespace Adder
+    {
+        processor Processor
+        {
+            input stream SampleType in1, in2;
+            output stream SampleType out;
+    
+            void run()
+            {
+                loop
+                {
+                    out << in1 + in2;
+    
+                    advance();
+                }
+            }
+        }
+    }
+
 /*==============================================================================
 Vectorized Stateless Functions
 ==============================================================================*/
@@ -1508,7 +1627,7 @@ Vectorized Stateless Functions
 
     /** clamp a value between low and high
 
-        If 'low' = inf32 or 'high' = inf32, they will be optimized out at compile time
+        If 'low' = INF32 or 'high' = INF32, they will be optimized out at compile time
     */
     namespace vclamp (float low = float (-inf), float high = float (inf))
     {       
@@ -1518,9 +1637,9 @@ Vectorized Stateless Functions
 
         SampleType process (SampleType x)
         {
-            if const (low > -inf32 && high < inf32)
+            if const (low > -INF32 && high < INF32)
                 return SampleType (clamp (x[0], l, h), clamp (x[1], l, h)); 
-            else if const (low > -inf32)
+            else if const (low > -INF32)
                 return SampleType (max (x[0], l), max (x[1], l));
             else
                 return SampleType (min (x[0], h), min (x[1], h));
@@ -1546,7 +1665,7 @@ Vectorized Stateless Functions
     /** Convert gain to decibels and clamp results to greater than -100.0 dB */
     SampleType vgainTodB (SampleType x)
     {
-        let temp = vclamp (N100dB, inf32)::process(x);
+        let temp = vclamp (NOISE_FLOOR, INF32)::process(x);
 
         return SampleType (20.0) * log10 (temp);
     }
@@ -1554,7 +1673,7 @@ Vectorized Stateless Functions
     /** Convert decibels to gain and clamp inputs to greater than -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
-        let temp = vclamp (-100, inf32)::process(x);
+        let temp = vclamp (NOISE_FLOOR_DB, INF32)::process(x);
 
         return vpow (SampleType (10.0), temp * SampleType (1.0 / 20.0));
     }
@@ -1563,7 +1682,6 @@ Vectorized Stateless Functions
     SampleType vsgn (SampleType x)
     {
         return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
-        //SampleType (x > SampleType (0.0)) - SampleType (x < SampleType (0.0));
     }
     
     /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b, good for state saturation */
@@ -1580,7 +1698,7 @@ Vectorized Stateless Functions
     */
     SampleType vsigmoidCD (SampleType x)
     {
-        return x / sqrt (x * x + SampleType (1.0));
+        return x / sqrt (x * x + ONE);
     }
 
     /** Absolute value */
@@ -1592,30 +1710,43 @@ Vectorized Stateless Functions
 /*==============================================================================
 Constants
 ==============================================================================*/
-
-    using DebugBufferType = float;
-    using SampleType = float64<2>; //also used internally as 'CoeffType'
-
-    let updateInterval = 128;
     
-    let N100dB = float (0.00001);
-    let inf32 = float (inf);
+    //soul::filters
+    using SampleType = float64<2>; //also used internally as 'CoeffType'
+    let updateInterval = 128;
+    namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
+    //soul::oscillators
+    using PhaseType = SampleType.primitiveType;
+    namespace osc = soul::oscillators;
+    
+    //const SampleType.primitiveType
+    let MAGNITUDE_DIFF_LIMIT = SampleType.primitiveType (10.0); //float64 precision is about 15.955 decimal digits, we want at least 6 decimal digits of precision at all times 
+    let MAX_PHASE = twoPi * pow (10.0, MAGNITUDE_DIFF_LIMIT);
+
+
+    //const SampleType
     let ADAA_TOL = SampleType (0.0000001);
     let ZERO = SampleType (0.0);
     let ONE = SampleType (1.0);
+
+    //const float
+    let INF32 = float (inf);
+    let NOISE_FLOOR = 0.00001f;
+    let NOISE_FLOOR_DB = -100.f;
+
+    //const int
     let MAX_BUFFER_SIZE = 96000; //for arrays of SampleType
     let MAX_ARRAY_SIZE = 8; //for all other array
     let MAX_CUTOFF_HZ = 20000;
     let MIN_CUTOFF_HZ = 20;
-
-    namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
-
 } //namespace VA
 
 
 namespace VA::Experimental
 {
+    
+
             /** A modified classical compressor sidechain
         
             3 sidechain blocks:
@@ -1840,7 +1971,7 @@ namespace VA::Experimental
                 loop
                 {
                     c.a = Omega * Tdiv2; //g
-                    c.a0 = SampleType (1.0) / (SampleType (1.0) + SampleType (2.0) * R * c.a + c.a * c.a); //d
+                    c.a0 = ONE / (ONE + SampleType (2.0) * R * c.a + c.a * c.a); //d
                     c.p = SampleType (2.0) * R + c.a; //g1
 
                     let y = s.process(in, c);

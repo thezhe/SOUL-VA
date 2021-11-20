@@ -1,46 +1,92 @@
-/** VA.soul test bench (for use with testMain.m) */
+/** VA.soul test bench (for use with testMain.m) 
+
+    To test an effect, modify the two commented sections under 'graph Processor [[main]]' and the run testMain.m
+
+    The SOUL CLI doesn't take 'VA::SampleType' streams so 'float' must cast to 'VA::SampleType' and vice versa for processing.
+    The uncommented sections are boilerplate for this casting operation (i.e. ignore it unless you know what you're doing).
+*/
 
 namespace main
 {
-    let initialVolume = 0.f;
+    namespace FloatToSampleType
+    {     
+        VA::SampleType process (float x)
+        {
+            return VA::SampleType (x);
+        }
+
+        processor Processor()
+        {
+            input stream float in;
+            output stream VA::SampleType out;
     
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace SampleTypeToFloat
+    {     
+        float process (VA::SampleType x)
+        {
+            return float (x.sum()/VA::SampleType.size);
+        }
+
+        processor Processor()
+        {
+            input stream VA::SampleType in;
+            output stream float out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
     graph Processor [[main]]
     {
-        input stream VA::DebugBufferType in;
-        output stream VA::DebugBufferType out;
+        input stream float in;
+        output stream float out;
 
         input
         {
             //expose effect endpoints
-           // event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity, step: 1]];
-
+            effect.depthIn;
+            effect.rateIn;
             effect.delayIn;
-            effect.mixIn;
             effect.feedbackIn;
             effect.cutoffIn;
             effect.resonanceIn;
+            effect.driveIn;
+            effect.mixIn;
         }
 
         let
         { 
-            //convert between DebugBufferType and SampleType
-            up = VA::Debug::DebugToSample::Processor;
-            down = VA::Debug::SampleToDebug::Processor;
-
-            //define effect
-            //effect = VA::HighLevel::DynamicsProcessor_Lan::Processor (25.f, 20.f, 50, 0, 0, -20.f, 1.5f, 1.5f);
-            //effect = VA::DelayLine::Processor (500);
-            //effect = VA::LadderFilter::Processor (1000, 1.f);
-            effect = VA::HighLevel::DelayLine_Ladder_NL::Processor;
+            //define effect as a 'Processor' from  'VA::HighLevel'
+            effect = VA::HighLevel::DelayLine_LadderS::Processor;
+            
+            up = FloatToSampleType::Processor;
+            down = SampleTypeToFloat::Processor;
         }
 
         connection
         {       
             in -> up -> effect.in;
             effect.out -> down -> out;
-            
-            //auto volume parameter
-            //nonlinearityIn -> effect.nonlinearityIn;//, volumeOut.parameterIn;
         }
     }
 }
