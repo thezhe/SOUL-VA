@@ -37,18 +37,16 @@
 
     Current Tasks:
     - double check LanADAA
-    - BBD chorus/vibrato/flanger/delay/echo with NL moog ladder
-    - ladder multimode LP
+    - Delay Line
+    - ladder multimode LP, NL auto gain
 
     Future Tasks:
     - rename params with units
     - initialization lists only for Processors and not namespaces
-    - refactor snippets, fix adaa, namespace constants
+    - refactor snippets adaa, namespace M, vifgl and viflt
     - SVF/OnepoleS/Compressor Components refactor and use
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
     - state saturation
-    - array vs vectors; if use array use .at()
-    - fix all vlt and vgt to viflt and vifgt
 */
 
 namespace VA 
@@ -63,6 +61,24 @@ Main Interface
     */
     namespace HighLevel
     {   
+        /** A dummy processor that doesn't modify streams
+        
+            Use case: Debugging
+        */
+        namespace Dummy
+        {
+            graph Processor()
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+                
+                connection
+                {
+                    in -> out;
+                }
+            }
+        }
+
         /** 'OnepoleC' in all pass mode modulated by 'LanADAA' 
         
             Use case: Boost and sustain low frequencies
@@ -137,16 +153,23 @@ Main Interface
         
         /** Modulated 'DelayLine' with 'LadderFilterS' in the feedback loop 
         
-            Use case: Delay/Echo/Chorus/Flanger/Vibrato
+            Use case: Chorus, slow flange
         */
-        namespace DelayLine_LadderS
+        namespace Chorus_LadderLPFS
         {
-            graph Processor(float initialDelay = 50, 
-                            float initialDepth = 50,
+            namespace LfoShapes
+            {
+                let Triangle = 0;
+                let Sine = 4;
+            }
+
+            graph Processor(float initialDelayMs = 3, 
                             float initialRateHz = 0,
-                            float initialFeedbackdB = -12,
+                            float initialDepth = 50,
+                            int initialShape = LfoShapes::Triangle,
+                            float initialFeedbackdB = -30,
                             float initialCutoff = 4000,
-                            float initialResonance = 1,
+                            float initialResonance = 0.5f,
                             float initialDrivedB = 0,
                             float initialMix = 50,
                             float initialPan = 0)
@@ -156,16 +179,17 @@ Main Interface
         
                 input
                 { 
-                    delayLine.delayIn;
-                    delayLine.depthIn;
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 5, init: initialDelayMs, unit: "ms", step: 0.1f ]];
 
-                    sine.frequencyIn rateHzIn [[ name: "Rate", min: 0, max: 100, init: initialRateHz, unit: "Hz" ]];
+                    lfo.rateHzIn     [[ name: "Rate (Hz)", min: 0.01, max: 5.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
+                    lfo.depthIn      [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
+                    lfo.shapeIn      [[ name: "Shape", min: 0, max: 4, init: initialShape, text: "Triangle|Sine", step: 4]];
                     
-                    volumeFeedback.valueIn feedbackIn;
+                    volumeFeedback.valueIn feedbackIn [[ name: "Feedback", min: -30, max: 0, init:initialFeedbackdB, unit: "dB", step: 0.1f ]];
 
-                    ladderS.cutoffIn;
-                    ladderS.resonanceIn;
-                    ladderS.driveIn;
+                    ladderLPFS.cutoffIn;
+                    ladderLPFS.resonanceIn;
+                    ladderLPFS.drivedBIn;
 
                     panMixer.mixIn;
                     panMixer.panIn;
@@ -173,11 +197,11 @@ Main Interface
         
                 let
                 {
-                    delayLine = DelayLine::Processor(initialDelay, initialDepth);
+                    delayLine = DelayLine::Processor (initialDelayMs);
                     
-                    sine = osc::Sine;
+                    lfo = osc::lfo::Processor;
 
-                    ladderS = LadderFilterS::Processor (initialCutoff, initialResonance, initialDrivedB);
+                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, initialDrivedB);
                     adderFeedback = Adder::Processor;
                     volumeFeedback = SmoothedGain::Processor (initialFeedbackdB, 1);
 
@@ -186,37 +210,21 @@ Main Interface
         
                 connection
                 {
-                    sine.out -> delayLine.lfoIn;
+                    lfo.out -> delayLine.lfoIn;
                     
                     in -> panMixer.in1, adderFeedback.in1;
 
                     delayLine.out -> [1] -> volumeFeedback.in;
                     volumeFeedback.out -> adderFeedback.in2; 
 
-                    adderFeedback -> ladderS.in;
-                    ladderS.y4 -> delayLine.in;
+                    adderFeedback -> ladderLPFS.in;
+                    ladderLPFS.out -> delayLine.in;
 
                     delayLine.out -> panMixer.in2;
                     panMixer.out -> out;
                 }
             }
         }
-
-        /** A dummy processor that doesn't modify streams */
-        namespace Dummy
-        {
-            graph Processor()
-            {
-                input stream SampleType in;
-                output stream SampleType out;
-                
-                connection
-                {
-                    in -> out;
-                }
-            }
-        }
-        
     } //namespace HighLevel
 
 /*==============================================================================
@@ -483,12 +491,84 @@ Mix Processors
     }
 
 /*==============================================================================
-Effect-Specific Stateful Processors
+Filter Processors
 ==============================================================================*/
 
     /** OnepoleC with differing cutoff depending on rising/falling output relative to stored output (feedback)*/
     namespace BallisticsFilter_Lan
     {
+        namespace BranchingCutoff_Lan
+        {
+            struct Coeffs 
+            {
+                Lan::Coeffs attack;
+                Lan::Coeffs release;
+            }
+
+            void update (Coeffs& c, float attack, float attackNonlinearity, float release, float releaseNonlinearity) 
+            {
+                Lan::update (c.attack, attackNonlinearity, attack);
+                Lan::update (c.release, releaseNonlinearity, release);
+            }
+
+            SampleType process (SampleType x, SampleType y, const Coeffs& c) 
+            {
+                return vifgt (Lan::process (x, c.attack), Lan::process(x, c.release), x, y);  
+            }
+
+            processor Processor(float initialAttackNonlinearity,
+                                float initialAttack,
+                                float initialReleaseNonlinearity,
+                                float initialRelease)
+            {
+                input stream SampleType x, y;
+                output stream SampleType Omega;
+        
+                input event
+                { 
+                    float attackIn [[ name: "Attack", min: 1, max: 200, init: initialAttack, unit: "ms", step: 1 ]];
+                    float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 1000, init: initialAttackNonlinearity, step: 1 ]];
+                    float releaseIn [[ name: "Release", min: 1, max: 500, init: initialRelease, unit: "ms", step: 1 ]];
+                    float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 1000, init: initialReleaseNonlinearity, step: 1]];
+                }
+
+                event attackIn (float v) { attack = v; recalc = true; }
+                event attackNonlinearityIn (float v) { attackNonlinearity = v; recalc = true; }
+                event releaseIn (float v) { release = v; recalc = true; }
+                event releaseNonlinearityIn (float v) { releaseNonlinearity = v; recalc = true; }
+
+                float attack = initialAttack;
+                float attackNonlinearity = initialAttackNonlinearity;
+                float release = initialRelease;
+                float releaseNonlinearity = initialReleaseNonlinearity;
+                bool recalc = true;
+        
+                void run()
+                {
+                    Coeffs c;
+
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+        
+                    loop
+                    {
+                        if (recalc)
+                        {
+                            recalc = false;
+        
+                            c.update (attack, attackNonlinearity, release, releaseNonlinearity);
+                        }
+        
+                        loop (updateIntervalSamples)
+                        {
+                            Omega << process(x, y, c);
+        
+                            advance();
+                        }
+                    }
+                }
+            }
+        }
+
         graph Processor (float initialAttackNonlinearity,
                         float initialAttack,
                         float initialReleaseNonlinearity,
@@ -523,83 +603,6 @@ Effect-Specific Stateful Processors
             }
         }
     }
-    
-    /** Nonlinear branching cutoff for making a nonlinear ballistics filter */
-    namespace BranchingCutoff_Lan
-    {
-        struct Coeffs 
-        {
-            Lan::Coeffs attack;
-            Lan::Coeffs release;
-        }
-
-        void update (Coeffs& c, float attack, float attackNonlinearity, float release, float releaseNonlinearity) 
-        {
-            Lan::update (c.attack, attackNonlinearity, attack);
-            Lan::update (c.release, releaseNonlinearity, release);
-        }
-
-        SampleType process (SampleType x, SampleType y, const Coeffs& c) 
-        {
-            return vifgt (Lan::process (x, c.attack), Lan::process(x, c.release), x, y);  
-        }
-
-        processor Processor(float initialAttackNonlinearity,
-                            float initialAttack,
-                            float initialReleaseNonlinearity,
-                            float initialRelease)
-        {
-            input stream SampleType x, y;
-            output stream SampleType Omega;
-    
-            input event
-            { 
-                float attackIn [[ name: "Attack", min: 1, max: 200, init: initialAttack, unit: "ms", step: 1 ]];
-                float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 1000, init: initialAttackNonlinearity, step: 1 ]];
-                float releaseIn [[ name: "Release", min: 1, max: 500, init: initialRelease, unit: "ms", step: 1 ]];
-                float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 1000, init: initialReleaseNonlinearity, step: 1]];
-            }
-
-            event attackIn (float v) { attack = v; recalc = true; }
-            event attackNonlinearityIn (float v) { attackNonlinearity = v; recalc = true; }
-            event releaseIn (float v) { release = v; recalc = true; }
-            event releaseNonlinearityIn (float v) { releaseNonlinearity = v; recalc = true; }
-
-            float attack = initialAttack;
-            float attackNonlinearity = initialAttackNonlinearity;
-            float release = initialRelease;
-            float releaseNonlinearity = initialReleaseNonlinearity;
-            bool recalc = true;
-    
-            void run()
-            {
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (attack, attackNonlinearity, release, releaseNonlinearity);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        Omega << process(x, y, c);
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-/*==============================================================================
-Nonlinear Stateful Processors
-==============================================================================*/
 
     /** Onepole modified for cutoff modulation via an input stream
         
@@ -636,135 +639,30 @@ Nonlinear Stateful Processors
         }
     }
 
-    /** 4 Pole Ladder Filter with state saturation
-
-        Notes:
-        - same as LadderFilter but the state variable is saturated in each LP1
-        - If sampling rate is 44.1kHz, use 2x oversampling
-    */
-    namespace LadderFilterS
-    {   
-        struct Coeffs
-        {
-            LadderFilter::Coeffs lf; //linear filter coeffs
-            SampleType b; //drive gain
-        }
-
-        void update (Coeffs& c, float cutoff, float resonance, float drivedB, SampleType Tpi)
-        {
-            let gOnepole = SampleType (cutoff) * Tpi;
-            c.lf.g = gOnepole / (ONE + gOnepole);
-            c.lf.k = SampleType (resonance);
-            c.b = SampleType (soul::dBtoGain (drivedB));
-        }
-
-        SampleType[5] processS (LadderFilter::State& s, SampleType x, const Coeffs& c)
-        {
-            let G = vpowi (c.lf.g, 4);
-            let S = vpowi (c.lf.g, 3) * s.s.at(0) + vpowi (c.lf.g, 2) * s.s.at(1) + c.lf.g * s.s.at(2) + s.s.at(3);
-
-            SampleType[5] y;
-
-            y[0] = (x - c.lf.k * S) / (ONE + c.lf.k * G); //u
-
-            //4x LPF
-            for (int i = 0; i < 4; ++i)
-            {
-                let v = (y.at(i) - s.s.at(i)) * c.lf.g;
-                y.at(i + 1) = v  + s.s.at(i);
-                s.s.at(i) = vsigmoidCD_S (v + y.at(i +1), c.b);
-            }
-            
-            return y;
-        }
-    
-        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialDrivedB = 0)
-        {
-            input stream SampleType in;
-            output stream SampleType y0, y1, y2, y3, y4;
-
-            input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
-            input event float resonanceIn [[ name: "Resonance", min: 0, max: 4, init: initialResonance, step: 0.01f ]];
-            input event float driveIn [[ name: "Drive", min: 0, max: 40, init: initialDrivedB, unit: "dB", step: 0.1f ]];
-            
-            event cutoffIn (float v) { cutoff = v; recalc = true; }
-            event resonanceIn (float v) { resonance = v; recalc = true; }
-            event driveIn (float v) { drivedB = v; recalc = true; }
-
-            float cutoff = initialCutoff;
-            float resonance = initialResonance;
-            float drivedB = initialDrivedB;
-            bool recalc = true;
-    
-            void run()
-            {   
-                LadderFilter::State s;
-                Coeffs c;
-    
-                let Tpi = SampleType (processor.period * pi);
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        update (c, cutoff, resonance, drivedB, Tpi);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        let y = s.processS (in, c);
-
-                        y0 << y[0];
-                        y1 << y[1];
-                        y2 << y[2];
-                        y3 << y[3];
-                        y4 << y[4];
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-/*==============================================================================
-Linear Stateful Processors
-==============================================================================*/
-
     /** Modified version of https://soul.dev/lab/?id=Delay 
     
         Notes:
-        - max 500 ms delay with ability to modulate +- 500 ms
+        - max 500 ms delay with ability to modulate +- 5ms
         - for feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> add your effects here -> DelayLine.in)
     */
     namespace DelayLine
     {   
-        struct Coeffs
-        {
-            float b;
-        }
-
         struct State 
         {
             wrap<MAX_BUFFER_SIZE> readPos, writePos;
             SampleType[MAX_BUFFER_SIZE] buffer;
         }
 
-        void update (Coeffs& c, float delayMs, float depth, float fsDiv1k, State& s)
+        void update (State& s, float delayMs, float fsDiv1k)
         {
-            let delaySamples = int (fsDiv1k * delayMs);
-            c.b = (depth / 100.f) * float (delaySamples);
-            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - delaySamples);
+            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - int (fsDiv1k * delayMs));
         }
 
-        SampleType process (State& s, SampleType x, float lfo, const Coeffs& c)
+        SampleType process (State& s, SampleType x, float lfo, float maxDepthSamples)
         {
             s.buffer.at (s.writePos) = x;
 
-            let y = s.buffer.readLinearInterpolated (float (s.readPos) + c.b * lfo);
+            let y = s.buffer.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
 
             ++s.readPos;
             ++s.writePos;
@@ -772,29 +670,27 @@ Linear Stateful Processors
             return y;
         }
 
-        processor Processor (float initialDelayMs = 50, float initialDepth = 0)
+        processor Processor (float initialDelayMs = 50, float maxDepthMs = 20)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be >= 1
             output stream SampleType out;
 
             input event float delayIn [[ name: "Delay", min: 0, max: 500, init: initialDelayMs, unit: "ms", step: 1 ]];
-            input event float depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
-            event depthIn (float v) { depth = v; recalc = true; }
 
             float delayMs = initialDelayMs;
-            float depth = initialDepth;
             bool recalc = true;
     
             void run()
             {  
-                Coeffs c;
                 State s;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                 let fsDiv1k = float (processor.frequency) / 1000.f;
+                let maxDepthSamples = maxDepthMs * fsDiv1k;
 
                 loop
                 {
@@ -802,12 +698,12 @@ Linear Stateful Processors
                     {
                         recalc = false;
     
-                        c.update (delayMs, depth, fsDiv1k, s);
+                        s.update (delayMs, fsDiv1k);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        out << s.process (in, lfoIn, c);
+                        out << s.process (in, lfoIn, maxDepthSamples);
 
                         advance();
                     }
@@ -957,73 +853,85 @@ Linear Stateful Processors
         }
     }
     
-    /** 4 Pole Ladder Filter 
-
-        Notes:
-        - If sampling rate is 44.1kHz, use 2x oversampling
-    */
-    namespace LadderFilter
+    /** Ladder Low Pass Filter with variable order and saturating state (always stable, can self-oscillate) */
+    namespace LadderLPFS
     {   
         struct Coeffs
         {
-            SampleType g;
-            SampleType k;
+            SampleType g; //G for onepole stages
+            SampleType k; //resonance
+            SampleType b; //drive in linear gain
         }
     
-        void update (Coeffs& c, float cutoff, float resonance, SampleType Tpi)
+        void update (Coeffs& c, float cutoff, float resonance, float drivedB, SampleType Tpi)
         {
-            let gOnepole = SampleType (cutoff) * Tpi;
+            let gOnepole = tanh (SampleType (cutoff) * Tpi);
+
             c.g = gOnepole / (ONE + gOnepole);
             c.k = SampleType (resonance);
-        }
-        
-        struct State
-        {
-            SampleType[4] s;
+            c.b = vdBtoGain (SampleType (drivedB));
         }
     
-        SampleType[5] process (State& s, SampleType x, const Coeffs& c)
+        namespace M (int order)
         {
-            let G = vpowi (c.g, 4);
-            let S = vpowi (c.g, 3) * s.s.at(0) + vpowi (c.g, 2) * s.s.at(1) + c.g * s.s.at(2) + s.s.at(3);
+            static_assert (order % 2 == 0, "LadderFilter: order must be even.");
 
-            SampleType[5] y;
-
-            y[0] = (x - c.k * S) / (ONE + c.k * G); //u
-
-            //4x LPF
-            for (int i = 0; i < 4; ++i)
+            struct State
             {
-                let v = (y.at(i) - s.s.at(i)) * c.g;
-                y.at(i + 1) = v  + s.s.at(i);
-                s.s.at(i) = v + y.at(i +1);
+                SampleType[order] s;
             }
-            
-            return y;
+
+            SampleType process (State& s, SampleType x, const Coeffs& c)
+            {
+                var S = ZERO;
+                var G = ONE;
+                for (int i = order - 1; i > -1; --i)
+                {
+                    S += G * s.s.at(i);
+                    G *= c.g;
+                }
+
+                //input to first lowpass ('u')
+                var y = (x - c.k * S) / (ONE + c.k * G);
+
+                //'order' lowpasses in series 
+                for (int i = 0; i < order; ++i)
+                {
+                    let v = (y - s.s.at(i)) * c.g;
+                    y = v  + s.s.at(i);
+                    s.s.at(i) = vsigmoidCD_S (v + y, c.b);
+                }
+                
+                return y;
+            }
         }
     
-        processor Processor (float initialCutoff = 1000, float initialResonance = 1)
+        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialDrivedB = 0, int order = 2)
         {
             input stream SampleType in;
-            output stream SampleType y0, y1, y2, y3, y4;
+            output stream SampleType out;
 
             input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
-            input event float resonanceIn [[ name: "Resonance", min: 0, max: 4, init: initialResonance, step: 0.01f ]];
+            input event float resonanceIn [[ name: "Resonance", min: 0, max: order, init: initialResonance, step: 0.01f ]];
+            input event float drivedBIn [[ name: "Drive", min: 0, max: 40, init: initialDrivedB, unit: "dB", step: 0.1f ]];
             
             event cutoffIn (float v) { cutoff = v; recalc = true; }
             event resonanceIn (float v) { resonance = v; recalc = true; }
+            event drivedBIn (float v) { drivedB = v; recalc = true; }
 
             float cutoff = initialCutoff;
             float resonance = initialResonance;
+            float drivedB = initialDrivedB;
             bool recalc = true;
     
             void run()
             {   
-                State s;
+                M(order)::State s;
                 Coeffs c;
     
-                let Tpi = SampleType (processor.period * pi);
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
+                let Tpi = SampleType (processor.period * pi);
     
                 loop
                 {
@@ -1031,18 +939,12 @@ Linear Stateful Processors
                     {
                         recalc = false;
     
-                        c.update (cutoff, resonance, Tpi);
+                        c.update (cutoff, resonance, drivedB, Tpi);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        let y = s.process (in, c);
-
-                        y0 << y[0];
-                        y1 << y[1];
-                        y2 << y[2];
-                        y3 << y[3];
-                        y4 << y[4];
+                        out << M (order)::process (s, in, c);
     
                         advance();
                     }
@@ -1717,7 +1619,6 @@ Constants
     let MAX_CUTOFF_HZ = 20000;
     let MIN_CUTOFF_HZ = 20;
 } //namespace VA
-
 
 namespace VA::Experimental
 {
