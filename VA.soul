@@ -57,10 +57,16 @@ namespace VA
 Main Interface
 ==============================================================================*/
 
-    /** High-level Processors made using the 'VA' and 'soul' namespaces */
+    /** High-level Processors made of components from 'VA' and 'soul' namespaces 
+    
+        All effects can behave nonlinearly and add their own "virtual analog warmth" 
+    */
     namespace HighLevel
     {   
-        /** VA::LanADAA modulating VA::OnepoleC in all pass mode */
+        /** 'OnepoleC' in all pass mode modulated by 'LanADAA' 
+        
+            Use case: Boost and sustain low frequencies
+        */
         namespace OnepoleC_Lan
         {
             graph Processor (float initialNonlinearity = 0.f, float initialStereoLink = 0.f)
@@ -129,48 +135,60 @@ Main Interface
             }    
         }
         
-        /** Delay line with a nonlinear ladder filter in feedback */
+        /** Modulated 'DelayLine' with 'LadderFilterS' in the feedback loop 
+        
+            Use case: Delay/Echo/Chorus/Flanger/Vibrato
+        */
         namespace DelayLine_LadderS
         {
-            graph Processor(float initialDelay = 50, float initialFeedbackdB = NOISE_FLOOR_DB, float initialMix = 50.f)
+            graph Processor(float initialDelay = 50, 
+                            float initialDepth = 50,
+                            float initialRateHz = 0,
+                            float initialFeedbackdB = -12,
+                            float initialCutoff = 4000,
+                            float initialResonance = 1,
+                            float initialDrivedB = 0,
+                            float initialMix = 50,
+                            float initialPan = 0)
             {
                 input stream SampleType in;
                 output stream SampleType out;
         
                 input
-                {
-                    depth.volume depthIn; 
-                    sine.frequencyIn rateIn [[ name: "Rate", min: 0, max: 100, init: 0, unit: "Hz" ]];
-                    
+                { 
                     delayLine.delayIn;
+                    delayLine.depthIn;
 
-                    volumeFeedback.volumeIn feedbackIn;
+                    sine.frequencyIn rateHzIn [[ name: "Rate", min: 0, max: 100, init: initialRateHz, unit: "Hz" ]];
+                    
+                    volumeFeedback.valueIn feedbackIn;
+
                     ladderS.cutoffIn;
                     ladderS.resonanceIn;
                     ladderS.driveIn;
-                    mixer.mixIn;
+
+                    panMixer.mixIn;
+                    panMixer.panIn;
                 }
         
                 let
                 {
-                    delayLine = DelayLine::Processor(initialDelay);
+                    delayLine = DelayLine::Processor(initialDelay, initialDepth);
                     
-                    sine = osc::Sine (0);
-                    depth = soul::gain::SmoothedGain;
+                    sine = osc::Sine;
 
-                    ladderS = LadderFilterS::Processor;
+                    ladderS = LadderFilterS::Processor (initialCutoff, initialResonance, initialDrivedB);
                     adderFeedback = Adder::Processor;
-                    volumeFeedback = Volume::Processor(initialFeedbackdB);
+                    volumeFeedback = SmoothedGain::Processor (initialFeedbackdB, 1);
 
-                    mixer = Mixer::Processor(initialMix);
+                    panMixer = PanMixer::Processor (initialMix, initialPan);
                 }
         
                 connection
                 {
-                    sine.out -> depth.in;
-                    depth.out -> delayLine.lfoIn;
+                    sine.out -> delayLine.lfoIn;
                     
-                    in -> mixer.in1, adderFeedback.in1;
+                    in -> panMixer.in1, adderFeedback.in1;
 
                     delayLine.out -> [1] -> volumeFeedback.in;
                     volumeFeedback.out -> adderFeedback.in2; 
@@ -178,33 +196,63 @@ Main Interface
                     adderFeedback -> ladderS.in;
                     ladderS.y4 -> delayLine.in;
 
-                    delayLine.out -> mixer.in2;
-                    mixer.out -> out;
+                    delayLine.out -> panMixer.in2;
+                    panMixer.out -> out;
                 }
             }
         }
+
+        /** A dummy processor that doesn't modify streams */
+        namespace Dummy
+        {
+            graph Processor()
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+                
+                connection
+                {
+                    in -> out;
+                }
+            }
+        }
+        
     } //namespace HighLevel
 
 /*==============================================================================
-Helper Processors
+Mix Processors
 ==============================================================================*/
- 
-    /** Set the volume in dB via VA::SmoothedParameter */
-    namespace Volume
+    
+    /** Apply a gain via VA::SmoothedParameter */
+    namespace SmoothedGain
     {
-        graph Processor (float initialVolume = NOISE_FLOOR_DB, float slewRateSeconds = 0.1f)
+        namespace Modes
+        {
+            let Linear = 0;
+            let Decibel = 1;
+            let Percent = 2;
+        }
+
+        namespace M (int Mode = 0)
+        {
+            let Min = (Mode == Modes::Linear ? 0 : (Mode == Modes::Decibel ? -12 : 0));
+            let Max = (Mode == Modes::Linear ? 1 : (Mode == Modes::Decibel ? 0 : 100));
+            let Step = (Mode == Modes::Linear ? 0.01f : (Mode == Modes::Decibel ? 0.1f : 1.f));
+        }
+
+        graph Processor (float initialValue = 0, int Mode = 0, float slewRateSeconds = 0.1f)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
-                smoothedGain.parameterIn volumeIn [[name: "Volume", min: NOISE_FLOOR_DB, max: 0, init: initialVolume, step: 0.1f, unit: "dB"]];
+                smoothedGain.parameterIn valueIn [[ name: (Mode == Modes::Linear ? "Gain" : (Mode == Modes::Decibel ? "Volume" : "Depth")), min: M(Mode)::Min, max: M(Mode)::Max, init: initialValue, step: M(Mode)::Step, unit: (Mode == Modes::Linear ? "" : (Mode == Modes::Decibel ? "dB" : "%")) ]];
             }
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (initialVolume, slewRateSeconds, 1);
+                smoothedGain = SmoothedParameter::Processor (initialValue, slewRateSeconds, Mode);
                 multiplier = Multiplier::Processor;
             }
     
@@ -218,73 +266,50 @@ Helper Processors
         }
     }
 
-    /** Set the gain via VA::SmoothedParameter */
-    namespace Gain
-    {
-        graph Processor (float initialGain = 0, float slewRateSeconds = 0.1f)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                smoothedGain.parameterIn gainIn [[name: "Gain", min: 0, max: 1, init: 1, step: 0.01f]];
-            }
-    
-            let
-            {
-                smoothedGain = SmoothedParameter::Processor (initialGain, slewRateSeconds, 0);
-                multiplier = Multiplier::Processor;
-            }
-    
-            connection
-            {
-                in -> multiplier.in1;
-                smoothedGain.out -> multiplier.in2;
-
-                multiplier.out -> out;
-            }
-        }
-    }
-
-    /** Mix two signals 
-
-        out << in2 when c.mix = 100.f
-    */
-    namespace Mixer
+    /** Pan and mix two SampleType streams */
+    namespace PanMixer
     {   
+        namespace Modes
+        {
+            let PanMix = 0;
+            let MixOnly = 1;
+            let PanOnly = 2;
+        }
+
         struct Coeffs
         {
-            SampleType t;
-            float mix;
+            SampleType t1, t2;
         }
     
-        void update (Coeffs& c, float mix)
+        void update (Coeffs& c, float mix, float pan)
         {
-            c.t = SampleType (mix) * SampleType (1.0/100.0);
-            c.mix = mix;
+            let p = (float64 (pan) + 1.0) / 2.0; 
+            let p2 = SampleType (1.0 - p, p);
+            let p1 = ONE - p2;
+
+            let m = SampleType (mix) * SampleType (1.0/100.0);
+            c.t2 = m * p2;
+            c.t1 = (ONE - m) * p1;
         }
     
         SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
         {
-            if (c.mix == 0.f)
-                return in1;
-            else if (c.mix == 100.f)
-                return in2;
-            else
-                return vlerp (in1, in2, c.t);
+            return c.t1 * in1 + c.t2 * in2;
         }
     
-        processor Processor (float initialMix = 100.f)
+        processor Processor (float initialMix = 100.f, float initialPan = 0)
         {
             input stream SampleType in1, in2;
             output stream SampleType out;
     
-            input event float mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%" ]];
+            input event float mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
+            input event float panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 0.01f ]];
     
             event mixIn (float v) { mix = v; recalc = true; }
+            event panIn (float v) { pan = v; recalc = true; }
     
             float mix = initialMix;
+            float pan = initialPan;
             bool recalc = true;
     
             void run()
@@ -299,7 +324,7 @@ Helper Processors
                     {
                         recalc = false;
     
-                        c.update (mix);
+                        c.update (mix, pan);
                     }
     
                     loop (updateIntervalSamples)
@@ -318,7 +343,7 @@ Helper Processors
         pattern:
         - 0: for use with OnepoleC_Lan and the nonlinearity parameter
     */
-    namespace AutoVolume
+    namespace SmoothedAutoVolume
     {   
         struct State
         {
@@ -400,8 +425,9 @@ Helper Processors
         Notes:
         - parameterIn requires an annotation (no default annotation)
         - modes:
-            *0: linear scale
-            *1: dB scale
+            *0: linear in, linear out
+            *1: dB in, linear gain out
+            *2: percent in, linear gain out
     */    
     namespace SmoothedParameter
     {
@@ -426,9 +452,11 @@ Helper Processors
             event parameterIn (float v)
             {
                 if const (mode == 0)
-                    target = v;
-                else
-                    target = vdBtoGain (v);
+                    target = SampleType (v);
+                else if const (mode == 1)
+                    target = vdBtoGain (SampleType (v));
+                else if const (mode == 2)
+                    target = SampleType (v) / SampleType (100.0);
 
                 remainingRampSamples = int (vclamp (1, INF32)::process (vabs (target - current) * divMaxDelta) [0]);
                 increment = (target - current) / SampleType (remainingRampSamples);
@@ -457,87 +485,6 @@ Helper Processors
 /*==============================================================================
 Effect-Specific Stateful Processors
 ==============================================================================*/
-
-    /** Modified version of soul::oscillators::Sine
-      
-       Sine oscilator to be used as an lfo 
-    */
-    namespace Sine
-    {
-        
-
-        struct Coeffs
-        {
-            SampleType phaseIncr;
-            SampleType amp;
-        }
-
-        struct State
-        {
-            SampleType phase;
-        }
-
-        void update (Coeffs& c, float rateHz, float depth, float width, SampleType twoPiT)
-        {
-            let phaseDiff = SampleType.primitiveType (width) * SampleType.primitiveType (pi/100.0);
-            c.phaseIncr = SampleType (rateHz) * twoPiT;
-            c.phaseIncr[1] -= phaseDiff;
-            c.amp = SampleType (depth);
-        }
-
-        SampleType process (State& s, const Coeffs& c)
-        {
-            let y = c.amp * sin (s.phase);
-            
-            s.phase += c.phaseIncr;
-
-            if (s.phase[0] > MAX_PHASE)
-                s.phase -= SampleType (MAX_PHASE);
-
-            return y;
-        }
-
-        processor Processor (float initialRateHz = 0, float initialDepth = 0.f)
-        {
-            output stream SampleType out;
-            
-            input event float rateHzIn  [[ name: "Rate", min: 0, max: 100, init: 0, unit: "Hz" ]];
-            input event float depthIn  [[ name: "Depth", min: 0, max: 1, init: 0, step: 0.01f ]];
-            
-            event rateHzIn (float v) { rateHz = v; recalc = true; }
-            event depthIn (float v) { depth = v; recalc = true; }
-
-            float rateHz = initialRateHz;
-            float depth = initialDepth;
-            bool recalc = true;
-
-            void run()
-            {
-                Coeffs c;
-                State s;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-                let twoPiT = SampleType (twoPi * processor.period);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-
-                        c.update (rateHz, depth, twoPiT);
-                    }
-
-                    loop (updateIntervalSamples)
-                    {
-                        out << s.process (c);
-                    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
 
     /** OnepoleC with differing cutoff depending on rising/falling output relative to stored output (feedback)*/
     namespace BallisticsFilter_Lan
@@ -787,6 +734,88 @@ Nonlinear Stateful Processors
 Linear Stateful Processors
 ==============================================================================*/
 
+    /** Modified version of https://soul.dev/lab/?id=Delay 
+    
+        Notes:
+        - max 500 ms delay with ability to modulate +- 500 ms
+        - for feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> add your effects here -> DelayLine.in)
+    */
+    namespace DelayLine
+    {   
+        struct Coeffs
+        {
+            float b;
+        }
+
+        struct State 
+        {
+            wrap<MAX_BUFFER_SIZE> readPos, writePos;
+            SampleType[MAX_BUFFER_SIZE] buffer;
+        }
+
+        void update (Coeffs& c, float delayMs, float depth, float fsDiv1k, State& s)
+        {
+            let delaySamples = int (fsDiv1k * delayMs);
+            c.b = (depth / 100.f) * float (delaySamples);
+            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - delaySamples);
+        }
+
+        SampleType process (State& s, SampleType x, float lfo, const Coeffs& c)
+        {
+            s.buffer.at (s.writePos) = x;
+
+            let y = s.buffer.readLinearInterpolated (float (s.readPos) + c.b * lfo);
+
+            ++s.readPos;
+            ++s.writePos;
+
+            return y;
+        }
+
+        processor Processor (float initialDelayMs = 50, float initialDepth = 0)
+        {
+            input stream SampleType in;
+            input stream float lfoIn; //max amplitude should be >= 1
+            output stream SampleType out;
+
+            input event float delayIn [[ name: "Delay", min: 0, max: 500, init: initialDelayMs, unit: "ms", step: 1 ]];
+            input event float depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1]];
+
+            event delayIn (float v) { delayMs = v; recalc = true; }
+            event depthIn (float v) { depth = v; recalc = true; }
+
+            float delayMs = initialDelayMs;
+            float depth = initialDepth;
+            bool recalc = true;
+    
+            void run()
+            {  
+                Coeffs c;
+                State s;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                let fsDiv1k = float (processor.frequency) / 1000.f;
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (delayMs, depth, fsDiv1k, s);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << s.process (in, lfoIn, c);
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
     /** SOUL-VA's version of soul::filters::tpt::onepole  
 
         Notes:
@@ -921,59 +950,6 @@ Linear Stateful Processors
                     {
                         out << process (highpassIn, lowpassIn, c);
     
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** Modified version of https://soul.dev/lab/?id=Delay */
-    namespace DelayLine
-    {   
-        processor Processor (float initialDelayMs = 50)
-        {
-            input stream SampleType in;
-            input stream float lfoIn; //lfo between 1 and 0
-            output stream SampleType out;
-
-            input event float delayIn [[ name: "Delay", min: 0, max: 500, init: initialDelayMs, unit: "ms", step: 1 ]];
-
-            event delayIn (float v) { delayMs = v; recalc = true; }
-
-            float delayMs = initialDelayMs;
-            bool recalc = true;
-
-            //state
-            wrap<MAX_BUFFER_SIZE> readPos, writePos;
-            SampleType[MAX_BUFFER_SIZE] buffer;
-    
-            void run()
-            {   
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-                let freqDiv1k = float (processor.frequency) / 1000.f;
-                
-                int delaySamples = int (freqDiv1k * initialDelayMs);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        delaySamples = int (freqDiv1k * delayMs);
-                        readPos = wrap<MAX_BUFFER_SIZE> (writePos - delaySamples);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        buffer.at(writePos) = in;
-                
-                        out << buffer.readLinearInterpolated (float (readPos) + (delaySamples * lfoIn));
-
-                        ++readPos;
-                        ++writePos;
-
                         advance();
                     }
                 }

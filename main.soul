@@ -64,21 +64,35 @@ namespace main
         input
         {
             //expose effect endpoints
-            effect.depthIn;
-            effect.rateIn;
             effect.delayIn;
+            effect.depthIn;
+
+            effect.rateHzIn;
+            
             effect.feedbackIn;
+            
             effect.cutoffIn;
             effect.resonanceIn;
             effect.driveIn;
+
             effect.mixIn;
+            effect.panIn;
         }
 
         let
         { 
             //define effect as a 'Processor' from  'VA::HighLevel'
-            effect = VA::HighLevel::DelayLine_LadderS::Processor;
-            
+            effect = VA::HighLevel::DelayLine_LadderS::Processor(/* float initialDelay = */ 50, 
+                                                                /* float initialDepth = */ 50,
+                                                                /* float initialRateHz = */ 0,
+                                                                /* float initialFeedbackdB = */ -12,
+                                                                /* float initialCutoff = */ 4000,
+                                                                /* float initialResonance = */ 1,
+                                                                /* float initialDrivedB = */ 0,
+                                                                /* float initialMix = */ 50,
+                                                                /* float initialPan = */ 0);
+
+            //effect = VA::HighLevel::Dummy::Processor;
             up = FloatToSampleType::Processor;
             down = SampleTypeToFloat::Processor;
         }
