@@ -37,8 +37,8 @@
 
     Current Tasks:
     - double check LanADAA
-    - Delay Line
     - ladder multimode LP, NL auto gain
+    - -30dB is zero in Chorus_LadderLPFS
 
     Future Tasks:
     - rename params with units
@@ -153,7 +153,10 @@ Main Interface
         
         /** Modulated 'DelayLine' with 'LadderFilterS' in the feedback loop 
         
-            Use case: Chorus, slow flange
+            Notes:
+            - Loosely based on Boss CE2 Chorus Pedal
+            - fixed 3 ms delay time 
+            - Use case: Chorus, slow flange
         */
         namespace Chorus_LadderLPFS
         {
@@ -163,14 +166,11 @@ Main Interface
                 let Sine = 4;
             }
 
-            graph Processor(float initialDelayMs = 3, 
-                            float initialRateHz = 0,
+            graph Processor(float initialRateHz = 0,
                             float initialDepth = 50,
                             int initialShape = LfoShapes::Triangle,
-                            float initialFeedbackdB = -30,
                             float initialCutoff = 4000,
                             float initialResonance = 0.5f,
-                            float initialDrivedB = 0,
                             float initialMix = 50,
                             float initialPan = 0)
             {
@@ -179,17 +179,12 @@ Main Interface
         
                 input
                 { 
-                    delayLine.delayIn [[ name: "Delay", min: 0, max: 5, init: initialDelayMs, unit: "ms", step: 0.1f ]];
-
-                    lfo.rateHzIn     [[ name: "Rate (Hz)", min: 0.01, max: 5.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
-                    lfo.depthIn      [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
-                    lfo.shapeIn      [[ name: "Shape", min: 0, max: 4, init: initialShape, text: "Triangle|Sine", step: 4]];
+                    lfo.rateHzIn [[ name: "Rate (Hz)", min: 0.01, max: 3.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
+                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
+                    lfo.shapeIn [[ name: "Shape", min: 0, max: 4, init: initialShape, text: "Triangle|Sine", step: 4]];
                     
-                    volumeFeedback.valueIn feedbackIn [[ name: "Feedback", min: -30, max: 0, init:initialFeedbackdB, unit: "dB", step: 0.1f ]];
-
                     ladderLPFS.cutoffIn;
                     ladderLPFS.resonanceIn;
-                    ladderLPFS.drivedBIn;
 
                     panMixer.mixIn;
                     panMixer.panIn;
@@ -197,14 +192,11 @@ Main Interface
         
                 let
                 {
-                    delayLine = DelayLine::Processor (initialDelayMs);
-                    
                     lfo = osc::lfo::Processor;
+                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, initialDrivedB, 2);
 
-                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, initialDrivedB);
-                    adderFeedback = Adder::Processor;
-                    volumeFeedback = SmoothedGain::Processor (initialFeedbackdB, 1);
-
+                    delayLine = DelayLine::Processor (3);
+                    
                     panMixer = PanMixer::Processor (initialMix, initialPan);
                 }
         
@@ -212,15 +204,11 @@ Main Interface
                 {
                     lfo.out -> delayLine.lfoIn;
                     
-                    in -> panMixer.in1, adderFeedback.in1;
-
-                    delayLine.out -> [1] -> volumeFeedback.in;
-                    volumeFeedback.out -> adderFeedback.in2; 
-
-                    adderFeedback -> ladderLPFS.in;
+                    in -> ladderLPFS.in, panMixer.in1;
+                    
                     ladderLPFS.out -> delayLine.in;
-
                     delayLine.out -> panMixer.in2;
+                    
                     panMixer.out -> out;
                 }
             }
@@ -853,7 +841,12 @@ Filter Processors
         }
     }
     
-    /** Ladder Low Pass Filter with variable order and saturating state (always stable, can self-oscillate) */
+    /** Ladder Low Pass Filter with variable order and saturating state 
+    
+        Notes:
+        - Resonance up to order/2 reccomended
+        - Even though its nonlinear, the filter can become unstable because the state sat function is not bounded
+    */
     namespace LadderLPFS
     {   
         struct Coeffs
@@ -899,14 +892,14 @@ Filter Processors
                 {
                     let v = (y - s.s.at(i)) * c.g;
                     y = v  + s.s.at(i);
-                    s.s.at(i) = vsigmoidCD_S (v + y, c.b);
+                    s.s.at(i) = vBBD (v + y)
                 }
                 
                 return y;
             }
         }
     
-        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialDrivedB = 0, int order = 2)
+        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialDrivedB = 0, int order = 4)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1429,6 +1422,18 @@ Vectorized Stateless Function Wrapper Processors
 /*==============================================================================
 Vectorized Stateless Functions
 ==============================================================================*/
+
+    /** BBD mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
+    
+        Use for low order, monotonically decreasing harmonics
+    */
+    SampleType vBBD (SampleType x)
+    {
+        let a = SampleType (1.0/8.0);
+        let b = SampleType (1.0/16.0);
+
+        return x - a * vpowi (x, 2) - b * vpowi (x, 3); 
+    }
 
     SampleType vCTF_Color (SampleType x, SampleType thr, SampleType ratio, SampleType height, SampleType width)
     {

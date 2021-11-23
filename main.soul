@@ -3,7 +3,7 @@
     To test an effect, modify the two commented sections under 'graph Processor [[main]]' and the run testMain.m
 
     The SOUL CLI doesn't take 'VA::SampleType' streams so 'float' must cast to 'VA::SampleType' and vice versa for processing.
-    The uncommented sections are boilerplate for this casting operation (i.e. ignore it unless you know what you're doing).
+    The uncommented sections are boilerplate for this 'mono -> stereo -> mono' processing (i.e. ignore it unless you know what you're doing).
 */
 
 namespace main
@@ -58,19 +58,15 @@ namespace main
 
     graph Processor [[main]]
     {
-        input stream float in;
-        output stream float out;
+        input stream float /* VA::SampleType */ in; //change streams to SampleType if using https://soul.dev/lab/
+        output stream float /* VA::SampleType */ out;
 
         input
         {
             //expose effect endpoints
-            effect.delayIn;
-
             effect.rateHzIn;
             effect.depthIn;
             effect.shapeIn;
-
-            effect.feedbackIn;
             
             effect.cutoffIn;
             effect.resonanceIn;
@@ -85,14 +81,13 @@ namespace main
             //define effect as a 'Processor' from  'VA::HighLevel'
             effect = VA::HighLevel::Chorus_LadderLPFS::Processor;
 
-            //effect = VA::HighLevel::Dummy::Processor;
             up = FloatToSampleType::Processor;
             down = SampleTypeToFloat::Processor;
         }
 
         connection
         {       
-            in -> up -> effect.in;
+            in -> up -> effect.in; //remove 'up' and 'down' if using https://soul.dev/lab/
             effect.out -> down -> out;
         }
     }
