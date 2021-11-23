@@ -164,11 +164,11 @@ Main Interface
                 let Sine = 4;
             }
 
-            graph Processor(float initialRateHz = 0,
+            graph Processor(float initialRateHz = 1,
                             float initialDepth = 50,
                             int initialShape = LfoShapes::Triangle,
-                            float initialCutoff = 4000,
-                            float initialResonance = 0.5f,
+                            float initialCutoff = 9000,
+                            float initialResonance = 0.f,
                             float initialMix = 50,
                             float initialPan = 0)
             {
@@ -177,21 +177,22 @@ Main Interface
         
                 input
                 { 
-                    lfo.rateHzIn [[ name: "Rate (Hz)", min: 0.01, max: 3.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
+                    lfo.rateHzIn [[ name: "Rate (Hz)", min: 0.01, max: 2.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
                     lfo.shapeIn [[ name: "Shape", min: 0, max: 4, init: initialShape, text: "Triangle|Sine", step: 4]];
                     
-                    ladderLPFS.cutoffIn;
-                    ladderLPFS.resonanceIn;
+                    ladderLPFS.cutoffIn [[ name: "Cutoff", min: 6000, max: 16000, init: initialCutoff, unit: "Hz", step: 1 ]];
+                    ladderLPFS.resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
+                    ladderLPFS.nlModeIn;
 
                     panMixer.mixIn;
-                    panMixer.panIn;
+                    panMixer.panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 1 ]];
                 }
         
                 let
                 {
                     lfo = osc::lfo::Processor;
-                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, 0, 2);
+                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, 0, 4);
 
                     delayLine = DelayLine::Processor (3);
                     
@@ -656,7 +657,7 @@ Filter Processors
             return y;
         }
 
-        processor Processor (float initialDelayMs = 50, float maxDepthMs = 20)
+        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be >= 1
@@ -851,16 +852,16 @@ Filter Processors
         {
             SampleType g; //G for onepole stages
             SampleType k; //resonance
-            SampleType b; //drive in linear gain
+            int nlMode;
         }
     
-        void update (Coeffs& c, float cutoff, float resonance, float drivedB, SampleType Tpi)
+        void update (Coeffs& c, float cutoff, float resonance, float nlMode, SampleType Tpi)
         {
             let gOnepole = tanh (SampleType (cutoff) * Tpi);
 
             c.g = gOnepole / (ONE + gOnepole);
             c.k = SampleType (resonance);
-            c.b = vdBtoGain (SampleType (drivedB));
+            c.nlMode = int (nlMode);
         }
     
         namespace M (int order)
@@ -890,29 +891,36 @@ Filter Processors
                 {
                     let v = (y - s.s.at(i)) * c.g;
                     y = v  + s.s.at(i);
-                    s.s.at(i) = vBBD (v + y);
+                    let sLin = v + y;
+
+                    if (c.nlMode == 0)
+                        s.s.at(i) =  sLin;
+                    else if (c.nlMode == 1)
+                        s.s.at(i) =  vBBD (sLin);
+                    else if (c.nlMode == 2)
+                        s.s.at(i) =  vsigmoidCD (sLin);
                 }
                 
-                return y;
+                return y * (ONE + c.k); //normalize
             }
         }
     
-        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialDrivedB = 0, int order = 4)
+        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialNlMode = 0, int order = 4)
         {
             input stream SampleType in;
             output stream SampleType out;
 
             input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
             input event float resonanceIn [[ name: "Resonance", min: 0, max: order, init: initialResonance, step: 0.01f ]];
-            input event float drivedBIn [[ name: "Drive", min: 0, max: 40, init: initialDrivedB, unit: "dB", step: 0.1f ]];
+            input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 2, init: initialNlMode, text: "None|BBD|Tanh", step: 1 ]];
             
             event cutoffIn (float v) { cutoff = v; recalc = true; }
             event resonanceIn (float v) { resonance = v; recalc = true; }
-            event drivedBIn (float v) { drivedB = v; recalc = true; }
+            event nlModeIn (float v) { nlMode = v; recalc = true; }
 
             float cutoff = initialCutoff;
             float resonance = initialResonance;
-            float drivedB = initialDrivedB;
+            float nlMode = initialNlMode;
             bool recalc = true;
     
             void run()
@@ -930,7 +938,7 @@ Filter Processors
                     {
                         recalc = false;
     
-                        c.update (cutoff, resonance, drivedB, Tpi);
+                        c.update (cutoff, resonance, nlMode, Tpi);
                     }
     
                     loop (updateIntervalSamples)
