@@ -70,7 +70,6 @@ namespace main
             
             effect.cutoffIn;
             effect.resonanceIn;
-            effect.drivedBIn;
 
             effect.mixIn;
             effect.panIn;

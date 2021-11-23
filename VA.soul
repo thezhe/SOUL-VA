@@ -20,7 +20,7 @@
 /** SOUL-VA (https://github.com/thezhe/SOUL-VA)
 
     The following interface is nearly identical to soul::filters EXCEPT:
-    - Each effect is a 'Processor' under 'VA::HighLevel'
+    - Each effect is a 'Processor' under 'VA::HighLevel' (see 'Main Interface')
     - No user defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
@@ -30,15 +30,14 @@
     - All effects are optimized for 44.1kHz/24-bit/stereo. 
     Higher sample rates and bit depths degrade performance 
     without guaranteed better quality! Any sampling rate beyond 96000
-    is not supported.
+    is not officially supported.
 */
 
 /** Task List
 
     Current Tasks:
     - double check LanADAA
-    - ladder multimode LP, NL auto gain
-    - -30dB is zero in Chorus_LadderLPFS
+    - ladder 2nd order LP, NL, and auto gain for both
 
     Future Tasks:
     - rename params with units
@@ -46,7 +45,6 @@
     - refactor snippets adaa, namespace M, vifgl and viflt
     - SVF/OnepoleS/Compressor Components refactor and use
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
-    - state saturation
 */
 
 namespace VA 
@@ -193,7 +191,7 @@ Main Interface
                 let
                 {
                     lfo = osc::lfo::Processor;
-                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, initialDrivedB, 2);
+                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, 0, 2);
 
                     delayLine = DelayLine::Processor (3);
                     
@@ -892,7 +890,7 @@ Filter Processors
                 {
                     let v = (y - s.s.at(i)) * c.g;
                     y = v  + s.s.at(i);
-                    s.s.at(i) = vBBD (v + y)
+                    s.s.at(i) = vBBD (v + y);
                 }
                 
                 return y;
