@@ -1,3 +1,4 @@
+![SOUL-VA_logo](https://user-images.githubusercontent.com/42720670/143501884-f9a4daac-9460-4312-bacf-4984ef002dc4.png)
 # The SOUL Virtual Analog Library
 [SOUL-VA](https://github.com/thezhe/SOUL-VA) is a collection of analog-inspired audio effects. Unlike other libraries, this project achieves [analytical](https://math.stackexchange.com/questions/935405/what-s-the-difference-between-analytical-and-numerical-approaches-to-problems) solutions and [a strict -60dB peak amplitude limit for aliasing artifacts](https://github.com/thezhe/SOUL-VA#example-3-onepolec_lan-nonlinearity--300).
 
