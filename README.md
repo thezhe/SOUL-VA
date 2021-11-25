@@ -32,7 +32,14 @@ Please post bugs in issues and feature requests in discussions. Bug fixes take p
 The following sections explain the output after running `testMain (44100)` on different `VA::HighLevel` effects (instantiated in `Processor [[main]]`).
 ### Example 1: Dummy
 The system is trivial (and linear) and simply passes signals through unmodified.
+![Dummy2](https://user-images.githubusercontent.com/42720670/143499549-a8484fe7-bb55-4c24-8242-aa6dd5be6b1c.png)  
+![Dummy1](https://user-images.githubusercontent.com/42720670/143499553-e699e725-ad35-413c-9378-3121313d5d49.png)  
 ### Example 2: OnepoleC_Lan (nonlinearity = 200)
-The system is significantly nonlinear and all outputs show some sort of distortion.
+The system is significantly nonlinear and all outputs show some sort of distortion.  
+![OnepoleC_Lan(200)2](https://user-images.githubusercontent.com/42720670/143499888-6d6bb662-d376-4e94-90f3-c417c346b851.png)  
+![OnepoleC_Lan(200)1](https://user-images.githubusercontent.com/42720670/143499897-f637bf2f-9c7f-469a-954f-06ace715cf5c.png)  
 ### Example 3: OnepoleC_Lan (nonlinearity = 300)
-The system is significantly nonlinear, but does not meet the standards of this library. Some aliasing components are more than -60dB as shown by the non-DC inharmonic partials in 'SinSweep'.
+The system is significantly nonlinear, but does not meet the standards of this library. Some aliasing components are more than -60dB as shown by the non-DC inharmonic partials in 'SinSweep'.  
+![OnepoleC_Lan(500)2](https://user-images.githubusercontent.com/42720670/143499912-0e513b21-b668-488e-ae87-a767db9aadab.png)  
+![OnepoleC_Lan(500)1](https://user-images.githubusercontent.com/42720670/143499917-0621c055-8e9d-4c08-891e-cf0de483885d.png)  
+
