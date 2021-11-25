@@ -32,7 +32,7 @@ As of Waveform 11.5.18, no support for .soulpatch exists. Expect SOUL LLVM JIT i
 #4, but in plugin form.
 
 ## Contributing
-This repository does not accept pull requests, but posts in 'issues' and 'discussions' are much welcomed. Feedback regarding bugs take priority.
+This repository does not accept pull requests, but please post bugs in issues and feature requests in discussions. Bug fixes take priority.
 
 ## Octave Examples 
 The following sections demonstrate the outputs after running 'testMain (44100)' on different `VA::HighLevel` effects (instantiated in `Processor [[main]]`).
