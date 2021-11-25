@@ -83,28 +83,12 @@ namespace main
         input
         {
             //expose effect endpoints
-         /*    effect.rateHzIn;
-            effect.depthIn;
-            effect.shapeIn;
-            
-            effect.cutoffIn;
-            effect.resonanceIn;
-            effect.nlModeIn;
-
-            effect.mixIn;
-            effect.panIn; */
-
-            effect.cutoffIn;
-            effect.resonanceIn;
-            
         }
 
         let
         { 
             //define effect as a 'Processor' from  'VA::HighLevel'
-            //effect = VA::HighLevel::Chorus_LadderLPFS::Processor (0, 0, 0, 8000, 2, 100, 0);
-
-            effect = VA::LadderLPFS::Processor(4000, 1, 0, 4);
+            effect = VA::HighLevel::Dummy::Processor();
 
             up = FloatToSampleType::Processor;
             down = SampleTypeToFloat::Processor;

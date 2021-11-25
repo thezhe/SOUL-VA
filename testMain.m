@@ -115,12 +115,12 @@ function testMain(fs)
 
     grid off
 
-    plotSignal('outputs/Pulse.wav', 'Pulse', 1, [3, 3, 1]); 
-    plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'dBRamp', 1, [3, 3, 2]);
-    plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp', 1, [3, 3, 3]);
-    plotBode('outputs/Impulse.wav', 'Impulse', 1, [3, 3, 4]);
-    plotSpec('outputs/SinSweep.wav', false, 'SinSweep (grayscale)', 1, [3, 3, 6]);
-    plotSpec('outputs/SinSweep.wav', true, 'SinSweep (BW)', 1, [3, 3, 7]);
+    plotSignal('outputs/Pulse.wav', 'Step Response', 2, [2, 3, 1]); 
+    plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'DC IO plot', 2, [2, 3, 2]);
+    plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp IO plot', 2, [2, 3, 3]);
+    plotBode('outputs/Impulse.wav', 'Impulse', 2, [2, 3, 4]);
+    plotSpec('outputs/SinSweep.wav', false, 'SinSweep Spectrogram', 2, [2, 3, 6]);
+    plotSpec('outputs/SinSweep.wav', true, 'SinSweep Spectrogram (BW)', 1, [1, 1, 1]);
 
     isStable('outputs/Pulse.wav');
     isStable('outputs/Impulse.wav');
@@ -322,8 +322,8 @@ function testMain(fs)
 
     %magnitude
     mag = gainTodB(abs(y));
-    dc = num2str(mag(1));
-    ny = num2str(mag(end));
+    dc = sprintf('%.1f', mag(1));
+    ny = sprintf('%.1f', mag(end));
     mag = mag(2:end-1);
     fmag = f(2:end-1);
     [fmagR, magR] = reducePlot(fmag, mag, 0.0001);
@@ -332,20 +332,19 @@ function testMain(fs)
     subplot(sp(1), sp(2), sp(3));
     hold on 
       set(gca,'xscale','log');
-      set(gca, "linewidth", 1, "fontsize", 14)
+      set(gca, "linewidth", 1, "fontsize", 16)
       xlim([fmag(1), 20000]);
-      ylim([-60, 0]);
-      title(['\fontsize{14}' ttl ' (|Y(0)| = ' dc ' dB, |Y(fs/2)| = ' ny ' dB)']);
-      xlabel('\fontsize{14}frequency (Hz)');
-      ylabel('\fontsize{14}magnitude (dB)');
+      title(['\fontsize{20}Magnitude Response']);
+      xlabel('\fontsize{16}frequency (Hz)');
+      ylabel('\fontsize{16}magnitude (dB)');
 
       plot(fmagR, magR, 'LineWidth', 1.5);
     hold off
 
     %phase
     p = angle(y);
-    dc = num2str(p(1));
-    ny = num2str(p(end));
+    dc = sprintf('%.1f', p (1));
+    ny = sprintf('%.1f', p (end));
 
     p = p(2:end-1);
     fp = f(2:end-1);
@@ -354,10 +353,10 @@ function testMain(fs)
     subplot(sp(1), sp(2), sp(3)+1);
     hold on
       set(gca,'xscale','log');
-      set(gca, "linewidth", 1, "fontsize", 14)
-      title(['\fontsize{12}' ttl ' (\angle Y(0) = ' dc ' rads, \angle Y(fs/2) = ' ny ' rads)']);
-      xlabel('\fontsize{12}frequency (Hz)');
-      ylabel('\fontsize{12}phase (rads)');
+      set(gca, "linewidth", 1, "fontsize", 16)
+      title(['\fontsize{20}Phase Response']);
+      xlabel('\fontsize{16}frequency (Hz)');
+      ylabel('\fontsize{16}phase (rads)');
       xlim([fp(1), 20000]);
       ylim([-pi, pi]);
       
@@ -392,12 +391,12 @@ function testMain(fs)
     hold on
       imagesc (t, f, gainTodB(S));
       colormap (1-gray);
-      ylim([20, 20000]);
+      ylim([0, 20000]);
       xlim([0,10]);
-      set(gca, "fontsize", 14);
-      title(['\fontsize{30}' ttl]);
-      ylabel('\fontsize{20}frequency (kHz)');
-      xlabel('\fontsize{20}time (s)');
+      set(gca, "fontsize", 16);
+      title(['\fontsize{20}' ttl]);
+      ylabel('\fontsize{16}frequency (Hz)');
+      xlabel('\fontsize{16}time (s)');
     hold off
   endfunction
 
@@ -407,19 +406,17 @@ function testMain(fs)
     [y, fs] = audioread(file);
     info = audioinfo(file);
     t = 0:1/fs:info.Duration-(1/fs);
-    [tR, yR] = reducePlot(t, y, 0.01);
+    [tR, yR] = reducePlot(t, y, 0.0001);
 
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
     subplot(sp(1), sp(2), sp(3));    
     hold on
-      set(gca, "linewidth", 1, "fontsize", 14);
-      ylim([0, 0.75]);
-      title(['\fontsize{30}' ttl]);
-      xlabel('\fontsize{20}t (seconds)');
-      ylabel('\fontsize{20}amplitude');
-      grid on;
+      set(gca, "linewidth", 1, "fontsize", 16);
+      title(['\fontsize{20}' ttl]);
+      xlabel('\fontsize{16}t (seconds)');
+      ylabel('\fontsize{16}amplitude');
 
-      plot(tR, yR, 'LineWidth', 2);
+      plot(tR, yR, 'LineWidth', 1.5);
     hold off
   endfunction
 
@@ -449,22 +446,19 @@ function testMain(fs)
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
     subplot(sp(1), sp(2), sp(3));
     hold on;
-      set(gca, "linewidth", 1, "fontsize", 14)
-      title(['\fontsize{30}' ttl]);
+      set(gca, "linewidth", 1, "fontsize", 16)
+      title(['\fontsize{20}' ttl]);
       if(dB)
-        xlabel('\fontsize{20}input (dB)');
-        ylabel('\fontsize{20}output (dB)');
+        xlabel('\fontsize{16}input (dB)');
+        ylabel('\fontsize{16}output (dB)');
         xlim([-60, 0]);
-        ylim([-60, 0]);
       else
-        xlabel('\fontsize{20}input');
-        ylabel('\fontsize{20}output');
-        xlim([-1, 1]);
-        ylim([-1, 1]);
+        xlabel('\fontsize{16}input');
+        ylabel('\fontsize{16}output');
+        xlim([-0.5, 0.5]);
       end
-      grid on;
 
-      scatter(x, y, 3, 'filled');
+      scatter(x, y, 1, 'filled');
     hold off
   endfunction
 
