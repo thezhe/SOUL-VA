@@ -23,6 +23,8 @@
 % test signal < 0.01
 % -60 dB or less aliasing for inputs with peak -6dB, any parameter combination
 % verify FFT weights
+% reduce plot more sensitive
+% display options for 1 figure
 %%
 
 %% IMPORTANT: The SOUL CLI (soul.exe) must be part of the system PATH
@@ -47,18 +49,15 @@ function testMain(fs)
   end
 
   %render '/outputs'
-  persistent patchTime = 0;
-  persistent mainTime = 0;
   persistent vaTime = 0;
+  persistent testMainTime = 0;
   
-  [patchInfo, ~, ~] = stat('main.soulpatch');
-  [mainInfo, ~, ~] = stat('main.soul');
   [vaInfo, ~, ~] = stat('VA.soul');
+  [testMainInfo, ~, ~] = stat('testMain.m');
 
-  if (mainInfo.mtime ~= mainTime || vaInfo.mtime ~= vaTime || patchInfo.mtime ~= patchTime || ~isfolder('outputs'))
-    patchTime = patchInfo.mtime;
-    mainTime = mainInfo.mtime;
+  if (vaInfo.mtime ~= vaTime || testMainInfo.mtime ~= testMainTime || ~isfolder('outputs'))
     vaTime = vaInfo.mtime;
+    testMainTime = testMainInfo.mtime;
 
     genOutputs();
   end
@@ -101,7 +100,7 @@ function testMain(fs)
     renderSoul('outputs/ZerosSin1k.wav', 'inputs/ZerosSin1k.wav');
 
     function renderSoul(target_file, source_audio_file)
-      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(fs) ' --bitdepth=24 main.soulpatch']); 
+      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(fs) ' --bitdepth=24 VA.soul']); 
     endfunction
   endfunction
   
@@ -114,12 +113,14 @@ function testMain(fs)
     % - The phase response in the Bode plot may be distorted if the system is oversampled
     %%
 
-    plotSignal('outputs/Pulse.wav', 'Pulse', 1, [1, 1, 1]); 
-    plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'dBRamp', 2, [1, 2, 1]);
-    plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp', 2, [1, 2, 2]);
-    plotBode('outputs/Impulse.wav', 'Impulse', 3, [2, 1, 1]);
-    plotSpec('outputs/SinSweep.wav', false, 'SinSweep (grayscale)', 4, [1, 2, 1]);
-    plotSpec('outputs/SinSweep.wav', true, 'SinSweep (BW)', 4, [1, 2, 2]);
+    grid off
+
+    plotSignal('outputs/Pulse.wav', 'Pulse', 1, [3, 3, 1]); 
+    plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'dBRamp', 1, [3, 3, 2]);
+    plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp', 1, [3, 3, 3]);
+    plotBode('outputs/Impulse.wav', 'Impulse', 1, [3, 3, 4]);
+    plotSpec('outputs/SinSweep.wav', false, 'SinSweep (grayscale)', 1, [3, 3, 6]);
+    plotSpec('outputs/SinSweep.wav', true, 'SinSweep (BW)', 1, [3, 3, 7]);
 
     isStable('outputs/Pulse.wav');
     isStable('outputs/Impulse.wav');
@@ -325,7 +326,7 @@ function testMain(fs)
     ny = num2str(mag(end));
     mag = mag(2:end-1);
     fmag = f(2:end-1);
-    [fmagR, magR] = reducePlot(fmag, mag, 0.01);
+    [fmagR, magR] = reducePlot(fmag, mag, 0.0001);
     
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
     subplot(sp(1), sp(2), sp(3));
@@ -334,12 +335,11 @@ function testMain(fs)
       set(gca, "linewidth", 1, "fontsize", 14)
       xlim([fmag(1), 20000]);
       ylim([-60, 0]);
-      title(['\fontsize{30}' ttl ' (|Y(0)| = ' dc ' dB, |Y(fs/2)| = ' ny ' dB)']);
-      xlabel('\fontsize{20}frequency (Hz)');
-      ylabel('\fontsize{20}magnitude (dB)');
-      grid on;
+      title(['\fontsize{14}' ttl ' (|Y(0)| = ' dc ' dB, |Y(fs/2)| = ' ny ' dB)']);
+      xlabel('\fontsize{14}frequency (Hz)');
+      ylabel('\fontsize{14}magnitude (dB)');
 
-      plot(fmagR, magR, 'LineWidth', 2);
+      plot(fmagR, magR, 'LineWidth', 1.5);
     hold off
 
     %phase
@@ -349,20 +349,19 @@ function testMain(fs)
 
     p = p(2:end-1);
     fp = f(2:end-1);
-    [fpR, pR] = reducePlot(fp, p, 0.001);
+    [fpR, pR] = reducePlot(fp, p, 0.0001);
 
     subplot(sp(1), sp(2), sp(3)+1);
     hold on
       set(gca,'xscale','log');
       set(gca, "linewidth", 1, "fontsize", 14)
-      title(['\fontsize{30}' ttl ' (\angle Y(0) = ' dc ' rads, \angle Y(fs/2) = ' ny ' rads)']);
-      xlabel('\fontsize{20}frequency (Hz)');
-      ylabel('\fontsize{20}phase (rads)');
+      title(['\fontsize{12}' ttl ' (\angle Y(0) = ' dc ' rads, \angle Y(fs/2) = ' ny ' rads)']);
+      xlabel('\fontsize{12}frequency (Hz)');
+      ylabel('\fontsize{12}phase (rads)');
       xlim([fp(1), 20000]);
       ylim([-pi, pi]);
-      grid on;
       
-      plot(fpR, pR, 'LineWidth', 2);
+      plot(fpR, pR, 'LineWidth', 1.5);
     hold off
   endfunction
 
