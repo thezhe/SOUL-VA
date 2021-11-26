@@ -4,3 +4,4 @@ outputs/
 *.h
 *.cpp
 *.png
+!logo.png
