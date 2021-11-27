@@ -32,6 +32,7 @@
   % double runs on VA.soul fix
   % verify FFT weights
   % update Inputs descriptions
+  % check input output deletion/refresh criteria
 
 function testMain(fs)
 %%==============================================================================

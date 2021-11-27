@@ -180,7 +180,7 @@
 			"        let f_0 = vif (",
             "            (SampleType (2.0) / (x_0mx_2)) * (F1_0 - s.F1_1), ",
             "            vif(",
-            "                F1 (SampleType (0.5) * (xBar + x), c),",
+            "                f (SampleType (0.5) * (xBar + x), c),",
             "                (SampleType (2.0) / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta),",
             "                vabs (delta) < ADAA_TOL",
             "            ),",

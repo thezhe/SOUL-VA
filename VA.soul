@@ -1330,7 +1330,7 @@ Vectorized Stateless Function Wrapper Processors
     
             let f_0 = viflt (
                 viflt (
-                    F1 (SampleType (0.5) * (xBar + x), c),
+                    f (SampleType (0.5) * (xBar + x), c),
                     (SampleType (2.0) / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta),
                     vabs (delta), ADAA_TOL
                 ),
