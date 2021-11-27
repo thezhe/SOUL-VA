@@ -14,19 +14,19 @@ This library considers background knowledge trivial; *SOUL-VA will not re-explai
 4. [Antiderivative Antialiasing for Memoryless Nonlinearities](https://acris.aalto.fi/ws/portalfiles/portal/27135145/ELEC_bilbao_et_al_antiderivative_antialiasing_IEEESPL.pdf)
 
 ## Contents
-- `src/VA.soul` - single-file library
-- `src/main.soul` - `[[main]]` instance for instantiating `Processors` from VA.soul
-- `src/main.soulpatch` - 'includes' and 'links' VA.soul with main.soul
+- `include/VA.soul` - single-file library
+- `examples/main.soul` - example `[[main]]` instance for instantiating `Processors` from VA.soul
+- `examples/main.soulpatch` - 'includes' and 'links' VA.soul with main.soul
 - `tests/testMain.m` - script that runs test cases on main.soulpatch
 - `tools/soul.json` - [VSCode snippets](https://code.visualstudio.com/docs/editor/userdefinedsnippets)
 
 ## Official Ways to Use SOUL-VA
 1. [SOUL Playground](https://soul.dev/lab/)  
-Copy VA.soul, main.soul, and main.soulpatch into the editor and click 'Compile'. To enable stereo processing, modify main.soul according to the instructions.
+Copy VA.soul, main.soul, and main.soulpatch into the editor. Delete '../include/' on line 13 in main.soulpatch. Click 'Compile' to run in mono mode. To enable stereo processing, modify main.soul according to the instructions.
 2. [SOUL CLI 1.0.82](https://github.com/soul-lang/SOUL/releases/tag/1.0.82)  
 Read the CLI instructions by executing soul.exe in a terminal and use main.soulpatch as the '\<soul file\>'. Stereo processing and higher oversampling rates will not compile using this method.
 3.  [Octave 6.3.0](https://www.gnu.org/software/octave/index)   
-Include soul.exe in the 'Path' environment variable. Set SOUL-VA as the current working directory in Octave and run `testMain(44100)`. See testMain.m for more info on test cases and usage.
+Include soul.exe in the 'Path' environment variable. Set `SOUL-VA/tests/` as the current working directory in Octave and run `testMain(44100)`. See testMain.m for more info on test cases and usage.
 
 ## Contributing
 Please post bugs in issues and feature requests in discussions. Bug fixes take priority. Pull requests are not accepted at the moment.
