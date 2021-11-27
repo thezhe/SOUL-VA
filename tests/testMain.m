@@ -41,6 +41,12 @@ function testMain(fs)
   %signals package is required
   pkg load signal;  
 
+  %timestamp
+  timestamp = strftime ("%Y-%m-%d %H:%M:%S", localtime (time ()));
+  printf('\n++++++++++++++++++++++++++++++++++++++++\n');
+  printf(['testMain(' num2str(fs) '), ' timestamp '\n']);
+  printf('++++++++++++++++++++++++++++++++++++++++\n');
+
   %render '/inputs'
   if (~isfolder('inputs'))
     genInputs();
@@ -68,7 +74,8 @@ function testMain(fs)
 
   %plot results using '/inputs' and '/outputs'
   plotIO();
-  
+
+  printf('\n');
 %%==============================================================================
 %% High-Level
   function genInputs()
@@ -93,9 +100,9 @@ function testMain(fs)
     %%  Generate 'outputs/' by passing 'inputs/' thru 'main.soulpatch'
 
     mkdir('outputs');
-    printf('===============================================================\n');
-    printf('                          SOUL logs                            \n');
-    printf('===============================================================\n');
+    printf('===========================================================================\n');
+    printf('                                SOUL logs                                  \n');
+    printf('===========================================================================\n');
     renderSoul('outputs/Pulse.wav', 'inputs/Pulse.wav');
     renderSoul('outputs/dBRamp.wav', 'inputs/dBRamp.wav');
     renderSoul('outputs/SinRamp.wav', 'inputs/SinRamp.wav');
@@ -128,9 +135,9 @@ function testMain(fs)
     plotSpec('outputs/SinSweep.wav', false, 'SinSweep Spectrogram', 2, [2, 3, 6]);
     plotSpec('outputs/SinSweep.wav', true, 'SinSweep Spectrogram (BW)', 1, [1, 1, 1]);
 
-    printf('===============================================================\n');
-    printf('                       testMain.m logs                         \n');
-    printf('===============================================================\n');
+    printf('===========================================================================\n');
+    printf('                             testMain.m logs                               \n');
+    printf('===========================================================================\n');
     isStable('outputs/Pulse.wav');
     isStable('outputs/Impulse.wav');
     isStable('outputs/SinRamp.wav');
