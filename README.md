@@ -14,11 +14,11 @@ This library considers background knowledge trivial; *SOUL-VA will not re-explai
 4. [Antiderivative Antialiasing for Memoryless Nonlinearities](https://acris.aalto.fi/ws/portalfiles/portal/27135145/ELEC_bilbao_et_al_antiderivative_antialiasing_IEEESPL.pdf)
 
 ## Contents
-- [***src/VA.soul***](https://github.com/thezhe/SOUL-VA/blob/main/VA.soul) - single-file library
-- [***src/main.soul***] - `[[main]]` instance for instantiating `Processors`
-- [***src/main.soulpatch***] - 'includes' and 'links' VA.soul with main.soul
-- [***tests/testMain.m***](https://github.com/thezhe/SOUL-VA/blob/main/testMain.m) - script that runs test cases on main.soulpatch
-- [***tools/soul.json***](https://github.com/thezhe/SOUL-VA/blob/main/soul.json) - [VSCode snippets](https://code.visualstudio.com/docs/editor/userdefinedsnippets)
+- `src/VA.soul` - single-file library
+- `src/main.soul` - `[[main]]` instance for instantiating `Processors` from VA.soul
+- `src/main.soulpatch` - 'includes' and 'links' VA.soul with main.soul
+- `tests/testMain.m` - script that runs test cases on main.soulpatch
+- `tools/soul.json` - [VSCode snippets](https://code.visualstudio.com/docs/editor/userdefinedsnippets)
 
 ## Official Ways to Use SOUL-VA
 1. [SOUL Playground](https://soul.dev/lab/)  
