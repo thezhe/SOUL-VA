@@ -1,44 +1,41 @@
 %%  GNU GPLv3 License
-%
-%    Copyright (C) 2021  Zhe Deng 
-%    TheZheDeng@gmail.com
-%
-%    This program is free software: you can redistribute it and/or modify
-%    it under the terms of the GNU General Public License as published by
-%    the Free Software Foundation, either version 3 of the License, or
-%    (at your option) any later version.
-%
-%    This program is distributed in the hope that it will be useful,
-%    but WITHOUT ANY WARRANTY; without even the implied warranty of
-%    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-%    GNU General Public License for more details.
-%
-%    You should have received a copy of the GNU General Public License
-%    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-%%
+  %
+  %    Copyright (C) 2021  Zhe Deng 
+  %    TheZheDeng@gmail.com
+  %
+  %    This program is free software: you can redistribute it and/or modify
+  %    it under the terms of the GNU General Public License as published by
+  %    the Free Software Foundation, either version 3 of the License, or
+  %    (at your option) any later version.
+  %
+  %    This program is distributed in the hope that it will be useful,
+  %    but WITHOUT ANY WARRANTY; without even the implied warranty of
+  %    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  %    GNU General Public License for more details.
+  %
+  %    You should have received a copy of the GNU General Public License
+  %    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+  %%
+
+
+%% testMain.m (https://github.com/thezhe/SOUL-VA)
+  %
+  % - IMPORTANT: The SOUL CLI (soul.exe) must be part of the system PATH
+  % - fs = 44100 highly recommended
+  % - All .wav files are lossless, 24-bit, and the sampling rates are 'fs' 
+  % - See 'Inputs' section for more info on each test case
+  % - Experiencing issues? Try deleting 'inputs/' and 'output/' or restarting Octave 6.3.0
+  %%
 
 %% Task List
-%
-% test selection
-% test signal < 0.01
-% -60 dB or less aliasing for inputs with peak -6dB, any parameter combination
-% verify FFT weights
-% reduce plot more sensitive
-% display options for 1 figure
-%%
+  %
+  % double runs on VA.soul fix
+  % verify FFT weights
+  % update Inputs descriptions
 
-%% IMPORTANT: The SOUL CLI (soul.exe) must be part of the system PATH
 function testMain(fs)
-  %%  A script that runs test cases on 'main.soulpatch'
-  % 
-  % Notes:
-  % - All .wav files are lossless, 24-bit, and the sampling rates are 'fs' 
-  % - Delete '/inputs' and/or '/outputs' to recalculate each folder
-  % - See 'Inputs' section for more info on each test case
-  %%
-  
 %%==============================================================================
-%% Script
+%% Main Script
 
   %signals package is required
   pkg load signal;  
@@ -89,7 +86,9 @@ function testMain(fs)
     %%  Generate 'outputs/' by passing 'inputs/' thru 'main.soulpatch'
 
     mkdir('outputs');
-
+    printf('===============================================================\n');
+    printf('                          SOUL logs                            \n');
+    printf('===============================================================\n');
     renderSoul('outputs/Pulse.wav', 'inputs/Pulse.wav');
     renderSoul('outputs/dBRamp.wav', 'inputs/dBRamp.wav');
     renderSoul('outputs/SinRamp.wav', 'inputs/SinRamp.wav');
@@ -116,12 +115,15 @@ function testMain(fs)
     grid off
 
     plotSignal('outputs/Pulse.wav', 'Step Response', 2, [2, 3, 1]); 
-    plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'DC IO plot', 2, [2, 3, 2]);
-    plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp IO plot', 2, [2, 3, 3]);
+    plotWaveshaper('outputs/dBRamp.wav', 'inputs/dBRamp.wav', true, 100, 'DC IO Plot', 2, [2, 3, 2]);
+    plotWaveshaper('outputs/SinRamp.wav', 'inputs/SinRamp.wav', false, 0, 'SinRamp IO Plot', 2, [2, 3, 3]);
     plotBode('outputs/Impulse.wav', 'Impulse', 2, [2, 3, 4]);
     plotSpec('outputs/SinSweep.wav', false, 'SinSweep Spectrogram', 2, [2, 3, 6]);
     plotSpec('outputs/SinSweep.wav', true, 'SinSweep Spectrogram (BW)', 1, [1, 1, 1]);
 
+    printf('===============================================================\n');
+    printf('                       testMain.m logs                         \n');
+    printf('===============================================================\n');
     isStable('outputs/Pulse.wav');
     isStable('outputs/Impulse.wav');
     isStable('outputs/SinRamp.wav');
@@ -131,7 +133,7 @@ function testMain(fs)
     isStable('outputs/ZerosSin1k.wav');
     
     #the output dB difference is the max gain compensation needed across all frequencies
-    gainDiff ('outputs/SinSweep.wav', 'inputs/SinSweep.wav'); 
+    gainDiff ('outputs/SinSweep.wav'); 
     
     function isStable(file)
       %%  Print a warning if any samples > 0.99 or < 0.01
@@ -147,15 +149,13 @@ function testMain(fs)
       endif 
     endfunction
 
-    function gainDiff (file2, file1)
-      %% Find change in peak amplitude between input and output
+    function gainDiff (file2)
+      %% Find max change in peak amplitude (use with SinSweep)
       [y, ~] = audioread(file2);
-      [x, ~] = audioread(file1); #assume input is normalized to 0.5
 
-      dBDiff = gainTodB (max(y) / 0.5);
+      dBDiff = gainTodB (max(y) / 0.5); #assume input is normalized to 0.5
 
-      printf("Approximate output/input peak amplitude change is %f dB.\n", dBDiff);
- 
+      printf("Approximate max output/input peak amplitude change is %.1f dB.\n", dBDiff);
     endfunction
   endfunction
   
@@ -187,7 +187,7 @@ function testMain(fs)
     %% Generate a linear ramp on the dB scale from -60 dB to 0 dB 
     %
     % Notes:
-    % - Tests: decibel mapping ('outputs/dBRamp.wav' vs 'input/dBRamp.wav' waveshaper plot), stability
+    % - Tests: decibel input/output mapping for dc signals ('outputs/dBRamp.wav' vs 'input/dBRamp.wav' waveshaper plot), stability
     % - Length: 2 seconds
     %%
 
@@ -245,7 +245,7 @@ function testMain(fs)
     % 
     % Notes:
     % - Length: 0.025 seconds
-    % - Tests: hysteresis ('outputs/SinRamp.wav' vs 'inputs/SinRamp.wav' waveshaper plot), stability
+    % - Tests: hysteresis in the input output plot ('outputs/SinRamp.wav' vs 'inputs/SinRamp.wav' waveshaper plot), stability
     %%
 
     nMax = ceil(0.025*fs)-1;
