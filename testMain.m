@@ -48,13 +48,19 @@ function testMain(fs)
 
   %render '/outputs'
   persistent vaTime = 0;
+  persistent mainTime = 0;
+  persistent mainPatchTime = 0;
   persistent testMainTime = 0;
   
   [vaInfo, ~, ~] = stat('VA.soul');
+  [mainInfo, ~, ~] = stat('main.soul');
+  [mainPatchInfo, ~, ~] = stat('main.soulpatch');
   [testMainInfo, ~, ~] = stat('testMain.m');
 
-  if (vaInfo.mtime ~= vaTime || testMainInfo.mtime ~= testMainTime || ~isfolder('outputs'))
+  if (vaInfo.mtime ~= vaTime || mainInfo.mtime ~= mainTime || mainPatchInfo.mtime ~= mainPatchTime || testMainInfo.mtime ~= testMainTime || ~isfolder('outputs'))
     vaTime = vaInfo.mtime;
+    mainTime = mainInfo.mtime;
+    mainPatchTime = mainPatchInfo.mtime;
     testMainTime = testMainInfo.mtime;
 
     genOutputs();
@@ -100,7 +106,7 @@ function testMain(fs)
     renderSoul('outputs/ZerosSin1k.wav', 'inputs/ZerosSin1k.wav');
 
     function renderSoul(target_file, source_audio_file)
-      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(fs) ' --bitdepth=24 VA.soul']); 
+      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(fs) ' --bitdepth=24 main.soulpatch']); 
     endfunction
   endfunction
   

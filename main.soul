@@ -1,0 +1,89 @@
+/** Processor [[main]] 
+
+    To test an effect, change the definition of 'effect' and expose endpoints under 'graph Processor [[main]]'.
+
+    Extra step if not using CLI or Octave:
+
+        The SOUL CLI doesn't take 'VA::SampleType' streams so 'float' must cast to 'VA::SampleType' and vice versa for processing.
+        Follow the comments to bypass the mono compatibility code and enable stereo mode if using soul.dev/lab.
+*/
+
+namespace main
+{
+    namespace FloatToSampleType
+    {     
+        VA::SampleType process (float x)
+        {
+            return VA::SampleType (x);
+        }
+
+        processor Processor()
+        {
+            input stream float in;
+            output stream VA::SampleType out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace SampleTypeToFloat
+    {     
+        float process (VA::SampleType x)
+        {
+            return float (x.sum()/VA::SampleType.size);
+        }
+
+        processor Processor()
+        {
+            input stream VA::SampleType in;
+            output stream float out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    graph Processor [[main]]
+    {
+        input stream float in; //change streams to 'SampleType' for stereo
+        output stream float out;
+
+        input
+        {
+            //expose endpoints here
+            effect.nonlinearityIn;
+        }
+
+        let
+        { 
+            //define effect as a 'Processor' from  'VA::HighLevel'
+            effect = VA::HighLevel::OnepoleC_Lan::Processor(100);
+
+            //comment out for stereo
+            up = FloatToSampleType::Processor;
+            down = SampleTypeToFloat::Processor;
+            
+        }
+
+        connection
+        {       
+            in -> up -> effect.in; //comment out 'up' and 'down' for stereo
+            effect.out -> down -> out;
+        }
+    }
+}

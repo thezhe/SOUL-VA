@@ -17,96 +17,6 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-/** Processor [[main]] 
-
-    To test an effect, change the definition of 'effect' and expose endpoints under 'graph Processor [[main]]'.
-
-    Extra step if not using soul.dev/lab:
-
-        The SOUL CLI doesn't take 'VA::SampleType' streams so 'float' must cast to 'VA::SampleType' and vice versa for processing.
-        Follow the comments to ensure mono compatibility when using the CLI or testMain.m.
-*/
-
-namespace main
-{
-    namespace FloatToSampleType
-    {     
-        VA::SampleType process (float x)
-        {
-            return VA::SampleType (x);
-        }
-
-        processor Processor()
-        {
-            input stream float in;
-            output stream VA::SampleType out;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace SampleTypeToFloat
-    {     
-        float process (VA::SampleType x)
-        {
-            return float (x.sum()/VA::SampleType.size);
-        }
-
-        processor Processor()
-        {
-            input stream VA::SampleType in;
-            output stream float out;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    graph Processor [[main]]
-    {
-        input stream float in; //change streams to float for mono
-        output stream float out;
-
-        input
-        {
-            effect.nonlinearityIn;
-        }
-
-        let
-        { 
-            //define effect as a 'Processor' from  'VA::HighLevel'
-            effect = VA::HighLevel::OnepoleC_Lan::Processor(100);
-
-            //uncomment for mono
-            
-            up = FloatToSampleType::Processor;
-            down = SampleTypeToFloat::Processor;
-            
-        }
-
-        connection
-        {       
-            in -> up -> effect.in; //uncomment 'up' and 'down' for mono
-            effect.out -> down -> out;
-        }
-    }
-}
-
 /** SOUL-VA (https://github.com/thezhe/SOUL-VA)
 
     The following interface is nearly identical to soul::filters EXCEPT:
@@ -127,12 +37,12 @@ namespace main
 
     Current Tasks:
     - double check LanADAA
+    - refactor snippets adaa (f, F1, and F2), namespace M, vifgl and viflt
     - dc blocker in chorus
 
     Future Tasks:
     - rename params with units
     - initialization lists only for Processors and not namespaces
-    - refactor snippets adaa, namespace M, vifgl and viflt
     - SVF/OnepoleS/Compressor Components refactor and use
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
 */

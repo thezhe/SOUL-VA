@@ -14,15 +14,17 @@ This library considers background knowledge trivial; *SOUL-VA will not re-explai
 4. [Antiderivative Antialiasing for Memoryless Nonlinearities](https://acris.aalto.fi/ws/portalfiles/portal/27135145/ELEC_bilbao_et_al_antiderivative_antialiasing_IEEESPL.pdf)
 
 ## Contents
-- [***VA.soul***](https://github.com/thezhe/SOUL-VA/blob/main/VA.soul) - single-file library with a `[[main]]` instance called `Processor [[main]]`
-- [***testMain.m***](https://github.com/thezhe/SOUL-VA/blob/main/testMain.m) - script that runs test cases on `Processor [[main]]`
+- [***VA.soul***](https://github.com/thezhe/SOUL-VA/blob/main/VA.soul) - single-file library
+- [***main.soul***] - `[[main]]` instance for instantiating `Processors`
+- [***main.soulpatch***] - 'includes' and 'links' VA.soul with main.soul
+- [***testMain.m***](https://github.com/thezhe/SOUL-VA/blob/main/testMain.m) - script that runs test cases on main.soulpatch
 - [***soul.json***](https://github.com/thezhe/SOUL-VA/blob/main/soul.json) - [VSCode snippets](https://code.visualstudio.com/docs/editor/userdefinedsnippets)
 
 ## Official Ways to Use SOUL-VA
 1. [SOUL Playground](https://soul.dev/lab/)  
-Copy and paste contents of VA.soul into the editor and click 'Compile'. To enable stereo processing, modify `Processor [[main]]` according to the instructions.
+Copy VA.soul, main.soul, and main.soulpatch into the editor and click 'Compile'. To enable stereo processing, modify main.soul according to the instructions.
 2. [SOUL CLI 1.0.82](https://github.com/soul-lang/SOUL/releases/tag/1.0.82)  
-Read the CLI instructions by executing soul.exe in a terminal and use VA.soul as the '\<soul file\>'. Stereo processing and higher oversampling rates will not compile using this method.
+Read the CLI instructions by executing soul.exe in a terminal and use main.soulpatch as the '\<soul file\>'. Stereo processing and higher oversampling rates will not compile using this method.
 3.  [Octave 6.3.0](https://www.gnu.org/software/octave/index)   
 Include soul.exe in the 'Path' environment variable. Set SOUL-VA as the current working directory in Octave and run `testMain(44100)`. See testMain.m for more info on test cases and usage.
 
