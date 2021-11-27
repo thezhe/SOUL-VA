@@ -1292,7 +1292,7 @@ Vectorized Stateless Function Wrapper Processors
     
         SampleType F2 (SampleType x, const Coeffs& c)
         {
-            return vpowi (x, 2) * (SampleType (0.5) + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpowi (c.N, 2) * SampleType (1.0 / 12.0) * vpowi (x, 2));
+            return vpowi (x, 2) * (HALF + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpowi (c.N, 2) * SampleType (1.0 / 12.0) * vpowi (x, 2));
         }
     
         struct State
@@ -1318,23 +1318,23 @@ Vectorized Stateless Function Wrapper Processors
             let x_0mx_1 = x - s.x_1;
             let F2_0 = F2 (x, c);
     
-            let F1_0 = viflt (F1 (SampleType (0.5) * (x + s.x_1), c), 
+            let F1_0 = viflt (F1 (HALF * (x + s.x_1), c), 
                 (F2_0 - s.F2_1) / x_0mx_1,
                 vabs (x_0mx_1), ADAA_TOL);
     
             //Find f_0
             let x_0mx_2 = x - s.x_2;
     
-            let xBar = SampleType (0.5) * (x + s.x_2);
+            let xBar = HALF * (x + s.x_2);
             let delta = xBar - x;
     
             let f_0 = viflt (
                 viflt (
-                    f (SampleType (0.5) * (xBar + x), c),
-                    (SampleType (2.0) / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta),
+                    f (HALF * (xBar + x), c),
+                    (TWO / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta),
                     vabs (delta), ADAA_TOL
                 ),
-                (SampleType (2.0) / (x_0mx_2)) * (F1_0 - s.F1_1),
+                (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
                 vabs (x_0mx_2), ADAA_TOL
             );
     
@@ -1699,15 +1699,12 @@ Constants
     using PhaseType = SampleType.primitiveType;
     namespace osc = soul::oscillators;
     
-    //const SampleType.primitiveType
-    let MAGNITUDE_DIFF_LIMIT = SampleType.primitiveType (10.0); //float64 precision is about 15.955 decimal digits, we want at least 6 decimal digits of precision at all times 
-    let MAX_PHASE = twoPi * pow (10.0, MAGNITUDE_DIFF_LIMIT);
-
-
     //const SampleType
     let ADAA_TOL = SampleType (0.0000001);
     let ZERO = SampleType (0.0);
     let ONE = SampleType (1.0);
+    let TWO = SampleType (2.0);
+    let HALF = SampleType (0.5);
 
     //const float
     let INF32 = float (inf);
@@ -1949,8 +1946,8 @@ namespace VA::Experimental
                 loop
                 {
                     c.a = Omega * Tdiv2; //g
-                    c.a0 = ONE / (ONE + SampleType (2.0) * R * c.a + c.a * c.a); //d
-                    c.p = SampleType (2.0) * R + c.a; //g1
+                    c.a0 = ONE / (ONE + TWO * R * c.a + c.a * c.a); //d
+                    c.p = TWO * R + c.a; //g1
 
                     let y = s.process(in, c);
 
