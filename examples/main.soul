@@ -66,18 +66,16 @@ namespace main
         input
         {
             //expose endpoints here
-            effect.nonlinearityIn;
         }
 
         let
         { 
             //define effect as a 'Processor' from  'VA::HighLevel'
-            effect = VA::HighLevel::OnepoleC_Lan::Processor(100);
+            effect = VA::HighLevel::Dummy::Processor;
 
             //comment out for stereo
             up = FloatToSampleType::Processor;
             down = SampleTypeToFloat::Processor;
-            
         }
 
         connection

@@ -1274,10 +1274,9 @@ Vectorized Stateless Function Wrapper Processors
             float nonlinearity = initialNonlinearity;
             bool recalc = true;
 
-            State s;
-
             void run()
             {
+                State s;
                 Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
