@@ -885,23 +885,26 @@ Mix Processors
         struct State
         {
             SampleType current;
-            SampleType remainingRampSamples;
+            int remainingRampSamples;
         }
 
-        void update (Coeffs& c, float parameter, State& s)
+        namespace M (int mode = Modes::Linear)
         {
-            if const (mode == 0)
-                c.target = SampleType (v);
-            else if const (mode == 1)
-                c.target = vdBtoGain (SampleType (v));
-            else if const (mode == 2)
-                c.target = SampleType (v) / SampleType (100.0);
+            void update (Coeffs& c, float parameter, State& s, SampleType divMaxDelta)
+            {
+                if const (mode == 0)
+                    c.target = SampleType (parameter);
+                else if const (mode == 1)
+                    c.target = vdBtoGain (SampleType (parameter));
+                else if const (mode == 2)
+                    c.target = SampleType (parameter) / SampleType (100.0);
 
-            s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target - s.current) * divMaxDelta) [0]);
-            c.increment = (c.target - s.current) / SampleType (s.remainingRampSamples);
+                s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target - s.current) * divMaxDelta) [0]);
+                c.increment = (c.target - s.current) / SampleType (s.remainingRampSamples);
+            }
         }
 
-        SampleType process (State& s, SampleType x, const Coeffs& c)
+        SampleType process (State& s, const Coeffs& c)
         {
             if (s.remainingRampSamples != 0)
             {
@@ -916,16 +919,9 @@ Mix Processors
 
         processor Processor (float initialParameter, float slewRateSeconds = 0.1f, int mode = 0)
         {
-            input event float parameterIn;
             output stream SampleType out;
 
-            SampleType divMaxDelta;
-
-            void init()
-            {
-                current = SampleType (mode == 0 ? initialTarget : soul::dBtoGain (initialTarget));
-                divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
-            }
+            input event float parameterIn;
 
             event parameterIn (float v) { parameter = v; recalc = true; }
 
@@ -936,7 +932,83 @@ Mix Processors
             {   
                 State s;
                 Coeffs c;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                s.current = SampleType (mode == 0 ? initialParameter : soul::dBtoGain (initialParameter));
             
+                let divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        M(mode)::update (c, parameter, s, divMaxDelta);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << s.process (c);
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    /** Pan and mix two SampleType streams */        
+    namespace PanMixer
+    {
+        namespace Modes
+        {
+            let PanMix = 0;
+            let MixOnly = 1;
+            let PanOnly = 2;
+        }
+
+        struct Coeffs
+        {
+            SampleType t1, t2;
+        }
+    
+        void update (Coeffs& c, float mix, float pan)
+        {
+            let p = (float64 (pan) + 1.0) / 2.0; 
+            let p2 = SampleType (1.0 - p, p);
+            let p1 = ONE - p2;
+
+            let m = SampleType (mix) * SampleType (1.0/100.0);
+            c.t2 = m * p2;
+            c.t1 = (ONE - m) * p1;
+        }
+    
+        SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
+        {
+            return c.t1 * in1 + c.t2 * in2;
+        }
+    
+        processor Processor (float initialMix = 100.f, float initialPan = 0)
+        {
+            input stream SampleType in1, in2;
+            output stream SampleType out;
+    
+            input stream SampleType mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
+            input stream SampleType panIn;
+    
+            event mixIn (float v) { mix = v; recalc = true; }
+            event panIn (float v) { pan = v; recalc = true; }
+    
+            float mix = initialMix;
+            float pan = initialPan;
+            bool recalc = true;
+    
+            void run()
+            {   
+                Coeffs c;
+    
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
     
                 loop
@@ -945,112 +1017,14 @@ Mix Processors
                     {
                         recalc = false;
     
-                        c.update (parameter, s);
+                        c.update (mix, pan);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        out << s.process (in, c);
+                        out << process (in1, in2, c);
     
                         advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** Pan and mix two SampleType streams */
-    namespace SmoothedPanMixer
-    {   
-        graph Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                Endpoint declarations
-                input event float mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
-                input event float panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 0.01f ]];
-            }
-    
-            let
-            {
-                Processor instance declarations
-            }
-    
-            connection
-            {
-                Connection declarations
-            }
-        }
-        
-        namespace Internal
-        {
-            namespace Modes
-            {
-                let PanMix = 0;
-                let MixOnly = 1;
-                let PanOnly = 2;
-            }
-
-            struct Coeffs
-            {
-                SampleType t1, t2;
-            }
-        
-            void update (Coeffs& c, float mix, float pan)
-            {
-                let p = (float64 (pan) + 1.0) / 2.0; 
-                let p2 = SampleType (1.0 - p, p);
-                let p1 = ONE - p2;
-
-                let m = SampleType (mix) * SampleType (1.0/100.0);
-                c.t2 = m * p2;
-                c.t1 = (ONE - m) * p1;
-            }
-        
-            SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
-            {
-                return c.t1 * in1 + c.t2 * in2;
-            }
-        
-            processor Processor (float initialMix = 100.f, float initialPan = 0)
-            {
-                input stream SampleType in1, in2;
-                output stream SampleType out;
-        
-                input stream SampleType mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
-                input stream SampleType panIn;
-        
-                event mixIn (float v) { mix = v; recalc = true; }
-                event panIn (float v) { pan = v; recalc = true; }
-        
-                float mix = initialMix;
-                float pan = initialPan;
-                bool recalc = true;
-        
-                void run()
-                {   
-                    Coeffs c;
-        
-                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-        
-                    loop
-                    {
-                        if (recalc)
-                        {
-                            recalc = false;
-        
-                            c.update (mix, pan);
-                        }
-        
-                        loop (updateIntervalSamples)
-                        {
-                            out << process (in1, in2, c);
-        
-                            advance();
-                        }
                     }
                 }
             }
