@@ -6,7 +6,7 @@
 
 ## Background Knowledge
 This library considers background knowledge trivial; *SOUL-VA will not re-explain any of the following concepts*:  
-### To use the main features (`VA::HighLevel` and `main` namespaces), read:  
+### To use the high-level features (`VA::HighLevel` namespace), read:  
 1. [SOUL language guide](https://github.com/soul-lang/SOUL/blob/master/docs/SOUL_Language.md)  
 2. [soul::filters](https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul)  
 ### To use the entire library (all namespaces), also read:  

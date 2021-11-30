@@ -50,7 +50,7 @@
 namespace VA 
 {
 /*==============================================================================
-Main Interface
+VA::HighLevel Processors
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -90,8 +90,9 @@ Main Interface
         
                 input
                 {
-                    internal.nonlinearityIn;
+                    event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity, step: 1]];
                     stereoLink.stereoLinkIn;
+                    autoSmoothedVolume.parameterIn volumeIn;
                 }
         
                 let
@@ -102,10 +103,17 @@ Main Interface
                     internal = Internal::Processor (initialNonlinearity) * 2;
 
                     onepoleMixer = OnepoleMixer::Processor (2);
+
+                    autoSmoothedVolume = AutoSmoothedVolume::Processor(AutoParameter::Modes::OnepoleC_Lan);
                 }
         
                 connection
                 {
+                    //event connections
+                    nonlinearityIn -> internal.nonlinearityIn;
+                    nonlinearityIn -> autoSmoothedVolume.controlIn;
+
+                    //stream connections
                     in -> dcBlocker -> stereoLink.in, internal.in;
 
                     stereoLink.out -> internal.Lin;
@@ -113,7 +121,8 @@ Main Interface
                     internal.highpassOut -> onepoleMixer.highpassIn;
                     internal.lowpassOut -> onepoleMixer.lowpassIn;
                     
-                    onepoleMixer.out -> out;
+                    onepoleMixer.out -> autoSmoothedVolume.in;
+                    autoSmoothedVolume -> out;
                 }
             }
 
@@ -191,6 +200,8 @@ Main Interface
         
                 let
                 {
+                    dcBlocker = filt::dc_blocker::Processor (10.f);
+
                     lfo = osc::lfo::Processor;
                     ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, 0, 4);
 
@@ -203,7 +214,7 @@ Main Interface
                 {
                     lfo.out -> delayLine.lfoIn;
                     
-                    in -> ladderLPFS.in, panMixer.in1;
+                    in -> dcBlocker -> ladderLPFS.in, panMixer.in1;
                     
                     ladderLPFS.out -> delayLine.in;
                     delayLine.out -> panMixer.in2;
@@ -213,269 +224,6 @@ Main Interface
             }
         }
     } //namespace HighLevel
-
-/*==============================================================================
-Mix Processors
-==============================================================================*/
-    
-    /** Apply a gain via VA::SmoothedParameter */
-    namespace SmoothedGain
-    {
-        namespace Modes
-        {
-            let Linear = 0;
-            let Decibel = 1;
-            let Percent = 2;
-        }
-
-        namespace M (int Mode = 0)
-        {
-            let Min = (Mode == Modes::Linear ? 0 : (Mode == Modes::Decibel ? -12 : 0));
-            let Max = (Mode == Modes::Linear ? 1 : (Mode == Modes::Decibel ? 0 : 100));
-            let Step = (Mode == Modes::Linear ? 0.01f : (Mode == Modes::Decibel ? 0.1f : 1.f));
-        }
-
-        graph Processor (float initialValue = 0, int Mode = 0, float slewRateSeconds = 0.1f)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                smoothedGain.parameterIn valueIn [[ name: (Mode == Modes::Linear ? "Gain" : (Mode == Modes::Decibel ? "Volume" : "Depth")), min: M(Mode)::Min, max: M(Mode)::Max, init: initialValue, step: M(Mode)::Step, unit: (Mode == Modes::Linear ? "" : (Mode == Modes::Decibel ? "dB" : "%")) ]];
-            }
-    
-            let
-            {
-                smoothedGain = SmoothedParameter::Processor (initialValue, slewRateSeconds, Mode);
-                multiplier = Multiplier::Processor;
-            }
-    
-            connection
-            {
-                in -> multiplier.in1;
-                smoothedGain.out -> multiplier.in2;
-
-                multiplier.out -> out;
-            }
-        }
-    }
-
-    /** Pan and mix two SampleType streams */
-    namespace PanMixer
-    {   
-        namespace Modes
-        {
-            let PanMix = 0;
-            let MixOnly = 1;
-            let PanOnly = 2;
-        }
-
-        struct Coeffs
-        {
-            SampleType t1, t2;
-        }
-    
-        void update (Coeffs& c, float mix, float pan)
-        {
-            let p = (float64 (pan) + 1.0) / 2.0; 
-            let p2 = SampleType (1.0 - p, p);
-            let p1 = ONE - p2;
-
-            let m = SampleType (mix) * SampleType (1.0/100.0);
-            c.t2 = m * p2;
-            c.t1 = (ONE - m) * p1;
-        }
-    
-        SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
-        {
-            return c.t1 * in1 + c.t2 * in2;
-        }
-    
-        processor Processor (float initialMix = 100.f, float initialPan = 0)
-        {
-            input stream SampleType in1, in2;
-            output stream SampleType out;
-    
-            input event float mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
-            input event float panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 0.01f ]];
-    
-            event mixIn (float v) { mix = v; recalc = true; }
-            event panIn (float v) { pan = v; recalc = true; }
-    
-            float mix = initialMix;
-            float pan = initialPan;
-            bool recalc = true;
-    
-            void run()
-            {   
-                Coeffs c;
-    
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (mix, pan);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << process (in1, in2, c);
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** Automatic/manual output volume compensation for VA::HighLevel Processors 
-
-        pattern:
-        - 0: for use with OnepoleC_Lan and the nonlinearity parameter
-    */
-    namespace SmoothedAutoVolume
-    {   
-        struct State
-        {
-            float prevVol;
-            float prevParam;
-        }
-
-        namespace Modes
-        {
-            let None = 0;
-            let OnepoleC_Lan = 1;
-            let NumModes = 2;
-        }
-
-        namespace ModeInfo (int Mode = Modes::None)
-        {
-           // static_assert ((Mode < NumModes && Mod), "Auto Volume Mode must be less than Modes::NumModes.");
-
-            let MaxVolume = (Mode == Modes::None ? 12.f : 0.f);
-            let MinVolume = (Mode == Modes::None ? -12.f : -6.1f);
-            let InitialVolume = (Mode == Modes::None ? 0.f : MinVolume);
-            let MinManualVolume = (Mode == Modes::None ? -inf : MinVolume + 0.1f);
-            let PtsSize = (Mode == Modes::None ? 1 : 4);
-            let Pts = (Mode == Modes::None ? float[PtsSize] (0) : float[PtsSize] (-0.f, -1.f, -2.f, -3.5f));
-
-            float process (float x, float[] pts)
-            {
-                if const (Mode == Modes::None)
-                    return x;
-                else if const (Mode == Modes::OnepoleC_Lan)
-                    return pts.readLinearInterpolated (min (x * 0.1f, 3.f));
-            }
-        }
-
-        processor Processor (int Mode = Modes::None)
-        {
-            input event float parameterIn; //auto mode only
-            output event float volumeOut;
-
-            input event float volumeIn [[name: "Volume", min: ModeInfo(Mode)::MinVolume, max: ModeInfo(Mode)::MaxVolume, init: ModeInfo(Mode)::InitialVolume, step: 0.1, unit: "dB"]];
-
-            namespace M = ModeInfo(Mode);
-            
-            let pts = M::Pts;
-            State s;
-
-            float process (float x)
-            {
-                return M::process (x, pts);
-            }
-
-            event parameterIn (float v) 
-            { 
-                s.prevParam = v;
-
-                if (s.prevVol < M::MinManualVolume)
-                    volumeOut << process (s.prevParam); 
-            }
-
-            event volumeIn (float v)
-            {
-                s.prevVol = v;
-                
-                if (v < M::MinManualVolume)
-                    volumeOut << process (s.prevParam);
-                else
-                    volumeOut << v;
-            }
-
-            void run() 
-            { 
-                advance();
-            }
-        }
-    }
-    
-    /** Map input events to a smoothed output stream; Modified version of soul::gain::SmoothedGainParameter
-
-        Notes:
-        - parameterIn requires an annotation (no default annotation)
-        - modes:
-            *0: linear in, linear out
-            *1: dB in, linear gain out
-            *2: percent in, linear gain out
-    */    
-    namespace SmoothedParameter
-    {
-        processor Processor (float initialTarget, float slewRateSeconds = 0.1f, int mode = 0)
-        {
-            input event float parameterIn;
-            output stream SampleType out;
-
-            SampleType target;
-            SampleType current;
-            SampleType increment = SampleType (0);
-            int remainingRampSamples = 0;
-           
-            SampleType divMaxDelta;
-
-            void init()
-            {
-                current = SampleType (mode == 0 ? initialTarget : soul::dBtoGain (initialTarget));
-                divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
-            }
-
-            event parameterIn (float v)
-            {
-                if const (mode == 0)
-                    target = SampleType (v);
-                else if const (mode == 1)
-                    target = vdBtoGain (SampleType (v));
-                else if const (mode == 2)
-                    target = SampleType (v) / SampleType (100.0);
-
-                remainingRampSamples = int (vclamp (1, INF32)::process (vabs (target - current) * divMaxDelta) [0]);
-                increment = (target - current) / SampleType (remainingRampSamples);
-            }
-
-            void run()
-            {
-                loop
-                {
-                    if (remainingRampSamples != 0)
-                    {
-                        if (--remainingRampSamples == 0)
-                            current = target;
-                        else
-                            current += increment;
-                    }
-
-                    out << current;
-
-                    advance();
-                }
-            }
-        }
-    }
 
 /*==============================================================================
 Filter Processors
@@ -952,6 +700,363 @@ Filter Processors
         }
     }
     
+/*==============================================================================
+Mix Processors
+==============================================================================*/
+    
+    /** Smoothed Volume with an automatic volume curve option */
+    namespace AutoSmoothedVolume
+    {
+        graph Processor(int mode = AutoParameter::Modes::None)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                autoParameter.controlIn;
+                autoParameter.parameterIn;
+            }
+    
+            let
+            {
+                autoParameter = AutoParameter::Processor (mode);
+                smoothedGain_Volume = SmoothedGain::Processor (AutoParameter::M(mode)::InitialParameter, SmoothedGain::Modes::Decibel);
+            }
+    
+            connection
+            {
+                in -> smoothedGain_Volume.in;
+
+                autoParameter.parameterOut -> smoothedGain_Volume.valueIn;
+
+                smoothedGain_Volume.out -> out;
+            }
+        }
+    }
+
+    /** Apply a gain via VA::SmoothedParameter */
+    namespace SmoothedGain
+    {
+        namespace Modes
+        {
+            let Linear = 0;
+            let Decibel = 1;
+            let Percent = 2;
+        }
+
+        namespace M (int Mode = 0)
+        {
+            let Min = (Mode == Modes::Linear ? 0 : (Mode == Modes::Decibel ? -12 : 0));
+            let Max = (Mode == Modes::Linear ? 1 : (Mode == Modes::Decibel ? 0 : 100));
+            let Step = (Mode == Modes::Linear ? 0.01f : (Mode == Modes::Decibel ? 0.1f : 1.f));
+        }
+
+        graph Processor (float initialValue = 0, int Mode = 0, float slewRateSeconds = 0.1f)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedGain.parameterIn valueIn [[ name: (Mode == Modes::Linear ? "Gain" : (Mode == Modes::Decibel ? "Volume" : "Depth")), min: M(Mode)::Min, max: M(Mode)::Max, init: initialValue, step: M(Mode)::Step, unit: (Mode == Modes::Linear ? "" : (Mode == Modes::Decibel ? "dB" : "%")) ]];
+            }
+    
+            let
+            {
+                smoothedGain = SmoothedParameter::Processor (initialValue, slewRateSeconds, Mode);
+                multiplier = Multiplier::Processor;
+            }
+    
+            connection
+            {
+                in -> multiplier.in1;
+                smoothedGain.out -> multiplier.in2;
+
+                multiplier.out -> out;
+            }
+        }
+    }
+
+    /** Automatic/manual parameter for VA::HighLevel Processors 
+
+        Use case: currently only for auto gain compensation
+    */
+    namespace AutoParameter
+    {   
+        struct State
+        {
+            float prevVol;
+            float prevParam;
+        }
+
+        namespace Modes
+        {
+            let None = 0;
+            let OnepoleC_Lan = 1;
+            let NumModes = 2;
+        }
+
+        namespace M (int mode = Modes::None)
+        {
+            static_assert ((mode < Modes::NumModes) && (mode > -1), "AutoParameter: mode out of range.");
+
+            let MaxParameter = (mode == Modes::None ? 12.f : 0.f);
+            let MinParameter = (mode == Modes::None ? -12.f : -6.1f);
+            let InitialParameter = (mode == Modes::None ? 0.f : MinParameter);
+            let MinManualParameter = (mode == Modes::None ? -inf : MinParameter + 0.1f);
+            let PtsSize = (mode == Modes::None ? 1 : 4);
+            let Pts = (mode == Modes::None ? float[PtsSize] (0) : float[PtsSize] (-0.f, -1.f, -2.f, -3.5f));
+
+            float process (float x, float[] pts)
+            {
+                if const (mode == Modes::None)
+                    return x;
+                else if const (mode == Modes::OnepoleC_Lan)
+                    return pts.readLinearInterpolated (min (x * 0.1f, 3.f));
+            }
+        }
+
+        processor Processor (int mode = Modes::None)
+        {
+            input event float controlIn; //auto mode only
+            output event float parameterOut;
+
+            input event float parameterIn [[name: "Volume", min: M(mode)::MinParameter, max: M(mode)::MaxParameter, init: M(mode)::InitialParameter, step: 0.1, unit: "dB"]];
+            
+            let pts = M(mode)::Pts;
+            State s;
+
+            float process (float x)
+            {
+                return M(mode)::process (x, pts);
+            }
+
+            event controlIn (float v) 
+            { 
+                s.prevParam = v;
+
+                if (s.prevVol < M(mode)::MinManualParameter)
+                    parameterOut << process (s.prevParam); 
+            }
+
+            event parameterIn (float v)
+            {
+                s.prevVol = v;
+                
+                if (v < M(mode)::MinManualParameter)
+                    parameterOut << process (s.prevParam);
+                else
+                    parameterOut << v;
+            }
+
+            void run() 
+            { 
+                advance();
+            }
+        }
+    }
+    
+    /** Map input events to a smoothed output stream; Modified version of soul::gain::SmoothedGainParameter
+
+        Notes:
+        - parameterIn requires an annotation (no default annotation)
+        - modes:
+            *0: linear in, linear out
+            *1: dB in, linear gain out
+            *2: percent in, linear gain out
+    */    
+    namespace SmoothedParameter
+    {
+        namespace Modes
+        {
+            let Linear = 0;
+            let Decibel = 1;
+            let Pan = 2;
+            let Mix = 3;
+        }
+
+        struct Coeffs
+        {
+            SampleType target;
+            SampleType increment;
+        }
+
+        struct State
+        {
+            SampleType current;
+            SampleType remainingRampSamples;
+        }
+
+        void update (Coeffs& c, float parameter, State& s)
+        {
+            if const (mode == 0)
+                c.target = SampleType (v);
+            else if const (mode == 1)
+                c.target = vdBtoGain (SampleType (v));
+            else if const (mode == 2)
+                c.target = SampleType (v) / SampleType (100.0);
+
+            s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target - s.current) * divMaxDelta) [0]);
+            c.increment = (c.target - s.current) / SampleType (s.remainingRampSamples);
+        }
+
+        SampleType process (State& s, SampleType x, const Coeffs& c)
+        {
+            if (s.remainingRampSamples != 0)
+            {
+                if (--(s.remainingRampSamples) == 0)
+                    s.current = c.target;
+                else
+                    s.current += c.increment;
+            }
+
+            return s.current;
+        }
+
+        processor Processor (float initialParameter, float slewRateSeconds = 0.1f, int mode = 0)
+        {
+            input event float parameterIn;
+            output stream SampleType out;
+
+            SampleType divMaxDelta;
+
+            void init()
+            {
+                current = SampleType (mode == 0 ? initialTarget : soul::dBtoGain (initialTarget));
+                divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
+            }
+
+            event parameterIn (float v) { parameter = v; recalc = true; }
+
+            float parameter = initialParameter;
+            bool recalc = true;
+
+            void run()
+            {   
+                State s;
+                Coeffs c;
+            
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (parameter, s);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << s.process (in, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    /** Pan and mix two SampleType streams */
+    namespace SmoothedPanMixer
+    {   
+        graph Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                Endpoint declarations
+                input event float mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
+                input event float panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 0.01f ]];
+            }
+    
+            let
+            {
+                Processor instance declarations
+            }
+    
+            connection
+            {
+                Connection declarations
+            }
+        }
+        
+        namespace Internal
+        {
+            namespace Modes
+            {
+                let PanMix = 0;
+                let MixOnly = 1;
+                let PanOnly = 2;
+            }
+
+            struct Coeffs
+            {
+                SampleType t1, t2;
+            }
+        
+            void update (Coeffs& c, float mix, float pan)
+            {
+                let p = (float64 (pan) + 1.0) / 2.0; 
+                let p2 = SampleType (1.0 - p, p);
+                let p1 = ONE - p2;
+
+                let m = SampleType (mix) * SampleType (1.0/100.0);
+                c.t2 = m * p2;
+                c.t1 = (ONE - m) * p1;
+            }
+        
+            SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
+            {
+                return c.t1 * in1 + c.t2 * in2;
+            }
+        
+            processor Processor (float initialMix = 100.f, float initialPan = 0)
+            {
+                input stream SampleType in1, in2;
+                output stream SampleType out;
+        
+                input stream SampleType mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
+                input stream SampleType panIn;
+        
+                event mixIn (float v) { mix = v; recalc = true; }
+                event panIn (float v) { pan = v; recalc = true; }
+        
+                float mix = initialMix;
+                float pan = initialPan;
+                bool recalc = true;
+        
+                void run()
+                {   
+                    Coeffs c;
+        
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+        
+                    loop
+                    {
+                        if (recalc)
+                        {
+                            recalc = false;
+        
+                            c.update (mix, pan);
+                        }
+        
+                        loop (updateIntervalSamples)
+                        {
+                            out << process (in1, in2, c);
+        
+                            advance();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 /*==============================================================================
 Vectorized Stateless Function Wrapper Processors
 ==============================================================================*/
@@ -1595,6 +1700,18 @@ Vectorized Stateless Functions
         return SampleType (abs (x[0]), abs (x[1]));
     }
 
+    /** Vector reduce max */
+    SampleType.primitiveType vmaxR (SampleType x)
+    {
+        return max (x[0], x[1]);
+    }
+
+    /** Vector reduce min */
+    SampleType.primitiveType vminR (SampleType x)
+    {
+        return min (x[0], x[1]);
+    }
+
 /*==============================================================================
 Constants
 ==============================================================================*/
@@ -1605,7 +1722,6 @@ Constants
     namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
     //soul::oscillators
-    using PhaseType = SampleType.primitiveType;
     namespace osc = soul::oscillators;
     
     //const SampleType
