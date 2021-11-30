@@ -37,8 +37,8 @@
 
     Current Tasks:
     - double check LanADAA
-    - refactor snippets adaa (f, F1, and F2), namespace M, vifgl and viflt
-    - dc blocker in chorus
+    - refactor snippets adaa (f, F1, and F2), namespace M, vifgl and viflt, new stuff towards bottom
+    - dc blocker in chorus test
 
     Future Tasks:
     - rename params with units
@@ -934,11 +934,10 @@ Mix Processors
                 Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                let divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
     
                 s.current = SampleType (mode == 0 ? initialParameter : soul::dBtoGain (initialParameter));
             
-                let divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
-
                 loop
                 {
                     if (recalc)
@@ -958,6 +957,7 @@ Mix Processors
             }
         }
     }
+
 
     /** Pan and mix two SampleType streams */        
     namespace PanMixer
