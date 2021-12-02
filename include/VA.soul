@@ -770,8 +770,8 @@ Mix Processors
     
             connection
             {
-                in -> multiplier.in1;
-                smoothedGain.out -> multiplier.in2;
+                in -> multiplier.in;
+                smoothedGain.out -> multiplier.b;
 
                 multiplier.out -> out;
             }
@@ -872,71 +872,84 @@ Mix Processors
         {
             let Linear = 0;
             let Decibel = 1;
-            let Pan = 2;
-            let Mix = 3;
-        }
-
-        struct Coeffs
-        {
-            SampleType target;
-            SampleType increment;
-        }
-
-        struct State
-        {
-            SampleType current;
-            int remainingRampSamples;
+            let PanMix = 2;
         }
 
         namespace M (int mode = Modes::Linear)
         {
-            void update (Coeffs& c, float parameter, State& s, SampleType divMaxDelta)
+            let NumIn = (mode == Modes::PanMix ? 2 : 1);
+            let NumOut = (mode == Modes::PanMix ? 2 : 1);
+            
+            struct Coeffs
             {
-                if const (mode == 0)
-                    c.target = SampleType (parameter);
-                else if const (mode == 1)
-                    c.target = vdBtoGain (SampleType (parameter));
-                else if const (mode == 2)
-                    c.target = SampleType (parameter) / SampleType (100.0);
-
-                s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target - s.current) * divMaxDelta) [0]);
-                c.increment = (c.target - s.current) / SampleType (s.remainingRampSamples);
-            }
-        }
-
-        SampleType process (State& s, const Coeffs& c)
-        {
-            if (s.remainingRampSamples != 0)
-            {
-                if (--(s.remainingRampSamples) == 0)
-                    s.current = c.target;
-                else
-                    s.current += c.increment;
+                SampleType[NumOut] target;
+                SampleType[NumOut] increment;
             }
 
-            return s.current;
+            struct State
+            {
+                SampleType[NumOut] current;
+                int remainingRampSamples;
+            }
+
+            void update (Coeffs& c, float<NumIn> parameter, State& s, SampleType divMaxDelta)
+            {
+                if const (mode == Modes::Linear)
+                    c.target.at(0) = SampleType (parameter[0]);
+                else if const (mode == Modes::Decibel)
+                    c.target.at(0) = vdBtoGain (SampleType (parameter [0]));
+                else if const (mode == Modes::PanMix)
+                    c.target = vmixPanToGains (parameter[0], parameter[1]);
+
+                if const (mode == Modes::Linear || mode == Modes::Decibel)
+                    s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
+                else if const (mode == Modes::PanMix)
+                    s.remainingRampSamples = int (vmaxR (vclamp (1, INF32)::process (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
+
+                for (int i = 0; i < c.increment.size; ++i)
+                    c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
+            }
+
+            SampleType[NumOut] process (State& s, const Coeffs& c)
+            {
+                if (s.remainingRampSamples != 0)
+                {
+                    if (--(s.remainingRampSamples) == 0)
+                    {
+                        for (int i = 0; i < s.current.size; ++i)
+                            s.current.at(i) = c.target.at(i);
+                    }
+                    else
+                    {
+                        for (int i = 0; i < s.current.size; ++i)
+                            s.current.at(i) += c.increment.at(i);
+                    }
+                }
+
+                return s.current;
+            }
         }
 
         processor Processor (float initialParameter, float slewRateSeconds = 0.1f, int mode = 0)
         {
-            output stream SampleType out;
+            output stream SampleType out[M(mode)::NumOut];
 
-            input event float parameterIn;
+            input event float parameterIn[M(mode)::NumIn];
 
-            event parameterIn (float v) { parameter = v; recalc = true; }
+            event parameterIn (int i, float v) { parameter[i] = v; recalc = true; }
 
-            float parameter = initialParameter;
+            float<M(mode)::NumIn> parameter = initialParameter;
             bool recalc = true;
 
             void run()
             {   
-                State s;
-                Coeffs c;
+                M(mode)::State s;
+                M(mode)::Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
                 let divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
     
-                s.current = SampleType (mode == 0 ? initialParameter : soul::dBtoGain (initialParameter));
+              //  s.current = SampleType (mode == 0 ? initialParameter : soul::dBtoGain (initialParameter));
             
                 loop
                 {
@@ -949,7 +962,7 @@ Mix Processors
     
                     loop (updateIntervalSamples)
                     {
-                        out << s.process (c);
+                        out << M(mode)::process (s, c);
 
                         advance();
                     }
@@ -957,7 +970,6 @@ Mix Processors
             }
         }
     }
-
 
     /** Pan and mix two SampleType streams */        
     namespace PanMixer
@@ -976,7 +988,7 @@ Mix Processors
     
         void update (Coeffs& c, float mix, float pan)
         {
-            let p = (float64 (pan) + 1.0) / 2.0; 
+            let p = (float64 (pan) + 1.0) * 0.5; 
             let p2 = SampleType (1.0 - p, p);
             let p1 = ONE - p2;
 
@@ -1184,7 +1196,7 @@ Vectorized Stateless Function Wrapper Processors
         }
     }
 
-    /** Set a each vector element equal to a weighted average using 'vlerp' */
+    /** Average a SampleType stream with a copy that has swapped channels using 'vlerp' */
     namespace StereoLink
     {   
         struct Coeffs
@@ -1469,14 +1481,35 @@ Vectorized Stateless Function Wrapper Processors
     {
         processor Processor
         {
-            input stream SampleType in1, in2;
+            input stream SampleType b;
+            input stream SampleType in;
             output stream SampleType out;
     
             void run()
             {
                 loop
                 {
-                    out << in1 * in2;
+                    out << b * in;
+    
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace Multiplier2
+    {
+        processor Processor
+        {
+            input stream SampleType b0, b1;
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+    
+            void run()
+            {
+                loop
+                {
+                    out << b0 * in0 + b1 * in1;
     
                     advance();
                 }
@@ -1552,9 +1585,11 @@ Vectorized Stateless Functions
     }
 
     /** linear interpolation */
-    SampleType vlerp (SampleType a, SampleType b, SampleType t)
+    SampleType vlerp (SampleType x0, SampleType x1, SampleType t)
     {
-        return a + t * (b - a);
+        let b0 = ONE - t;
+
+        return b0 * x0 + t * x1;
     }
 
     /** 'pow' for small integer exponents */
@@ -1629,20 +1664,65 @@ Vectorized Stateless Functions
         }
     }
 
+    /** Convert a mix and a pan to a SampleType[2] gain array
+    
+        Use case: mix and pan 2 SampleType streams simultaneously
+    */
+    SampleType[2] vmixPanToGains (float m, float p)
+    {
+        let bPan = vpanToGains (p);
+        let bMix = vmixToGains (m);
+
+        return SampleType[2] (bMix.at(0) * bPan.at(0), bMix.at(1) * bPan.at(1));
+    }
+
+    /** Convert a mix value in range [0, 100] to a SampleType[2] gain array
+    
+        Use case: mix 2 SampleType streams
+    */
+    SampleType[2] vmixToGains (float x)
+    {
+        let b1 = SampleType (x) * SampleType (1.0/100.0);
+
+        return SampleType[2] (ONE - b1, b1);
+    }
+    
+    /** Convert a pan value in range [-1, 1] to a SampleType[2] gain array
+    
+        Use case: pan 2 SampleType streams simultaneously
+    */
+    SampleType[2] vpanToGains (float x)
+    {
+        let b1 = vpanToGain(x);
+
+        return SampleType[2] (ONE - b1, b1);
+    }
+
+    /** Convert a linear pan value in range [-1, 1] to a SampleType gain 
+
+        Use case: pan 1 SampleType stream
+    */
+    SampleType vpanToGain (float x)
+    {
+        let bR = (float64 (x) + 1.0) * 0.5;
+
+        return SampleType (1.0 - bR, bR);
+    }
+
     /** Convert gain to decibels and clamp results to greater than -100.0 dB */
     SampleType vgainTodB (SampleType x)
     {
-        let temp = vclamp (NOISE_FLOOR, INF32)::process(x);
+        let b = vclamp (NOISE_FLOOR, INF32)::process(x);
 
-        return SampleType (20.0) * log10 (temp);
+        return SampleType (20.0) * log10 (b);
     }
 
     /** Convert decibels to gain and clamp inputs to greater than -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
-        let temp = vclamp (NOISE_FLOOR_DB, INF32)::process(x);
+        let dB = vclamp (NOISE_FLOOR_DB, INF32)::process(x);
 
-        return vpow (SampleType (10.0), temp * SampleType (1.0 / 20.0));
+        return vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0));
     }
 
     /** Return 1 if x is positive, -1 if negative, and 0 otherwise */
@@ -1654,7 +1734,7 @@ Vectorized Stateless Functions
     /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b, good for state saturation */
     SampleType vsigmoidCD_S (SampleType x, SampleType b)
     {
-        return vsigmoidCD(b * x) * (ONE / b); 
+        return vsigmoidCD (b * x) * (ONE / b); 
     }
 
     /** An continuously differentiable algebraic sigmoid function. 

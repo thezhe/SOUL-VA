@@ -20,19 +20,18 @@
 
 %% testMain.m (https://github.com/thezhe/SOUL-VA)
   %
-  % - IMPORTANT: The SOUL CLI (soul.exe) must be part of the system PATH
-  % - fs = 44100 highly recommended
-  % - All .wav files are lossless, 24-bit, and the sampling rates are 'fs' 
+  % - The SOUL CLI (soul.exe) must be part of the system PATH; run with Octave
+  % - Generated .wav files are lossless, 24-bit, and have 'fs' sampling rates 
+  % - Only fs in the range [44100, 96000] are officially supported
+  % - Outputs graphs of test cases and logs in terminal
   % - See 'Inputs' section for more info on each test case
-  % - Experiencing issues? Try deleting 'inputs/' and 'output/' or restarting Octave 6.3.0
+  % - Experiencing issues? Try deleting 'inputs/' and 'output/' or restarting Octave
   %%
 
 %% Task List
   %
-  % double runs on VA.soul fix
   % verify FFT weights
   % update Inputs descriptions
-  % check input output deletion/refresh criteria
 
 function testMain(fs)
 %%==============================================================================
@@ -120,11 +119,6 @@ function testMain(fs)
   
   function plotIO()
     %%  Plot results using '/inputs' and '/outputs'
-    %
-    % Notes:
-    % - Shows a warning message if 0.5 normalized inputs exceed 0.9 in the output
-    % - The phase response in the Bode plot may be distorted if the system is oversampled
-    %%
 
     grid off
 
@@ -146,7 +140,6 @@ function testMain(fs)
     isStable('outputs/Sin1k.wav');
     isStable('outputs/ZerosSin1k.wav');
     
-    #the output dB difference is the max gain compensation needed across all frequencies
     gainDiff ('outputs/SinSweep.wav'); 
     
     function isStable(file)
@@ -164,12 +157,13 @@ function testMain(fs)
     endfunction
 
     function gainDiff (file2)
-      %% Find max change in peak amplitude (use with SinSweep)
+      %% Use with 'outputs/SinSweep.wav' to find makeup gain such that the max output amplitude is 0dB across all sweeped frequencies
+      %  In practice the makeup gain is usually more than the estimated value.
       [y, ~] = audioread(file2);
 
-      dBDiff = gainTodB (max(y) / 0.5); #assume input is normalized to 0.5
+      dBDiff = gainTodB (max(y) / 0.5); #input is normalized to 0.5
 
-      printf("Approximate max output/input peak amplitude change is %.1f dB.\n", dBDiff);
+      printf("Estimated required makeup gain: %.1f dB.\n", -dBDiff);
     endfunction
   endfunction
   
@@ -201,7 +195,7 @@ function testMain(fs)
     %% Generate a linear ramp on the dB scale from -60 dB to 0 dB 
     %
     % Notes:
-    % - Tests: decibel input/output mapping for dc signals ('outputs/dBRamp.wav' vs 'input/dBRamp.wav' waveshaper plot), stability
+    % - Tests: decibel input/output mapping for dc signals ('outputs/dBRamp.wav' vs 'input/dBRamp.wav' waveshaper plot)
     % - Length: 2 seconds
     %%
 
