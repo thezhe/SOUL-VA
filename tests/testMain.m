@@ -48,7 +48,10 @@ function testMain(fs)
   printf('++++++++++++++++++++++++++++++++++++++++\n');
 
   %render '/inputs'
-  if (~isfolder('inputs'))
+  persistent testMainTime = 0;
+  [testMainInfo, ~, ~] = stat('testMain.m');
+
+  if (~isfolder('inputs') || testMainInfo.mtime ~= testMainTime)
     genInputs();
   end
 
@@ -56,12 +59,9 @@ function testMain(fs)
   persistent vaTime = 0;
   persistent mainTime = 0;
   persistent mainPatchTime = 0;
-  persistent testMainTime = 0;
-  
   [vaInfo, ~, ~] = stat('../include/VA.soul');
   [mainInfo, ~, ~] = stat('../examples/main.soul');
   [mainPatchInfo, ~, ~] = stat('../examples/main.soulpatch');
-  [testMainInfo, ~, ~] = stat('testMain.m');
 
   if (vaInfo.mtime ~= vaTime || mainInfo.mtime ~= mainTime || mainPatchInfo.mtime ~= mainPatchTime || testMainInfo.mtime ~= testMainTime || ~isfolder('outputs'))
     vaTime = vaInfo.mtime;
@@ -81,7 +81,7 @@ function testMain(fs)
   function genInputs()
     %%  Generate test inputs in 'inputs/'
     %
-    % All inputs normalized to 0.5 except except for 'dBRamp.wav' and 'SinSweep.wav'
+    % All inputs normalized to 0.5 except except for 'dBRamp.wav'
     %%
 
     mkdir('inputs');
@@ -100,6 +100,7 @@ function testMain(fs)
     %%  Generate 'outputs/' by passing 'inputs/' thru 'main.soulpatch'
 
     mkdir('outputs');
+
     printf('===========================================================================\n');
     printf('                                SOUL logs                                  \n');
     printf('===========================================================================\n');
@@ -122,7 +123,6 @@ function testMain(fs)
     %
     % Notes:
     % - Shows a warning message if 0.5 normalized inputs exceed 0.9 in the output
-    % - The Bode plot is only defined for linear systems
     % - The phase response in the Bode plot may be distorted if the system is oversampled
     %%
 
