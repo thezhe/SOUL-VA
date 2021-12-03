@@ -121,8 +121,8 @@ VA::HighLevel Processors
                     internal.highpassOut -> onepoleMixer.highpassIn;
                     internal.lowpassOut -> onepoleMixer.lowpassIn;
                     
-                    onepoleMixer.out -> autoSmoothedVolume.in;
-                    autoSmoothedVolume -> out;
+                    onepoleMixer.out -> out;//-> autoSmoothedVolume.in;
+                    //autoSmoothedVolume 
                 }
             }
 
@@ -764,7 +764,7 @@ Mix Processors
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (initialValue, slewRateSeconds, Mode);
+                smoothedGain = SmoothedParameter::Processor (float[] (initialValue), slewRateSeconds, Mode);
                 multiplier = Multiplier::Processor;
             }
     
@@ -861,10 +861,6 @@ Mix Processors
 
         Notes:
         - parameterIn requires an annotation (no default annotation)
-        - modes:
-            *0: linear in, linear out
-            *1: dB in, linear gain out
-            *2: percent in, linear gain out
     */    
     namespace SmoothedParameter
     {
@@ -892,7 +888,13 @@ Mix Processors
                 int remainingRampSamples;
             }
 
-            void update (Coeffs& c, float<NumIn> parameter, State& s, SampleType divMaxDelta)
+            // void reset (State& s)
+            // {
+                
+            // }
+
+
+            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta)
             {
                 if const (mode == Modes::Linear)
                     c.target.at(0) = SampleType (parameter[0]);
@@ -930,16 +932,22 @@ Mix Processors
             }
         }
 
-        processor Processor (float initialParameter, float slewRateSeconds = 0.1f, int mode = 0)
+        processor Processor (float[] initialParameter, float slewRateSeconds = 0.1f, int mode = 0)
         {
             output stream SampleType out[M(mode)::NumOut];
 
             input event float parameterIn[M(mode)::NumIn];
 
-            event parameterIn (int i, float v) { parameter[i] = v; recalc = true; }
+            event parameterIn (int i, float v) { parameter.at(i) = v; recalc = true; }
 
-            float<M(mode)::NumIn> parameter = initialParameter;
+            float[M(mode)::NumIn] parameter = float[M(mode)::NumIn] (initialParameter);
             bool recalc = true;
+
+            void init()
+            {
+                for (int i = 0; i< parameter.size; ++i)
+                    parameter.at(i) = initialParameter.at(i);
+            }
 
             void run()
             {   
@@ -949,7 +957,7 @@ Mix Processors
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
                 let divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
     
-              //  s.current = SampleType (mode == 0 ? initialParameter : soul::dBtoGain (initialParameter));
+               // s.current = SampleType (mode == 0 ? initialParameter : soul::dBtoGain (initialParameter));
             
                 loop
                 {
@@ -1196,18 +1204,18 @@ Vectorized Stateless Function Wrapper Processors
         }
     }
 
-    /** Average a SampleType stream with a copy that has swapped channels using 'vlerp' */
+    /** Average a SampleType stream with a copy that has swapped channels */
     namespace StereoLink
     {   
         struct Coeffs
         {
-            SampleType t;
+            SampleType[2] b;
             float stereoLink;
         }
     
         void update (Coeffs& c, float stereoLink)
         {
-            c.t = SampleType (stereoLink *  (1.f / 200.f));
+            c.b = vmixToGains (stereoLink * 0.5f);
             c.stereoLink = stereoLink;
         }
     
@@ -1219,9 +1227,9 @@ Vectorized Stateless Function Wrapper Processors
                 return SampleType (x.sum()/x.size);
             else
             {
-                let xp = SampleType (x[1] , x[0]);
+                let x1 = SampleType (x[1] , x[0]);
 
-                return vlerp (x, xp, c.t);
+                return c.b.at(0) * x + c.b.at(1) * x1;
             }
         }
     
@@ -1582,14 +1590,6 @@ Vectorized Stateless Functions
     SampleType vLan (SampleType x, SampleType N)
     {
         return vpowi (N * vabs (x) + ONE, 2);
-    }
-
-    /** linear interpolation */
-    SampleType vlerp (SampleType x0, SampleType x1, SampleType t)
-    {
-        let b0 = ONE - t;
-
-        return b0 * x0 + t * x1;
     }
 
     /** 'pow' for small integer exponents */
