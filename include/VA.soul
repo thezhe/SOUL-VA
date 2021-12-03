@@ -121,8 +121,8 @@ VA::HighLevel Processors
                     internal.highpassOut -> onepoleMixer.highpassIn;
                     internal.lowpassOut -> onepoleMixer.lowpassIn;
                     
-                    onepoleMixer.out -> out;//-> autoSmoothedVolume.in;
-                    //autoSmoothedVolume 
+                    onepoleMixer.out -> autoSmoothedVolume.in;
+                    autoSmoothedVolume.out -> out; 
                 }
             }
 
@@ -162,20 +162,13 @@ VA::HighLevel Processors
         
             Notes:
             - Loosely based on Boss CE2 Chorus Pedal
-            - fixed 3 ms delay time 
-            - Use case: Chorus, slow flange
+            - Use case: Chorus, slow flange, doubler
         */
         namespace Chorus_LadderLPFS
         {
-            namespace LfoShapes
-            {
-                let Triangle = 0;
-                let Sine = 4;
-            }
-
-            graph Processor(float initialRateHz = 1,
+            graph Processor(float initialDelayMs = 3,
+                            float initialRateHz = 1,
                             float initialDepth = 50,
-                            int initialShape = LfoShapes::Triangle,
                             float initialCutoff = 9000,
                             float initialResonance = 0.f,
                             float initialMix = 50,
@@ -186,9 +179,10 @@ VA::HighLevel Processors
         
                 input
                 { 
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 50, init: initialDelayMs, unit: "ms", step: 1 ]];
+
                     lfo.rateHzIn [[ name: "Rate (Hz)", min: 0.01, max: 2.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
-                    lfo.shapeIn [[ name: "Shape", min: 0, max: 4, init: initialShape, text: "Triangle|Sine", step: 4]];
                     
                     ladderLPFS.cutoffIn [[ name: "Cutoff", min: 6000, max: 16000, init: initialCutoff, unit: "Hz", step: 1 ]];
                     ladderLPFS.resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
@@ -200,12 +194,12 @@ VA::HighLevel Processors
         
                 let
                 {
-                    dcBlocker = filt::dc_blocker::Processor (10.f);
+                    dcBlocker = filt::dc_blocker::Processor (20.f);
 
                     lfo = osc::lfo::Processor;
                     ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, 0, 4);
 
-                    delayLine = DelayLine::Processor (3);
+                    delayLine = DelayLine::Processor (initialDelayMs);
                     
                     panMixer = PanMixer::Processor (initialMix, initialPan);
                 }
@@ -228,6 +222,118 @@ VA::HighLevel Processors
 /*==============================================================================
 Filter Processors
 ==============================================================================*/
+
+    /** Ladder Low Pass Filter with variable order and saturating state 
+    
+        Notes:
+        - Resonance up to order/2 reccomended
+        - Even though its nonlinear, the filter can become unstable because the state sat function is not bounded
+    */
+    namespace LadderLPFS
+    {   
+        struct Coeffs
+        {
+            SampleType g; //G for onepole stages
+            SampleType k; //resonance
+            int nlMode;
+        }
+    
+        void update (Coeffs& c, float cutoff, float resonance, float nlMode, SampleType Tpi)
+        {
+            let gOnepole = tanh (SampleType (cutoff) * Tpi);
+
+            c.g = gOnepole / (ONE + gOnepole);
+            c.k = SampleType (resonance);
+            c.nlMode = int (nlMode);
+        }
+    
+        namespace M (int order)
+        {
+            static_assert (order % 2 == 0, "LadderFilter: order must be even.");
+
+            struct State
+            {
+                SampleType[order] s;
+            }
+
+            SampleType process (State& s, SampleType x, const Coeffs& c)
+            {
+                var S = ZERO;
+                var G = ONE;
+                for (int i = order - 1; i > -1; --i)
+                {
+                    S += G * s.s.at(i);
+                    G *= c.g;
+                }
+
+                //input to first lowpass ('u')
+                var y = (x - c.k * S) / (ONE + c.k * G);
+
+                //'order' lowpasses in series 
+                for (int i = 0; i < order; ++i)
+                {
+                    let v = (y - s.s.at(i)) * c.g;
+                    y = v  + s.s.at(i);
+                    let sLin = v + y;
+
+                    if (c.nlMode == 0)
+                        s.s.at(i) =  sLin;
+                    else if (c.nlMode == 1)
+                        s.s.at(i) =  vBBD (sLin);
+                    else if (c.nlMode == 2)
+                        s.s.at(i) =  vsigmoidCD (sLin);
+                }
+                
+                return y * (ONE + c.k); //normalize
+            }
+        }
+    
+        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialNlMode = 0, int order = 4)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
+            input event float resonanceIn [[ name: "Resonance", min: 0, max: order, init: initialResonance, step: 0.01f ]];
+            input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 2, init: initialNlMode, text: "None|BBD|Tanh", step: 1 ]];
+            
+            event cutoffIn (float v) { cutoff = v; recalc = true; }
+            event resonanceIn (float v) { resonance = v; recalc = true; }
+            event nlModeIn (float v) { nlMode = v; recalc = true; }
+
+            float cutoff = initialCutoff;
+            float resonance = initialResonance;
+            float nlMode = initialNlMode;
+            bool recalc = true;
+    
+            void run()
+            {   
+                M(order)::State s;
+                Coeffs c;
+    
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
+                let Tpi = SampleType (processor.period * pi);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (cutoff, resonance, nlMode, Tpi);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << M (order)::process (s, in, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
 
     /** OnepoleC with differing cutoff depending on rising/falling output relative to stored output (feedback)*/
     namespace BallisticsFilter_Lan
@@ -374,58 +480,48 @@ Filter Processors
         }
     }
 
-    /** Modified version of https://soul.dev/lab/?id=Delay 
-    
-        Notes:
-        - max 500 ms delay with ability to modulate +- 5ms
-        - for feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> add your effects here -> DelayLine.in)
-    */
-    namespace DelayLine
+    /** Mix outputs from Onepole to make more complicated frequency responses */
+    namespace OnepoleMixer
     {   
-        struct State 
+        struct Coeffs
         {
-            wrap<MAX_BUFFER_SIZE> readPos, writePos;
-            SampleType[MAX_BUFFER_SIZE] buffer;
+            int m;
         }
-
-        void update (State& s, float delayMs, float fsDiv1k)
+    
+        void update (Coeffs& c, float mode)
         {
-            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - int (fsDiv1k * delayMs));
+            c.m = int (mode);
         }
-
-        SampleType process (State& s, SampleType x, float lfo, float maxDepthSamples)
+    
+        SampleType process (SampleType hpf, SampleType lpf, const Coeffs& c)
         {
-            s.buffer.at (s.writePos) = x;
-
-            let y = s.buffer.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
-
-            ++s.readPos;
-            ++s.writePos;
-
-            return y;
+            if (c.m == 0)
+                return hpf;
+            else if (c.m == 1)
+                return lpf;
+            else
+                return lpf - hpf;
         }
-
-        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2)
+    
+        processor Processor (int initialMode = 0)
         {
-            input stream SampleType in;
-            input stream float lfoIn; //max amplitude should be >= 1
+            input stream SampleType lowpassIn, highpassIn;
             output stream SampleType out;
+    
+            input event float modeIn [[ name: "Mode", min: 0, max: 2, init: initialMode, text: "HPF|LPF|APF" ]];
 
-            input event float delayIn [[ name: "Delay", min: 0, max: 500, init: initialDelayMs, unit: "ms", step: 1 ]];
-
-            event delayIn (float v) { delayMs = v; recalc = true; }
-
-            float delayMs = initialDelayMs;
+            static_assert ((initialMode >= 0 && initialMode <= 2), "initialMode must be in range [0, 2]");
+    
+            event modeIn (float v) { mode = v; recalc = true; }
+    
+            float mode = float (initialMode);
             bool recalc = true;
     
             void run()
-            {  
-                State s;
+            {   
+                Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                let fsDiv1k = float (processor.frequency) / 1000.f;
-                let maxDepthSamples = maxDepthMs * fsDiv1k;
 
                 loop
                 {
@@ -433,13 +529,13 @@ Filter Processors
                     {
                         recalc = false;
     
-                        s.update (delayMs, fsDiv1k);
+                        c.update (mode);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        out << s.process (in, lfoIn, maxDepthSamples);
-
+                        out << process (highpassIn, lowpassIn, c);
+    
                         advance();
                     }
                 }
@@ -525,174 +621,72 @@ Filter Processors
         }
     }
 
-    /** Mix outputs from Onepole to make more complicated frequency responses */
-    namespace OnepoleMixer
-    {   
-        struct Coeffs
-        {
-            int m;
-        }
-    
-        void update (Coeffs& c, float mode)
-        {
-            c.m = int (mode);
-        }
-    
-        SampleType process (SampleType hpf, SampleType lpf, const Coeffs& c)
-        {
-            if (c.m == 0)
-                return hpf;
-            else if (c.m == 1)
-                return lpf;
-            else
-                return lpf - hpf;
-        }
-    
-        processor Processor (int initialMode = 0)
-        {
-            input stream SampleType lowpassIn, highpassIn;
-            output stream SampleType out;
-    
-            input event float modeIn [[ name: "Mode", min: 0, max: 2, init: initialMode, text: "HPF|LPF|APF" ]];
-
-            static_assert ((initialMode >= 0 && initialMode <= 2), "initialMode must be in range [0, 2]");
-    
-            event modeIn (float v) { mode = v; recalc = true; }
-    
-            float mode = float (initialMode);
-            bool recalc = true;
-    
-            void run()
-            {   
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (mode);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << process (highpassIn, lowpassIn, c);
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-    
-    /** Ladder Low Pass Filter with variable order and saturating state 
+    /** Modified version of https://soul.dev/lab/?id=Delay 
     
         Notes:
-        - Resonance up to order/2 reccomended
-        - Even though its nonlinear, the filter can become unstable because the state sat function is not bounded
+        - max 500 ms delay with ability to modulate +- 5ms
+        - for feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> add your effects here -> DelayLine.in)
     */
-    namespace LadderLPFS
+    namespace DelayLine
     {   
-        struct Coeffs
+        struct State 
         {
-            SampleType g; //G for onepole stages
-            SampleType k; //resonance
-            int nlMode;
+            wrap<MAX_BUFFER_SIZE> readPos, writePos;
+            SampleType[MAX_BUFFER_SIZE] buffer;
         }
-    
-        void update (Coeffs& c, float cutoff, float resonance, float nlMode, SampleType Tpi)
+
+        void update (State& s, float delayMs, float fsDiv1k)
         {
-            let gOnepole = tanh (SampleType (cutoff) * Tpi);
-
-            c.g = gOnepole / (ONE + gOnepole);
-            c.k = SampleType (resonance);
-            c.nlMode = int (nlMode);
+            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - int (fsDiv1k * delayMs));
         }
-    
-        namespace M (int order)
+
+        SampleType process (State& s, SampleType x, float lfo, float maxDepthSamples)
         {
-            static_assert (order % 2 == 0, "LadderFilter: order must be even.");
+            s.buffer.at (s.writePos) = x;
 
-            struct State
-            {
-                SampleType[order] s;
-            }
+            let y = s.buffer.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
 
-            SampleType process (State& s, SampleType x, const Coeffs& c)
-            {
-                var S = ZERO;
-                var G = ONE;
-                for (int i = order - 1; i > -1; --i)
-                {
-                    S += G * s.s.at(i);
-                    G *= c.g;
-                }
+            ++s.readPos;
+            ++s.writePos;
 
-                //input to first lowpass ('u')
-                var y = (x - c.k * S) / (ONE + c.k * G);
-
-                //'order' lowpasses in series 
-                for (int i = 0; i < order; ++i)
-                {
-                    let v = (y - s.s.at(i)) * c.g;
-                    y = v  + s.s.at(i);
-                    let sLin = v + y;
-
-                    if (c.nlMode == 0)
-                        s.s.at(i) =  sLin;
-                    else if (c.nlMode == 1)
-                        s.s.at(i) =  vBBD (sLin);
-                    else if (c.nlMode == 2)
-                        s.s.at(i) =  vsigmoidCD (sLin);
-                }
-                
-                return y * (ONE + c.k); //normalize
-            }
+            return y;
         }
-    
-        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialNlMode = 0, int order = 4)
+
+        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2)
         {
             input stream SampleType in;
+            input stream float lfoIn; //max amplitude should be <= 1
             output stream SampleType out;
 
-            input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
-            input event float resonanceIn [[ name: "Resonance", min: 0, max: order, init: initialResonance, step: 0.01f ]];
-            input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 2, init: initialNlMode, text: "None|BBD|Tanh", step: 1 ]];
-            
-            event cutoffIn (float v) { cutoff = v; recalc = true; }
-            event resonanceIn (float v) { resonance = v; recalc = true; }
-            event nlModeIn (float v) { nlMode = v; recalc = true; }
+            input event float delayIn [[ name: "Delay", min: 0, max: 500, init: initialDelayMs, unit: "ms", step: 1 ]];
 
-            float cutoff = initialCutoff;
-            float resonance = initialResonance;
-            float nlMode = initialNlMode;
+            event delayIn (float v) { delayMs = v; recalc = true; }
+
+            float delayMs = initialDelayMs;
             bool recalc = true;
     
             void run()
-            {   
-                M(order)::State s;
-                Coeffs c;
-    
+            {  
+                State s;
+
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
 
-                let Tpi = SampleType (processor.period * pi);
-    
+                let fsDiv1k = float (processor.frequency) / 1000.f;
+                let maxDepthSamples = maxDepthMs * fsDiv1k;
+
                 loop
                 {
                     if (recalc)
                     {
                         recalc = false;
     
-                        c.update (cutoff, resonance, nlMode, Tpi);
+                        s.update (delayMs, fsDiv1k);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        out << M (order)::process (s, in, c);
-    
+                        out << s.process (in, lfoIn, maxDepthSamples);
+
                         advance();
                     }
                 }
@@ -745,33 +739,32 @@ Mix Processors
             let Percent = 2;
         }
 
-        namespace M (int Mode = 0)
+        namespace M (int mode = 0)
         {
-            let Min = (Mode == Modes::Linear ? 0 : (Mode == Modes::Decibel ? -12 : 0));
-            let Max = (Mode == Modes::Linear ? 1 : (Mode == Modes::Decibel ? 0 : 100));
-            let Step = (Mode == Modes::Linear ? 0.01f : (Mode == Modes::Decibel ? 0.1f : 1.f));
+            let Min = (mode == Modes::Linear ? 0 : (mode == Modes::Decibel ? -12 : 0));
+            let Max = (mode == Modes::Linear ? 1 : (mode == Modes::Decibel ? 0 : 100));
+            let Step = (mode == Modes::Linear ? 0.01f : (mode == Modes::Decibel ? 0.1f : 1.f));
         }
 
-        graph Processor (float initialValue = 0, int Mode = 0, float slewRateSeconds = 0.1f)
+        graph Processor (float initialValue = 0, int mode = 0, float slewRateSeconds = 0.1f)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input
-            {
-                smoothedGain.parameterIn valueIn [[ name: (Mode == Modes::Linear ? "Gain" : (Mode == Modes::Decibel ? "Volume" : "Depth")), min: M(Mode)::Min, max: M(Mode)::Max, init: initialValue, step: M(Mode)::Step, unit: (Mode == Modes::Linear ? "" : (Mode == Modes::Decibel ? "dB" : "%")) ]];
-            }
+            input event float valueIn [[ name: (mode == Modes::Linear ? "Gain" : (mode == Modes::Decibel ? "Volume" : "Depth")), min: M(mode)::Min, max: M(mode)::Max, init: initialValue, step: M(mode)::Step, unit: (mode == Modes::Linear ? "" : (mode == Modes::Decibel ? "dB" : "%")) ]];
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (float[] (initialValue), slewRateSeconds, Mode);
+                smoothedGain = SmoothedParameter::Processor (float[] (initialValue), slewRateSeconds, mode);
                 multiplier = Multiplier::Processor;
             }
     
             connection
             {
+                valueIn -> smoothedGain.parameterIn[0];
+
                 in -> multiplier.in;
-                smoothedGain.out -> multiplier.b;
+                smoothedGain.out[0] -> multiplier.b;
 
                 multiplier.out -> out;
             }
@@ -888,12 +881,6 @@ Mix Processors
                 int remainingRampSamples;
             }
 
-            // void reset (State& s)
-            // {
-                
-            // }
-
-
             void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta)
             {
                 if const (mode == Modes::Linear)
@@ -910,6 +897,18 @@ Mix Processors
 
                 for (int i = 0; i < c.increment.size; ++i)
                     c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
+            }
+
+            void updateUnsmoothed (Coeffs& c, float[] parameter, State& s)
+            {
+                if const (mode == Modes::Linear)
+                    s.current.at(0) = SampleType (parameter.at(0));
+                else if const (mode == Modes::Decibel)
+                    s.current.at(0) = vdBtoGain (SampleType (parameter.at(0)));
+                else if const (mode == Modes::PanMix)
+                    s.current = vmixPanToGains (parameter.at(0), parameter.at(1));
+
+                s.remainingRampSamples = 0;
             }
 
             SampleType[NumOut] process (State& s, const Coeffs& c)
@@ -940,14 +939,8 @@ Mix Processors
 
             event parameterIn (int i, float v) { parameter.at(i) = v; recalc = true; }
 
-            float[M(mode)::NumIn] parameter = float[M(mode)::NumIn] (initialParameter);
-            bool recalc = true;
-
-            void init()
-            {
-                for (int i = 0; i< parameter.size; ++i)
-                    parameter.at(i) = initialParameter.at(i);
-            }
+            float[M(mode)::NumIn] parameter = initialParameter;
+            bool recalc = false;
 
             void run()
             {   
@@ -957,7 +950,7 @@ Mix Processors
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
                 let divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
     
-               // s.current = SampleType (mode == 0 ? initialParameter : soul::dBtoGain (initialParameter));
+                M(mode)::updateUnsmoothed (c, parameter, s);
             
                 loop
                 {
