@@ -202,7 +202,7 @@ VA::HighLevel Processors
 
                     delayLine = DelayLine::Processor (initialDelayMs);
                     
-                    smoothedMixPan = SmoothedMixPan::Processor (initialMix, initialPan);
+                    smoothedMixPan = SmoothedMixPan::Processor (initialMix, initialPan, SLEW_RATE_SECONDS_GAIN);
                 }
         
                 connection
@@ -632,28 +632,34 @@ Filter Processors
     {   
         struct State 
         {
-            wrap<MAX_BUFFER_SIZE> readPos, writePos;
+            float readPos;
+            wrap<MAX_BUFFER_SIZE> writePos;
             SampleType[MAX_BUFFER_SIZE] buffer;
+            soul::smoother::State delaySamples;
         }
 
-        void update (State& s, float delayMs, float fsDiv1k)
+        void update (State& s, float delayMs, float fsDiv1k, float divMaxDelta)
         {
-            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - int (fsDiv1k * delayMs));
+            let targetValue = floor (fsDiv1k * delayMs);
+            let steps = int (max (1.f, abs (targetValue - s.delaySamples.currentValue) * divMaxDelta));
+
+            s.delaySamples.setTarget(targetValue, steps);
         }
 
         SampleType process (State& s, SampleType x, float lfo, float maxDepthSamples)
         {
             s.buffer.at (s.writePos) = x;
 
-            let y = s.buffer.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
+            s.readPos = float (s.writePos) - s.delaySamples.tick();
 
-            ++s.readPos;
+            let y = s.buffer.readLinearInterpolated (s.readPos - maxDepthSamples * lfo);
+
             ++s.writePos;
 
             return y;
         }
 
-        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2)
+        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2, float slewRateSeconds = SLEW_RATE_SECONDS_DELAY)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be <= 1
@@ -674,6 +680,10 @@ Filter Processors
 
                 let fsDiv1k = float (processor.frequency) / 1000.f;
                 let maxDepthSamples = maxDepthMs * fsDiv1k;
+                let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
+
+
+                s.delaySamples.reset (initialDelayMs * fsDiv1k);
 
                 loop
                 {
@@ -681,7 +691,7 @@ Filter Processors
                     {
                         recalc = false;
     
-                        s.update (delayMs, fsDiv1k);
+                        s.update (delayMs, fsDiv1k, divMaxDelta);
                     }
     
                     loop (updateIntervalSamples)
@@ -729,6 +739,84 @@ Mix Processors
             }
         }
     }
+
+    /** Apply mixing and panning via VA::SmoothedParameter */
+    namespace SmoothedMixPan
+    {
+        graph Processor(float initialMix = 50, float initialPan = 0, float slewRateSeconds = 0.01f)
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedGains.in0 mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
+                smoothedGains.in1 panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 0.01f ]];
+            }
+
+            let
+            {
+                applyGains = ApplyGains::Processor;
+                smoothedGains = SmoothedParameter::Processor(float[2] (initialMix, initialPan), SmoothedParameter::Modes::MixPan, slewRateSeconds);
+            }
+    
+            connection
+            {
+                smoothedGains.out0 -> applyGains.b0;
+                smoothedGains.out1 -> applyGains.b1;
+
+                in0 -> applyGains.in0;
+                in1 -> applyGains.in1;
+
+                applyGains.out -> out;
+            }
+        }
+    }
+    
+    /** Apply a gain via VA::SmoothedParameter */
+    namespace SmoothedGain
+    {
+        namespace Modes
+        {
+            let Linear = 0;
+            let Decibel = 1;
+        }
+
+        namespace M (int mode = 0)
+        {
+            let Min = (mode == Modes::Linear ? 0 : (mode == Modes::Decibel ? -12 : 0));
+            let Max = (mode == Modes::Linear ? 1 : (mode == Modes::Decibel ? 0 : 100));
+            let Step = (mode == Modes::Linear ? 0.01f : (mode == Modes::Decibel ? 0.1f : 1.f));
+        }
+
+        graph Processor (float initialValue = 0, int mode = 0, float slewRateSeconds = 0.1f)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event float valueIn [[ name: (mode == Modes::Linear ? "Gain" : (mode == Modes::Decibel ? "Volume" : "Depth")), min: M(mode)::Min, max: M(mode)::Max, init: initialValue, step: M(mode)::Step, unit: (mode == Modes::Linear ? "" : (mode == Modes::Decibel ? "dB" : "%")) ]];
+    
+            let
+            {
+                smoothedGain = SmoothedParameter::Processor (float[2] (initialValue, 0), mode, slewRateSeconds);
+                multiplier = Multiplier::Processor;
+            }
+    
+            connection
+            {
+                in -> multiplier.in;
+                
+                valueIn -> smoothedGain.in0;
+                smoothedGain.out0 -> multiplier.b;
+
+                multiplier.out -> out;
+            }
+        }
+    }
+
+/*==============================================================================
+Parameter Processors
+==============================================================================*/
 
     /** Automatic/manual parameter for VA::HighLevel Processors 
 
@@ -809,84 +897,10 @@ Mix Processors
         }
     }
 
-    /** Apply mixing and panning via VA::SmoothedParameter */
-    namespace SmoothedMixPan
-    {
-        graph Processor(float initialMix = 50, float initialPan = 0, float slewRateSeconds = 0.1f)
-        {
-            input stream SampleType in0, in1;
-            output stream SampleType out;
-    
-            input
-            {
-                smoothedGains.parameterIn0 mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
-                smoothedGains.parameterIn1 panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 0.01f ]];
-            }
-
-            let
-            {
-                applyGains = ApplyGains::Processor;
-                smoothedGains = SmoothedParameter::Processor(float[2] (initialMix, initialPan), SmoothedParameter::Modes::MixPan, slewRateSeconds);
-            }
-    
-            connection
-            {
-                smoothedGains.out[0] -> applyGains.b0;
-                smoothedGains.out[1] -> applyGains.b1;
-
-                in0 -> applyGains.in0;
-                in1 -> applyGains.in1;
-
-                applyGains.out -> out;
-            }
-        }
-    }
-    
-    /** Apply a gain via VA::SmoothedParameter */
-    namespace SmoothedGain
-    {
-        namespace Modes
-        {
-            let Linear = 0;
-            let Decibel = 1;
-        }
-
-        namespace M (int mode = 0)
-        {
-            let Min = (mode == Modes::Linear ? 0 : (mode == Modes::Decibel ? -12 : 0));
-            let Max = (mode == Modes::Linear ? 1 : (mode == Modes::Decibel ? 0 : 100));
-            let Step = (mode == Modes::Linear ? 0.01f : (mode == Modes::Decibel ? 0.1f : 1.f));
-        }
-
-        graph Processor (float initialValue = 0, int mode = 0, float slewRateSeconds = 0.1f)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input event float valueIn [[ name: (mode == Modes::Linear ? "Gain" : (mode == Modes::Decibel ? "Volume" : "Depth")), min: M(mode)::Min, max: M(mode)::Max, init: initialValue, step: M(mode)::Step, unit: (mode == Modes::Linear ? "" : (mode == Modes::Decibel ? "dB" : "%")) ]];
-    
-            let
-            {
-                smoothedGain = SmoothedParameter::Processor (float[2] (initialValue, 0), mode, slewRateSeconds);
-                multiplier = Multiplier::Processor;
-            }
-    
-            connection
-            {
-                in -> multiplier.in;
-                
-                valueIn -> smoothedGain.parameterIn0;
-                smoothedGain.out[0] -> multiplier.b;
-
-                multiplier.out -> out;
-            }
-        }
-    }
-
     /** Map input events to a smoothed output stream; Modified version of soul::gain::SmoothedGainParameter
 
-        Notes:
-        - parameterIn requires an annotation (no default annotation)
+        Note: 'slewRateSeconds' is NOT the same as in soul::gain::SMoothedGain Parameter; it is the max change in linear gain per second
+        (e.g., if slewRateSeconds 0.5 and gain changes by 1, then it will take 2 seconds to reach a gain of 1)  
     */    
     namespace SmoothedParameter
     {
@@ -921,7 +935,7 @@ Mix Processors
                 else if const (mode == Modes::Decibel)
                     c.target.at(0) = vdBtoGain (SampleType (parameter.at(0)));
                 else if const (mode == Modes::MixPan)
-                    c.target = vmixPanToGains (parameter.at(0), parameter.at(0));
+                    c.target = vmixPanToGains (parameter.at(0), parameter.at(1));
 
                 if const (mode == Modes::Linear || mode == Modes::Decibel)
                     s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
@@ -964,16 +978,16 @@ Mix Processors
             }
         }
 
-        processor Processor (float[2] initialParameter, int mode = 0, float slewRateSeconds = 0.1f)
+        processor Processor (float[] initialParameter, int mode = 0, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
         {
-            output stream SampleType out[M(mode)::NumIn];
+            output stream SampleType out0, out1;
 
-            input event float parameterIn0, parameterIn1;
+            input event float in0, in1;
 
-            event parameterIn0 (float v) { parameter.at(0) = v; recalc = true; }
-            event parameterIn1 (float v) { parameter.at(1) = v; recalc = true; }
+            event in0 (float v) { parameter.at(0) = v; recalc = true; }
+            event in1 (float v) { parameter.at(1) = v; recalc = true; }
 
-            float[2] parameter = initialParameter;
+            float[M(mode)::NumIn] parameter = initialParameter;
             bool recalc = false;
 
             void run()
@@ -982,7 +996,7 @@ Mix Processors
                 M(mode)::Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-                let divMaxDelta = SampleType (slewRateSeconds / float (processor.period));
+                let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
     
                 M(mode)::updateUnsmoothed (c, parameter, s);
             
@@ -997,80 +1011,13 @@ Mix Processors
     
                     loop (updateIntervalSamples)
                     {
-                        out << M(mode)::process (s, c);
+                        let y = M(mode)::process (s, c);
 
-                        advance();
-                    }
-                }
-            }
-        }
-    }
+                        out0 << y.at(0);
 
-    /** Pan and mix two SampleType streams */        
-    namespace PanMixer
-    {
-        namespace Modes
-        {
-            let MixPan = 0;
-            let MixOnly = 1;
-            let PanOnly = 2;
-        }
+                        if const (M(mode)::NumOut > 1)
+                            out1 << y.at(1);
 
-        struct Coeffs
-        {
-            SampleType t1, t2;
-        }
-    
-        void update (Coeffs& c, float mix, float pan)
-        {
-            let p = (float64 (pan) + 1.0) * 0.5; 
-            let p2 = SampleType (1.0 - p, p);
-            let p1 = ONE - p2;
-
-            let m = SampleType (mix) * SampleType (1.0/100.0);
-            c.t2 = m * p2;
-            c.t1 = (ONE - m) * p1;
-        }
-    
-        SampleType process (SampleType in1, SampleType in2, const Coeffs& c)
-        {
-            return c.t1 * in1 + c.t2 * in2;
-        }
-    
-        processor Processor (float initialMix = 100.f, float initialPan = 0)
-        {
-            input stream SampleType in1, in2;
-            output stream SampleType out;
-    
-            input stream SampleType mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
-            input stream SampleType panIn;
-    
-            event mixIn (float v) { mix = v; recalc = true; }
-            event panIn (float v) { pan = v; recalc = true; }
-    
-            float mix = initialMix;
-            float pan = initialPan;
-            bool recalc = true;
-    
-            void run()
-            {   
-                Coeffs c;
-    
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (mix, pan);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << process (in1, in2, c);
-    
                         advance();
                     }
                 }
@@ -1799,7 +1746,7 @@ Constants
     
     //soul::filters
     using SampleType = float64<2>; //also used internally as 'CoeffType'
-    let updateInterval = 128;
+    let updateInterval = 1024;
     namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
     //soul::oscillators
@@ -1816,6 +1763,8 @@ Constants
     let INF32 = float (inf);
     let NOISE_FLOOR = 0.00001f;
     let NOISE_FLOOR_DB = -100.f;
+    let SLEW_RATE_SECONDS_GAIN = 1000.f;
+    let SLEW_RATE_SECONDS_DELAY = 10.f;
 
     //const int
     let MAX_BUFFER_SIZE = 96000; //for arrays of SampleType
