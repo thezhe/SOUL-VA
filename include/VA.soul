@@ -36,11 +36,11 @@
 /** Task List
 
     Current Tasks:
-    - double check LanADAA
-    - refactor snippets adaa (f, F1, and F2), namespace M, vifgl and viflt, new stuff towards bottom
-    - delay smoothing
+    - smoothing, update interval 1024 or 128
+    - general refactor
 
     Future Tasks:
+    - new stuff towards bottom
     - SOUL doesnt support arrays of input/output events, but refactor if this is changed 
     - rename params with units
     - initialization lists only for Processors and not namespaces
@@ -185,7 +185,7 @@ VA::HighLevel Processors
                     lfo.rateHzIn [[ name: "Rate (Hz)", min: 0.01, max: 2.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
                     
-                    ladderLPFS.cutoffIn [[ name: "Cutoff", min: 6000, max: 16000, init: initialCutoff, unit: "Hz", step: 1 ]];
+                    ladderLPFS.cutoffIn [[ name: "Cutoff", min: 60, max: 16000, init: initialCutoff, unit: "Hz", step: 1 ]];
                     ladderLPFS.resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
                     ladderLPFS.nlModeIn;
 
@@ -209,10 +209,10 @@ VA::HighLevel Processors
                 {
                     lfo.out -> delayLine.lfoIn;
                     
-                    in -> dcBlocker -> ladderLPFS.in, smoothedMixPan.in0;
+                    in -> dcBlocker -> delayLine.in, smoothedMixPan.in0;
                     
-                    ladderLPFS.out -> delayLine.in;
-                    delayLine.out -> smoothedMixPan.in1;
+                    delayLine.out -> ladderLPFS.in;
+                    ladderLPFS.out -> smoothedMixPan.in1;
                     
                     smoothedMixPan.out -> out;
                 }
@@ -632,34 +632,28 @@ Filter Processors
     {   
         struct State 
         {
-            float readPos;
-            wrap<MAX_BUFFER_SIZE> writePos;
+            wrap<MAX_BUFFER_SIZE> readPos, writePos;
             SampleType[MAX_BUFFER_SIZE] buffer;
-            soul::smoother::State delaySamples;
         }
 
-        void update (State& s, float delayMs, float fsDiv1k, float divMaxDelta)
+        void update (State& s, float delayMs, float fsDiv1k)
         {
-            let targetValue = floor (fsDiv1k * delayMs);
-            let steps = int (max (1.f, abs (targetValue - s.delaySamples.currentValue) * divMaxDelta));
-
-            s.delaySamples.setTarget(targetValue, steps);
+            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - int (fsDiv1k * delayMs));
         }
 
         SampleType process (State& s, SampleType x, float lfo, float maxDepthSamples)
         {
             s.buffer.at (s.writePos) = x;
 
-            s.readPos = float (s.writePos) - s.delaySamples.tick();
+            let y = s.buffer.readLinearInterpolated (float(s.readPos) - maxDepthSamples * lfo);
 
-            let y = s.buffer.readLinearInterpolated (s.readPos - maxDepthSamples * lfo);
-
+            ++s.readPos;
             ++s.writePos;
 
             return y;
         }
 
-        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2, float slewRateSeconds = SLEW_RATE_SECONDS_DELAY)
+        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be <= 1
@@ -680,10 +674,6 @@ Filter Processors
 
                 let fsDiv1k = float (processor.frequency) / 1000.f;
                 let maxDepthSamples = maxDepthMs * fsDiv1k;
-                let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
-
-
-                s.delaySamples.reset (initialDelayMs * fsDiv1k);
 
                 loop
                 {
@@ -691,7 +681,7 @@ Filter Processors
                     {
                         recalc = false;
     
-                        s.update (delayMs, fsDiv1k, divMaxDelta);
+                        s.update (delayMs, fsDiv1k);
                     }
     
                     loop (updateIntervalSamples)
@@ -743,7 +733,7 @@ Mix Processors
     /** Apply mixing and panning via VA::SmoothedParameter */
     namespace SmoothedMixPan
     {
-        graph Processor(float initialMix = 50, float initialPan = 0, float slewRateSeconds = 0.01f)
+        graph Processor(float initialMix = 50, float initialPan = 0, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
         {
             input stream SampleType in0, in1;
             output stream SampleType out;
@@ -899,7 +889,7 @@ Parameter Processors
 
     /** Map input events to a smoothed output stream; Modified version of soul::gain::SmoothedGainParameter
 
-        Note: 'slewRateSeconds' is NOT the same as in soul::gain::SMoothedGain Parameter; it is the max change in linear gain per second
+        Note: 'slewRateSeconds' is NOT the same as in soul::gain::SmoothedGain Parameter; it is the max change in linear gain per second
         (e.g., if slewRateSeconds 0.5 and gain changes by 1, then it will take 2 seconds to reach a gain of 1)  
     */    
     namespace SmoothedParameter
@@ -1746,7 +1736,7 @@ Constants
     
     //soul::filters
     using SampleType = float64<2>; //also used internally as 'CoeffType'
-    let updateInterval = 1024;
+    let updateInterval = 128;
     namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
     //soul::oscillators
@@ -1763,256 +1753,11 @@ Constants
     let INF32 = float (inf);
     let NOISE_FLOOR = 0.00001f;
     let NOISE_FLOOR_DB = -100.f;
-    let SLEW_RATE_SECONDS_GAIN = 1000.f;
-    let SLEW_RATE_SECONDS_DELAY = 10.f;
+    let SLEW_RATE_SECONDS_GAIN = 10.f;
 
     //const int
     let MAX_BUFFER_SIZE = 96000; //for arrays of SampleType
-    let MAX_ARRAY_SIZE = 8; //for all other array
+    let MAX_ARRAY_SIZE = 8; //for all other arrays
     let MAX_CUTOFF_HZ = 20000;
     let MIN_CUTOFF_HZ = 20;
 } //namespace VA
-
-namespace VA::Experimental
-{
-    
-
-            /** A modified classical compressor sidechain
-        
-            3 sidechain blocks:
-            - Detector: ideal rectifier
-            - Envelope Filter: nonlinear ballistics filter based on Lan
-            - Compressor Transfer Function: hard-knee with color  
-        */
-        // namespace DynamicsProcessor_Lan_Color
-        // {
-        //     graph Processor (float initialThreshold,
-        //                     float initialRatio,
-        //                     float initialColorHeight,
-        //                     float initialColorWidth,
-        //                     float initialAttack,
-        //                     float initialRelease,
-        //                     float initialNonlinearity)
-        //     {
-        //         input stream SampleType in;
-        //         output stream SampleType out;
-            
-        //         input
-        //         {
-        //             ballisticsFilter.attackIn;
-        //             ballisticsFilter.releaseIn;
-        //             stereoLink.stereoLinkIn;
-        //             ctf.thresholdIn;
-        //             ctf.ratioIn;
-        //             ctf.colorHeight;
-        //             ctf.colorWidth;
-        //         }
-
-        //         let
-        //         {
-        //             detector = Abs::Processor;
-        //             ballisticsFilter = BallisticsFilter_Lan::Processor (initialAttack, initialRelease);
-        //             stereoLink = StereoLink::Processor;
-        //             ctf = CTF_Color::Processor (initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
-        //         }
-            
-        //         connection
-        //         {
-        //             in -> detector.in;
-        //             detector.out -> ballistics.in;
-        //             ballistics.out -> stereoLinkIn;
-        //             stereoLink.out -> ctf.in;
-        //             ctf.out -> out;
-        //         }
-        //     }
-        // }
-
-        /** A modified downward compressor/ upward expander 
-        
-            3 sidechain blocks:
-            - Detector: ideal rectifier
-            - Envelope Filter: nonlinear ballistics filter based on Lan
-            - Compressor Transfer Function: hard-knee 
-        */
-        // namespace DynamicsProcessor_Lan
-        // {
-        //     graph Processor (float initialAttack,
-        //                     float initialAttackNonlinearity,
-        //                     float initialRelease,
-        //                     float initialReleaseNonlinearity,
-        //                     float initialStereoLink,
-        //                     float initialThreshold,
-        //                     float initialRatio1,
-        //                     float initialRatio2)
-        //     {
-        //         input stream SampleType in;
-        //         output stream SampleType out;
-            
-        //         input
-        //         {
-        //             ballisticsFilter_Lan.attackIn;
-        //             ballisticsFilter_Lan.attackNonlinearityIn;
-        //             ballisticsFilter_Lan.releaseIn;
-        //             ballisticsFilter_Lan.releaseNonlinearityIn;
-        //             stereoLink.stereoLinkIn;
-        //             ctf.thresholdIn;
-        //             ctf.ratio1In;
-        //             ctf.ratio2In;
-        //         }
-
-        //         let
-        //         {
-        //             abs_ = Abs::Processor;
-        //             ballisticsFilter_Lan = BallisticsFilter_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
-        //             stereoLink = StereoLink::Processor (initialStereoLink);
-        //             ctf = CTF::Processor (initialThreshold, initialRatio1, initialRatio2);
-        //             multiplier = Multiplier::Processor;
-        //         }
-            
-        //         connection
-        //         {
-        //             in -> abs_.in, multiplier.in1;
-
-        //             abs_.out -> ballisticsFilter_Lan.in;
-        //             ballisticsFilter_Lan.out -> stereoLink.in;
-        //             stereoLink.out -> ctf.in;
-        //             ctf.out -> multiplier.in2;
-
-        //             multiplier -> out;
-        //         }
-        //     }
-        // }
-
-
-    /** Onepole modified for state variable saturation
-
-        Notes:
-        - 2x oversampling recommended
-    */
-    namespace OnepoleS
-    {   
-        struct Coeffs
-        {
-            SampleType b;
-        }
-
-        void update (Coeffs& c, float drive)
-        {
-            c.b = soul::dBtoGain (drive);
-        }
-
-        SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
-        {
-            let v = (x - s.s);
-            let lpf = v + s.s;
-            let hpf = x - lpf;
-
-            s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
-
-            return SampleType[2] (lpf, hpf);
-        }
-
-        processor Processor (float initialDrive)
-        {
-            input stream SampleType in;
-            output stream SampleType lowpassOut, highpassOut;
-
-            input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
-
-            event driveIn (float v) { drive = v; recalc = true; }
-
-            float drive = dBtoGain (initialDrive);
-            bool recalc = true;
-
-            void run()
-            {   
-                Onepole::State s;
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-
-                        c.update (drive);
-                    }
-
-                    loop (updateIntervalSamples)
-                    {
-                        let y = s.process (in, c);
-
-                        lowpassOut << y[0];
-                        highpassOut << y[1];
-
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
-    
-        2x oversampling recommended
-    */  
-    namespace SVF
-    {
-        struct Coeffs
-        {
-            SampleType a0;
-            SampleType a;
-            SampleType p;
-        }
-
-        struct State
-        {
-            SampleType[2] z;
-        }
-
-        SampleType[3] process (State& s, SampleType x, const Coeffs& c)
-        {
-            let hpf = c.a0 * (x - c.p * s.z[0] - s.z[1]);
-            let bpf = c.a * hpf + s.z[0];
-            let lpf = c.a * bpf + s.z[1];
-
-            s.z[0] = c.a * hpf + bpf;
-            s.z[1] = c.a * bpf + lpf;
-
-            return SampleType[3] (lpf, hpf, bpf);
-        }
-
-        processor Processor()
-        {
-            input stream SampleType in;
-            input stream SampleType Omega; //angular cutoff; must be > 0
-            input stream SampleType R; //resonance; must be > 0
-            output stream SampleType lowpassOut, highpassOut, bandpassOut;
-
-            void run()
-            {
-                State s;
-                Coeffs c;
-
-                let Tdiv2 = SampleType (processor.period * 0.5); 
-
-                loop
-                {
-                    c.a = Omega * Tdiv2; //g
-                    c.a0 = ONE / (ONE + TWO * R * c.a + c.a * c.a); //d
-                    c.p = TWO * R + c.a; //g1
-
-                    let y = s.process(in, c);
-
-                    lowpassOut  << y[0];
-                    highpassOut << y[1];
-                    bandpassOut << y[2];
-                    
-                    advance();
-                }
-            }
-        }
-    }
-} //namespace VA::Experimental

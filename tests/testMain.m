@@ -21,8 +21,8 @@
 %% testMain.m (https://github.com/thezhe/SOUL-VA)
   %
   % - The SOUL CLI (soul.exe) must be part of the system PATH; run with Octave
-  % - Generated .wav files are lossless, 24-bit, and have 'fs' sampling rates 
-  % - Only fs in the range [44100, 96000] are officially supported
+  % - Generated .wav files are lossless, 24-bit, and have 'Fs' sampling rates 
+  % - Only Fs in the range [44100, 96000] are officially supported
   % - Outputs graphs of test cases and logs in terminal
   % - See 'Inputs' section for more info on each test case
   % - Experiencing issues? Try deleting 'inputs/' and 'output/' or restarting Octave
@@ -30,10 +30,10 @@
 
 %% Task List
   %
-  % verify FFT weights
   % update Inputs descriptions
+  % non 44.1kHz Fs
 
-function testMain(fs)
+function testMain(Fs)
 %%==============================================================================
 %% Main Script
 
@@ -43,7 +43,7 @@ function testMain(fs)
   %timestamp
   timestamp = strftime ("%Y-%m-%d %H:%M:%S", localtime (time ()));
   printf('\n++++++++++++++++++++++++++++++++++++++++\n');
-  printf(['testMain(' num2str(fs) '), ' timestamp '\n']);
+  printf(['testMain(' num2str(Fs) '), ' timestamp '\n']);
   printf('++++++++++++++++++++++++++++++++++++++++\n');
 
   %render '/inputs'
@@ -113,12 +113,16 @@ function testMain(fs)
     renderSoul('outputs/ZerosSin1k.wav', 'inputs/ZerosSin1k.wav');
 
     function renderSoul(target_file, source_audio_file)
-      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(fs) ' --bitdepth=24 ../examples/main.soulpatch']); 
+      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(Fs) ' --bitdepth=24 ../examples/main.soulpatch']); 
     endfunction
   endfunction
   
   function plotIO()
     %%  Plot results using '/inputs' and '/outputs'
+
+    printf('===========================================================================\n');
+    printf('                             testMain.m logs                               \n');
+    printf('===========================================================================\n');
 
     grid off
 
@@ -129,9 +133,6 @@ function testMain(fs)
     plotSpec('outputs/SinSweep.wav', false, 'SinSweep Spectrogram', 2, [2, 3, 6]);
     plotSpec('outputs/SinSweep.wav', true, 'SinSweep Spectrogram (BW)', 1, [1, 1, 1]);
 
-    printf('===========================================================================\n');
-    printf('                             testMain.m logs                               \n');
-    printf('===========================================================================\n');
     isStable('outputs/Pulse.wav');
     isStable('outputs/Impulse.wav');
     isStable('outputs/SinRamp.wav');
@@ -178,17 +179,17 @@ function testMain(fs)
     % - See Fig. 4 in https://dafx2019.bcu.ac.uk/papers/DAFx2019_paper_3.pdf
     %%
 
-    n = 0:ceil((fs-1)/4);
+    n = 0:ceil((Fs-1)/4);
 
     A1 = 0.5/6;
     A2 = 2.5/6;
 
-    wd1 = pi*4000/fs;
-    wd2 = pi*36000/fs;
+    wd1 = pi*4000/Fs;
+    wd2 = pi*36000/Fs;
 
     y = A1 * sin(wd1*n) + A2 * cos(wd2*n);
 
-    audiowrite('inputs/BSin.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/BSin.wav', y, Fs, 'BitsPerSample', 24);
   endfunction
 
   function gendBRamp()
@@ -199,9 +200,9 @@ function testMain(fs)
     % - Length: 2 seconds
     %%
 
-    y = dBtoGain(linspace(-60, 0, 2*fs));
+    y = dBtoGain(linspace(-60, 0, 2*Fs));
 
-    audiowrite('inputs/dBRamp.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/dBRamp.wav', y, Fs, 'BitsPerSample', 24);
   endfunction 
 
   function genImpulse()  
@@ -212,9 +213,9 @@ function testMain(fs)
     % - Length: 1 second
     %%
 
-    y = [0.5, zeros(1, fs-1)];
+    y = [0.5, zeros(1, Fs-1)];
 
-    audiowrite('inputs/Impulse.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/Impulse.wav', y, Fs, 'BitsPerSample', 24);
   endfunction
 
   function genPulse()
@@ -225,12 +226,12 @@ function testMain(fs)
     % - Length: 1 second
     %%
 
-    y = zeros(1, fs);
+    y = zeros(1, Fs);
 
     y(1:(end/2)) = 0.5;
     y((end/2 + 1):end) = 0.25;
 
-    audiowrite('inputs/Pulse.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/Pulse.wav', y, Fs, 'BitsPerSample', 24);
   endfunction
 
   function genSinSweep()
@@ -241,11 +242,21 @@ function testMain(fs)
     % Length: 10 seconds
     %%
 
-    t = 0:1/fs:10;
+    wdMax = (2 * pi * 20000 / Fs);
 
-    y = 0.5 * chirp(t, 20, 11, 20000);
+    n = 0:1:960000 - 1;
+    t = n/n(end);
+    w = lerp (0, wdMax, t);
+
+    y = 0.5 * sin (w.*n);
     
-    audiowrite('inputs/SinSweep.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/SinSweep.wav', y, Fs, 'BitsPerSample', 24);
+
+    function y = lerp (x0, x1, t)
+      t0 = (1-t);
+
+      y = t0 * x0 + t * x1;
+    endfunction
   endfunction
   
   function genSinRamp()
@@ -256,16 +267,16 @@ function testMain(fs)
     % - Tests: hysteresis in the input output plot ('outputs/SinRamp.wav' vs 'inputs/SinRamp.wav' waveshaper plot), stability
     %%
 
-    nMax = ceil(0.025*fs)-1;
+    nMax = ceil(0.025*Fs)-1;
     n = 0:nMax;
 
     A = 0:0.5/nMax:0.5;
 
-    wd = pi*880/fs;
+    wd = pi*880/Fs;
 
     y = A.*sin(wd*n);
 
-    audiowrite('inputs/SinRamp.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/SinRamp.wav', y, Fs, 'BitsPerSample', 24);
   endfunction
 
   function genSin1k()
@@ -276,13 +287,13 @@ function testMain(fs)
     % - Tests: stability
     %%
 
-    n = 0:ceil(fs-1);
+    n = 0:ceil(Fs-1);
 
-    wd = pi*2000/fs;
+    wd = pi*2000/Fs;
 
     y = 0.5 * sin (wd*n);
 
-    audiowrite('inputs/Sin1k.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/Sin1k.wav', y, Fs, 'BitsPerSample', 24);
   endfunction
 
   function genZerosSin1k()
@@ -293,17 +304,17 @@ function testMain(fs)
     % - Tests: stability
     %%
 
-    half = ceil((fs-1)/2);
+    half = ceil((Fs-1)/2);
 
     n = 0:half;
 
     y = zeros (1, 2*half);
 
-    wd = pi*2000/fs;
+    wd = pi*2000/Fs;
 
     y(half:end) = 0.5 * sin (wd * n);
 
-    audiowrite('inputs/ZerosSin1k.wav', y, fs, 'BitsPerSample', 24);
+    audiowrite('inputs/ZerosSin1k.wav', y, Fs, 'BitsPerSample', 24);
 
   endfunction
   
@@ -325,15 +336,15 @@ function testMain(fs)
     df = fs/n;
     f = 0:df:(fs/2);
     y = fft(x);
-    y = y(1:(n/2)+1);
-    y = y * 2;    
+    y = y(1:(n/2)+1) * 2;  
 
     %magnitude
     mag = gainTodB(abs(y));
-    dc = sprintf('%.1f', mag(1));
-    ny = sprintf('%.1f', mag(end));
-    mag = mag(2:end-1);
-    fmag = f(2:end-1);
+
+    printf('DC magnitude response: %s dB\n', num2str(mag(1)));
+
+    mag = mag(2:end);
+    fmag = f(2:end);
     [fmagR, magR] = reducePlot(fmag, mag, 0.0001);
     
     figure(fig, 'units', 'normalized', 'position', [0.1 0.1 0.8 0.8]);
@@ -342,7 +353,7 @@ function testMain(fs)
       set(gca,'xscale','log');
       set(gca, "linewidth", 1, "fontsize", 16)
       xlim([fmag(1), 20000]);
-      title(['\fontsize{20}Magnitude Response']);
+      title('\fontsize{20}Magnitude Response');
       xlabel('\fontsize{16}frequency (Hz)');
       ylabel('\fontsize{16}magnitude (dB)');
 
@@ -354,14 +365,14 @@ function testMain(fs)
     dc = sprintf('%.1f', p (1));
     ny = sprintf('%.1f', p (end));
 
-    p = p(2:end-1);
-    fp = f(2:end-1);
+    p = p(2:end);
+    fp = f(2:end);
     [fpR, pR] = reducePlot(fp, p, 0.0001);
 
     subplot(sp(1), sp(2), sp(3)+1);
     hold on
       set(gca,'xscale','log');
-      set(gca, "linewidth", 1, "fontsize", 16)
+      set(gca, "linewidth", 1, "fontsize", 16);
       title(['\fontsize{20}Phase Response']);
       xlabel('\fontsize{16}frequency (Hz)');
       ylabel('\fontsize{16}phase (rads)');
@@ -377,13 +388,12 @@ function testMain(fs)
 
     [x, fs] = audioread(file);
 
-    n = 1024;
+    n = floor (1024 * (fs/44100));
     win = blackman(n);
     [S, f, t] = specgram (x, n, fs, win, 8);
 
     %bandlimit and normalize
-    S = S((f>=20 & f <= 20000), :);
-    S = abs(S)./(max(max(abs(S))));
+    S = abs(S)/(max(max(abs(S))));
     
     %Black and white binary image
     if (binary)
@@ -400,7 +410,7 @@ function testMain(fs)
       imagesc (t, f, gainTodB(S));
       colormap (1-gray);
       ylim([0, 20000]);
-      xlim([0,10]);
+      xlim([0, 10]);
       set(gca, "fontsize", 16);
       title(['\fontsize{20}' ttl]);
       ylabel('\fontsize{16}frequency (Hz)');

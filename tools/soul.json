@@ -273,7 +273,7 @@
         "description": "Processor implementing STATELESS function 'f' and parameter-dependent ADAA order; do not change the ADAA boilerplate ('State' and all 'process' functions)"
     },
 
-    "EventParam": {
+    "VA::eventParam": {
         "prefix": "VA::eventParam",
         "body": [
             "input event float ${1:param}In [[ name: \"${3:ParamName}\", min: 0, max: 1, init: initial${2:Param}, unit: \"units\", step: 1 ]];",
@@ -282,5 +282,34 @@
             ""
         ],
         "description": "eventParam"
+    },
+
+    "VA::Modes": {
+        "prefix": "VA::Modes",
+        "body": [
+            "namespace Modes",
+            "{",
+            "    let None = 0;",
+            "    ${1:additional Modes}",
+            "    let NumModes = 1;",
+            "}",
+            "",
+            "namespace M (int mode = ${2:default mode})",
+            "{",
+            "    static_assert ((mode < Modes::NumModes) && (mode > -1), \"${3:Processor namespace}: mode out of range.\");",
+            "",
+            "    ${4:mode-specific code (examples below)}",
+            "",
+            "    //let param = (mode == Modes::None ? 0 : 1)",
+            "",
+            "    /*void process (State& s, SampleType x, const Coeffs& c)",
+            "    {",
+            "        if const (mode == Modes::None)",
+            "           return ZERO;",
+            "    }*/",
+            "}",
+            ""
+        ],
+        "description": "Define modes and namespace with compile time mode-specific code (e.g., a mode-dependent 'process' function); use to avoid the boilerplate from creating an entirely new Processor"
     }
 }

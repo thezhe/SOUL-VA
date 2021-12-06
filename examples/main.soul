@@ -60,7 +60,7 @@ namespace main
 
     graph Processor [[main]]
     {
-        input stream float in; //change streams to 'SampleType' for stereo
+        input stream float in; //change streams to 'VA::SampleType' for stereo
         output stream float out;
 
         input
@@ -87,8 +87,9 @@ namespace main
 
         connection
         {       
-            in -> up -> effect.in; //comment out 'up' and 'down' for stereo
-            effect.out -> down -> out;
+            //in -> up -> effect.in; //comment out 'up' and 'down' for stereo
+            //effect.out -> down -> out;
+            in -> out;
         }
     }
 }
