@@ -36,7 +36,7 @@
 /** Task List
 
     Current Tasks:
-    - smoothing, update interval 1024 or 128
+    - smoothing
     - general refactor
 
     Future Tasks:
@@ -185,8 +185,8 @@ VA::HighLevel Processors
                     lfo.rateHzIn [[ name: "Rate (Hz)", min: 0.01, max: 2.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
                     
-                    ladderLPFS.cutoffIn [[ name: "Cutoff", min: 60, max: 16000, init: initialCutoff, unit: "Hz", step: 1 ]];
-                    ladderLPFS.resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
+                    ladderLPFS.cutoffIn;
+                    ladderLPFS.resonanceIn;
                     ladderLPFS.nlModeIn;
 
                     smoothedMixPan.mixIn;
@@ -198,7 +198,7 @@ VA::HighLevel Processors
                     dcBlocker = filt::dc_blocker::Processor (20.f);
 
                     lfo = osc::lfo::Processor;
-                    ladderLPFS = LadderLPFS::Processor (initialCutoff, initialResonance, 0, 4);
+                    ladderLPFS = LadderLpfS::Processor (initialCutoff, initialResonance, 0);
 
                     delayLine = DelayLine::Processor (initialDelayMs);
                     
@@ -230,7 +230,39 @@ Filter Processors
         - Resonance up to order/2 reccomended
         - Even though its nonlinear, the filter can become unstable because the state sat function is not bounded
     */
-    namespace LadderLPFS
+    namespace LadderLpfS
+    {
+        graph Processor (float initialCutoff, float initialResonance, float initialNonlinearity)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
+                ladderLpfSC.nlModeIn;
+            }
+    
+            let
+            {
+                smoothedParameter0 = SmoothedParameter::Processor (float[2] (initialCutoff, 0), SmoothedParameter::Modes::G_Onepole);
+                smoothedParameter1 = SmoothedParameter::Processor (float[2] (initialResonance, 0));
+                ladderLpfSC = LadderLpfSC::Processor (initialNonlinearity);
+            }
+    
+            connection
+            {
+                smoothedParameter0.out0 -> ladderLpfSC.G_Onepole;
+                smoothedParameter1.out0 -> ladderLpfSC.k;
+
+                in -> ladderLpfSC.in;
+                ladderLpfSC.out -> out;
+            }
+        }
+    }
+    
+    namespace LadderLpfSC
     {   
         struct Coeffs
         {
@@ -239,12 +271,8 @@ Filter Processors
             int nlMode;
         }
     
-        void update (Coeffs& c, float cutoff, float resonance, float nlMode, SampleType Tpi)
+        void update (Coeffs& c, float nlMode)
         {
-            let gOnepole = tanh (SampleType (cutoff) * Tpi);
-
-            c.g = gOnepole / (ONE + gOnepole);
-            c.k = SampleType (resonance);
             c.nlMode = int (nlMode);
         }
     
@@ -289,21 +317,17 @@ Filter Processors
             }
         }
     
-        processor Processor (float initialCutoff = 1000, float initialResonance = 1, float initialNlMode = 0, int order = 4)
+        processor Processor (float initialNlMode = 0, int order = 4)
         {
             input stream SampleType in;
             output stream SampleType out;
 
-            input event float cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
-            input event float resonanceIn [[ name: "Resonance", min: 0, max: order, init: initialResonance, step: 0.01f ]];
+            input stream SampleType G_Onepole, k;
+
             input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 2, init: initialNlMode, text: "None|BBD|Tanh", step: 1 ]];
-            
-            event cutoffIn (float v) { cutoff = v; recalc = true; }
-            event resonanceIn (float v) { resonance = v; recalc = true; }
+
             event nlModeIn (float v) { nlMode = v; recalc = true; }
 
-            float cutoff = initialCutoff;
-            float resonance = initialResonance;
             float nlMode = initialNlMode;
             bool recalc = true;
     
@@ -313,22 +337,23 @@ Filter Processors
                 Coeffs c;
     
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                let Tpi = SampleType (processor.period * pi);
     
                 loop
                 {
                     if (recalc)
                     {
                         recalc = false;
-    
-                        c.update (cutoff, resonance, nlMode, Tpi);
+
+                        c.update (nlMode);
                     }
-    
+
                     loop (updateIntervalSamples)
                     {
+                        c.g = G_Onepole;
+                        c.k = k;
+
                         out << M (order)::process (s, in, c);
-    
+
                         advance();
                     }
                 }
@@ -899,6 +924,7 @@ Parameter Processors
             let Linear = 0;
             let Decibel = 1;
             let MixPan = 2;
+            let G_Onepole = 3;
         }
 
         namespace M (int mode = Modes::Linear)
@@ -918,7 +944,7 @@ Parameter Processors
                 int remainingRampSamples;
             }
 
-            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta)
+            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta, float fs)
             {
                 if const (mode == Modes::Linear)
                     c.target.at(0) = SampleType (parameter.at(0));
@@ -926,13 +952,15 @@ Parameter Processors
                     c.target.at(0) = vdBtoGain (SampleType (parameter.at(0)));
                 else if const (mode == Modes::MixPan)
                     c.target = vmixPanToGains (parameter.at(0), parameter.at(1));
+                else if const (mode == Modes::G_Onepole)
+                    c.target.at(0) = vCutoffToG_Onepole (parameter.at(0), fs);
 
-                if const (mode == Modes::Linear || mode == Modes::Decibel)
+                if const (mode == Modes::Linear || mode == Modes::Decibel || mode == Modes::G_Onepole)
                     s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
                 else if const (mode == Modes::MixPan)
                     s.remainingRampSamples = int (vmaxR (vclamp (1, INF32)::process (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
 
-                for (int i = 0; i < c.increment.size; ++i)
+                for (int i = 0; i < NumOut; ++i)
                     c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
             }
 
@@ -968,7 +996,7 @@ Parameter Processors
             }
         }
 
-        processor Processor (float[] initialParameter, int mode = 0, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
+        processor Processor (float[2] initialParameter, int mode = 0, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
         {
             output stream SampleType out0, out1;
 
@@ -977,7 +1005,7 @@ Parameter Processors
             event in0 (float v) { parameter.at(0) = v; recalc = true; }
             event in1 (float v) { parameter.at(1) = v; recalc = true; }
 
-            float[M(mode)::NumIn] parameter = initialParameter;
+            float[2] parameter = initialParameter;
             bool recalc = false;
 
             void run()
@@ -987,6 +1015,7 @@ Parameter Processors
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
                 let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
+                let fs = float (processor.frequency);
     
                 M(mode)::updateUnsmoothed (c, parameter, s);
             
@@ -996,7 +1025,7 @@ Parameter Processors
                     {
                         recalc = false;
     
-                        M(mode)::update (c, parameter, s, divMaxDelta);
+                        M(mode)::update (c, parameter, s, divMaxDelta, fs);
                     }
     
                     loop (updateIntervalSamples)
@@ -1512,6 +1541,15 @@ Vectorized Stateless Function Wrapper Processors
 Vectorized Stateless Functions
 ==============================================================================*/
 
+    SampleType vCutoffToG_Onepole (float x, float fs)
+    {
+        let Tpi = float (pi) / fs;
+        
+        let gOnepole = tanh (SampleType (x) * Tpi);
+
+        return gOnepole / (ONE + gOnepole);
+    }
+
     /** BBD mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
     
         Use for low order, monotonically decreasing harmonics
@@ -1736,11 +1774,14 @@ Constants
     
     //soul::filters
     using SampleType = float64<2>; //also used internally as 'CoeffType'
-    let updateInterval = 128;
+    let updateInterval = 1024;
     namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
 
     //soul::oscillators
     namespace osc = soul::oscillators;
+
+    //collection of parameters in a float array
+    using Params = float [];
     
     //const SampleType
     let ADAA_TOL = SampleType (0.0000001);

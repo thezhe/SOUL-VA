@@ -31,7 +31,6 @@
 %% Task List
   %
   % update Inputs descriptions
-  % non 44.1kHz Fs
 
 function testMain(Fs)
 %%==============================================================================
@@ -47,10 +46,11 @@ function testMain(Fs)
   printf('++++++++++++++++++++++++++++++++++++++++\n');
 
   %render '/inputs'
+  persistent frequency = 0;
   persistent testMainTime = 0;
   [testMainInfo, ~, ~] = stat('testMain.m');
 
-  if (~isfolder('inputs') || testMainInfo.mtime ~= testMainTime)
+  if (~isfolder('inputs') || testMainInfo.mtime ~= testMainTime || Fs ~= frequency)
     genInputs();
   end
 
@@ -62,11 +62,12 @@ function testMain(Fs)
   [mainInfo, ~, ~] = stat('../examples/main.soul');
   [mainPatchInfo, ~, ~] = stat('../examples/main.soulpatch');
 
-  if (vaInfo.mtime ~= vaTime || mainInfo.mtime ~= mainTime || mainPatchInfo.mtime ~= mainPatchTime || testMainInfo.mtime ~= testMainTime || ~isfolder('outputs'))
+  if (vaInfo.mtime ~= vaTime || mainInfo.mtime ~= mainTime || mainPatchInfo.mtime ~= mainPatchTime || testMainInfo.mtime ~= testMainTime || ~isfolder('outputs') || Fs ~= frequency)
     vaTime = vaInfo.mtime;
     mainTime = mainInfo.mtime;
     mainPatchTime = mainPatchInfo.mtime;
     testMainTime = testMainInfo.mtime;
+    frequency = Fs;
 
     genOutputs();
   end
@@ -242,21 +243,12 @@ function testMain(Fs)
     % Length: 10 seconds
     %%
 
-    wdMax = (2 * pi * 20000 / Fs);
+    t = 0:1/Fs:(10 - 1/ Fs);
 
-    n = 0:1:960000 - 1;
-    t = n/n(end);
-    w = lerp (0, wdMax, t);
-
-    y = 0.5 * sin (w.*n);
+    y = 0.5 * chirp (t, 0, 10, 20000);
     
     audiowrite('inputs/SinSweep.wav', y, Fs, 'BitsPerSample', 24);
 
-    function y = lerp (x0, x1, t)
-      t0 = (1-t);
-
-      y = t0 * x0 + t * x1;
-    endfunction
   endfunction
   
   function genSinRamp()
