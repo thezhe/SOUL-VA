@@ -24,7 +24,7 @@ This library considers background knowledge trivial; *SOUL-VA will not re-explai
 1. [SOUL Playground](https://soul.dev/lab/)  
 Copy VA.soul, main.soul, and main.soulpatch into the editor. Delete '../include/' on line 13 in main.soulpatch. Click 'Compile' to run in mono mode. To enable stereo processing, modify main.soul according to the instructions.
 2. [SOUL CLI 1.0.82](https://github.com/soul-lang/SOUL/releases/tag/1.0.82)  
-Read the CLI instructions by executing soul.exe in a terminal and use main.soulpatch as the '\<soul file\>'. Stereo processing and higher oversampling rates will not compile using this method.
+Read the CLI instructions by executing soul.exe in a terminal and use main.soulpatch as the `<soul file>`. Stereo processing and higher oversampling rates will not compile using this method.
 3.  [Octave 6.3.0](https://www.gnu.org/software/octave/index)   
 Include soul.exe in the 'Path' environment variable. Set `SOUL-VA/tests/` as the current working directory in Octave and run `testMain(44100)`. See testMain.m for more info on test cases and usage.
 

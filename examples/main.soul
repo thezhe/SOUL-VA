@@ -87,9 +87,8 @@ namespace main
 
         connection
         {       
-            //in -> up -> effect.in; //comment out 'up' and 'down' for stereo
-            //effect.out -> down -> out;
-            in -> out;
+            in -> up -> effect.in; //comment out 'up' and 'down' for stereo
+            effect.out -> down -> out;
         }
     }
 }
