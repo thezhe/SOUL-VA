@@ -32,7 +32,7 @@ Include soul.exe in the 'Path' environment variable. Set `SOUL-VA/tests/` as the
 Please post bugs in issues and feature requests in discussions. Bug fixes take priority. Pull requests are not accepted at the moment.
 
 ## Octave Examples 
-The following sections explain the output after running `testMain (44100)` on different `VA::HighLevel` effects (instantiated in `Processor [[main]]`).
+The following sections explain the output after running `testMain (44100)` on different `VA::HighLevel` effects (instantiated in `Processor [[main]]`). The script is useful for catching common errors in development without needing to listen to processed samples.
 ### Example 1: `Dummy`
 The system is trivial (and linear) and simply passes signals through unmodified. Notice how the step response is actually a pulse signal with values 0.5 and 0.25 so that the test can measure overshoot and undershoot.
 ![Dummy2](https://user-images.githubusercontent.com/42720670/143499549-a8484fe7-bb55-4c24-8242-aa6dd5be6b1c.png)  

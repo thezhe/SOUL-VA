@@ -20,17 +20,22 @@
 
 %% testMain.m (https://github.com/thezhe/SOUL-VA)
   %
-  % - The SOUL CLI (soul.exe) must be part of the system PATH; run with Octave
-  % - Generated .wav files are lossless, 24-bit, and have 'Fs' sampling rates 
-  % - Only Fs in the range [44100, 96000] are officially supported
-  % - Outputs graphs of test cases and logs in terminal
+  % Requirements:
+  % - The SOUL CLI (soul.exe) must be part of the system PATH
+  % - testMain.m must remain in its original path to work
+  %
+  % Arguments:
+  % - Fs:  sampling rate; only values in the range [44100, 96000] are officially supported
+  %
+  % Outputs:
+  % - Graphs of test cases 
+  % - logs in terminal
+  % - Generated .wav files (lossless, 24-bit, 'Fs' sampling rate)
+  %
+  % Other useful info:
   % - See 'Inputs' section for more info on each test case
   % - Experiencing issues? Try deleting 'inputs/' and 'output/' or restarting Octave
   %%
-
-%% Task List
-  %
-  % update Inputs descriptions
 
 function testMain(Fs)
 %%==============================================================================
@@ -175,7 +180,8 @@ function testMain(Fs)
     %%  Generate (0.5/6)*sin + (2.5/6)*cos with frequencies 2kHz and 18kHz
     %
     % Notes:
-    % - Test: System stability. Test passes if no console warnings are printed.
+    % - 0.5 normalized
+    % - Test: stability
     % - Length: 0.25 second
     % - See Fig. 4 in https://dafx2019.bcu.ac.uk/papers/DAFx2019_paper_3.pdf
     %%
@@ -197,7 +203,8 @@ function testMain(Fs)
     %% Generate a linear ramp on the dB scale from -60 dB to 0 dB 
     %
     % Notes:
-    % - Tests: decibel input/output mapping for dc signals ('outputs/dBRamp.wav' vs 'input/dBRamp.wav' waveshaper plot)
+    % - 0.5 normalized
+    % - Tests: decibel input/output mapping for dc signals ('outputs/dBRamp.wav' vs 'input/dBRamp.wav' waveshaper plot a.k.a 'DC IO Plot')
     % - Length: 2 seconds
     %%
 
@@ -210,11 +217,12 @@ function testMain(Fs)
     %% Generate an impulse with amplitude 0.5
     %
     % Notes:
-    % - Tests: frequency response ('outputs/Impulse.wav' Bode plot), stability
+    % - 0.5 normalized
+    % - Tests: frequency response ('outputs/Impulse.wav' Bode plot a.k.a. 'Magnitude/Phase Response'), stability
     % - Length: 1 second
     %%
 
-    y = [0.5, zeros(1, Fs-1)];
+    y = [0.5, zeros (1, Fs-1)];
 
     audiowrite('inputs/Impulse.wav', y, Fs, 'BitsPerSample', 24);
   endfunction
@@ -223,7 +231,8 @@ function testMain(Fs)
     %% Generate a pulse signal with value 0.5 and 0.25 for the first and second halves
     % 
     % Notes:
-    % - Tests: step response and attack/release response ('outputs/Pulse.wav' signal plot), stability
+    % - 0.5 normalized
+    % - Tests: step response and attack/release response ('outputs/Pulse.wav' signal plot a.k.a. 'Step Response'), stability
     % - Length: 1 second
     %%
 
@@ -239,7 +248,8 @@ function testMain(Fs)
     %% Generate a sin sweep from 20 to 20kHz
     % 
     % Notes:
-    % Tests: harmonic/inharmonic distortion and aliasing ('outputs/SinSweep.wav' spectrogram), peak amplitude change, stability
+    % - 0.5 normalized
+    % Tests: harmonic/inharmonic distortion and aliasing ('outputs/SinSweep.wav' spectrogram), estimated makeup gain, stability
     % Length: 10 seconds
     %%
 
@@ -255,8 +265,9 @@ function testMain(Fs)
     %% Generate a sin that fades in linearly
     % 
     % Notes:
+    % - 0.5 normalized
     % - Length: 0.025 seconds
-    % - Tests: hysteresis in the input output plot ('outputs/SinRamp.wav' vs 'inputs/SinRamp.wav' waveshaper plot), stability
+    % - Tests: hysteresis in the input output plot ('outputs/SinRamp.wav' vs 'inputs/SinRamp.wav' waveshaper plot a.k.a. 'SinRamp IO Plot'), stability
     %%
 
     nMax = ceil(0.025*Fs)-1;
@@ -275,6 +286,7 @@ function testMain(Fs)
     %% Generate a 1kHz sin
     % 
     % Notes:
+    % - 0.5 normalized
     % - Length: 1 second
     % - Tests: stability
     %%
@@ -292,6 +304,7 @@ function testMain(Fs)
     %% Generate 0.5 seconds of zeros followed by 0.5 seconds of Sin1k
     % 
     % Notes:
+    % - 0.5 normalized
     % - Length: 1 second
     % - Tests: stability
     %%
