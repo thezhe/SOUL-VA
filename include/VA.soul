@@ -39,12 +39,12 @@
 
     Current Tasks:
     - general refactor
-    - dc blocking, sound
+    - depth, nl increase intensity limit
 
     Future Tasks:
-    - new stuff towards bottom
     - SOUL doesnt support arrays of input/output events, but refactor if this is changed 
     - rename params with units
+    - function capitalization
     - initialization lists only for Processors and not namespaces
     - SVF/OnepoleS/Compressor Components refactor and use
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
