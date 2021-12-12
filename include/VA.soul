@@ -41,7 +41,6 @@
     - general refactor, mark done sections
     - depth, nl increase intensity limit
     - refactor filters
-    - vpow int
 
     Future Tasks:
     - SOUL doesnt seem to fully support arrays of input/output events, but refactor if this is changed 
