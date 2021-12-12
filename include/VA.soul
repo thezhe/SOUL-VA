@@ -38,15 +38,17 @@
 /** Task List
 
     Current Tasks:
-    - general refactor
+    - general refactor, mark done sections
     - depth, nl increase intensity limit
+    - refactor filters
+    - vpow int
 
     Future Tasks:
-    - SOUL doesnt support arrays of input/output events, but refactor if this is changed 
+    - SOUL doesnt seem to fully support arrays of input/output events, but refactor if this is changed 
     - rename params with units
     - function capitalization
     - initialization lists only for Processors and not namespaces
-    - SVF/OnepoleS/Compressor Components refactor and use
+    - VA::Experimental
     - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
 */
 
@@ -683,7 +685,7 @@ Filter Processors
             return y;
         }
 
-        processor Processor (float initialDelayMs = 50, float maxDepthMs = 2)
+        processor Processor (float initialDelayMs = 50, float maxDepthMs = 4)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be <= 1
@@ -949,9 +951,9 @@ Parameter Processors
                     c.target.at(0) = vCutoffToG_Onepole (parameter.at(0), fs);
 
                 if const (mode == Modes::Linear || mode == Modes::Decibel || mode == Modes::G_Onepole)
-                    s.remainingRampSamples = int (vclamp (1, INF32)::process (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
+                    s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
                 else if const (mode == Modes::MixPan)
-                    s.remainingRampSamples = int (vmaxR (vclamp (1, INF32)::process (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
+                    s.remainingRampSamples = int (vmaxr (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
 
                 for (int i = 0; i < NumOut; ++i)
                     c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
@@ -1292,12 +1294,12 @@ Vectorized Stateless Function Wrapper Processors
     
         SampleType F1 (SampleType x, const Coeffs& c)
         {
-            return vpowi (x, 3) * vpowi (c.N, 2) * SampleType (1.0 / 3.0) + c.N * vpowi (x, 2) * vsgn (x) + x;
+            return vpow (x, 3) * vpow (c.N, 2) * SampleType (1.0 / 3.0) + c.N * vpow (x, 2) * vsgn (x) + x;
         }
     
         SampleType F2 (SampleType x, const Coeffs& c)
         {
-            return vpowi (x, 2) * (HALF + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpowi (c.N, 2) * SampleType (1.0 / 12.0) * vpowi (x, 2));
+            return vpow (x, 2) * (HALF + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpow (c.N, 2) * SampleType (1.0 / 12.0) * vpow (x, 2));
         }
     
         struct State
@@ -1522,7 +1524,7 @@ Vectorized Stateless Function Wrapper Processors
     }
 
 /*==============================================================================
-Vectorized Stateless Functions
+Vectorized Helper Functions
 ==============================================================================*/
 
     SampleType vCutoffToG_Onepole (float x, float fs)
@@ -1543,7 +1545,7 @@ Vectorized Stateless Functions
         let a = SampleType (1.0/8.0);
         let b = SampleType (1.0/16.0);
 
-        return x - a * vpowi (x, 2) - b * vpowi (x, 3); 
+        return x - a * vpow (x, 2) - b * vpow (x, 3); 
     }
 
     SampleType vCTF_Color (SampleType x, SampleType thr, SampleType ratio, SampleType height, SampleType width)
@@ -1551,7 +1553,7 @@ Vectorized Stateless Functions
         let xdB = vgainTodB(x);
         let xdBmthr = xdB - thr;
 
-        let color = height / (ONE + vpowi (xdBmthr * ONE/width, 2));
+        let color = height / (ONE + vpow (xdBmthr * ONE/width, 2));
         let ydB = vifgt (thr + xdBmthr * ONE/ratio + color, xdB + color, xdB, thr);
 
         return vdBtoGain(ydB) / x;
@@ -1575,80 +1577,9 @@ Vectorized Stateless Functions
     */
     SampleType vLan (SampleType x, SampleType N)
     {
-        return vpowi (N * vabs (x) + ONE, 2);
+        return vpow (N * vabs (x) + ONE, 2);
     }
 
-    /** 'pow' for small integer exponents */
-    SampleType vpowi (SampleType base, int exponent)
-    {
-        SampleType y = base;
-
-        for (int i = 1; i < exponent; ++i)
-            y *= base;
-
-        return y;
-    }
-
-    /** 'pow' for SOUL vectors*/
-    SampleType vpow (SampleType base, SampleType exponent)
-    {
-        return SampleType (pow (base[0], exponent[0]), pow (base[1], exponent[1]));
-    }
-
-    /** vectorized version of 
-    
-        return (a < b ? trueStatement : falseStatement);   
-    */
-    SampleType viflt (SampleType trueStatement, SampleType falseStatement, SampleType a, SampleType b)
-    {
-        return SampleType (a[0] < b[0] ? trueStatement [0] : falseStatement [0], a[1] < b[1] ? trueStatement [1] : falseStatement [1]);
-    }
-    
-    /** vectorized version of 
-        
-        return (a > b ? trueStatement : falseStatement);   
-    */
-    SampleType vifgt (SampleType trueStatement, SampleType falseStatement, SampleType a, SampleType b)
-    {
-        return SampleType (a[0] > b[0] ? trueStatement [0] : falseStatement [0], a[1] > b[1] ? trueStatement [1] : falseStatement [1]);
-    }
-
-    /** clamp a value between low and high
-
-        If 'low' = INF32 or 'high' = INF32, they will be optimized out at compile time
-    */
-    namespace vclamp (float low = float (-inf), float high = float (inf))
-    {       
-
-        let l = SampleType.primitiveType (low);
-        let h = SampleType.primitiveType (high);
-
-        SampleType process (SampleType x)
-        {
-            if const (low > -INF32 && high < INF32)
-                return SampleType (clamp (x[0], l, h), clamp (x[1], l, h)); 
-            else if const (low > -INF32)
-                return SampleType (max (x[0], l), max (x[1], l));
-            else
-                return SampleType (min (x[0], h), min (x[1], h));
-        }
-
-        processor Processor ()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            void run()
-            {
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
 
     /** Convert a mix and a pan to a SampleType[2] gain array
     
@@ -1698,7 +1629,7 @@ Vectorized Stateless Functions
     /** Convert gain to decibels and clamp results to greater than -100.0 dB */
     SampleType vgainTodB (SampleType x)
     {
-        let b = vclamp (NOISE_FLOOR, INF32)::process(x);
+        let b = vmax (NOISE_FLOOR, x);
 
         return SampleType (20.0) * log10 (b);
     }
@@ -1706,7 +1637,7 @@ Vectorized Stateless Functions
     /** Convert decibels to gain and clamp inputs to greater than -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
-        let dB = vclamp (NOISE_FLOOR_DB, INF32)::process(x);
+        let dB = vmax (NOISE_FLOOR_DB, x);
 
         return vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0));
     }
@@ -1716,6 +1647,7 @@ Vectorized Stateless Functions
     {
         return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
     }
+
     
     /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b, good for state saturation */
     SampleType vsigmoidCD_S (SampleType x, SampleType b)
@@ -1734,22 +1666,80 @@ Vectorized Stateless Functions
         return x / sqrt (x * x + ONE);
     }
 
-    /** Absolute value */
+/*==============================================================================
+Vectorized Intrinsic Functions
+==============================================================================*/
+
     SampleType vabs (SampleType x)
     {
         return SampleType (abs (x[0]), abs (x[1]));
     }
 
+    SampleType vmax (SampleType x0, SampleType x1)
+    {
+        return SampleType (max (x0[0], x1[0]), max (x0[1], x1[1]));
+    }
+
+    SampleType vmin (SampleType x0, SampleType x1)
+    {
+        return SampleType (min (x0[0], x1[0]), min (x0[1], x1[1]));
+    }
+
     /** Vector reduce max */
-    SampleType.primitiveType vmaxR (SampleType x)
+    SampleType.elementType vmaxr (SampleType x)
     {
         return max (x[0], x[1]);
     }
 
     /** Vector reduce min */
-    SampleType.primitiveType vminR (SampleType x)
+    SampleType.elementType vminr (SampleType x)
     {
         return min (x[0], x[1]);
+    }
+
+    SampleType vclamp (SampleType x, SampleType lo, SampleType hi)
+    {
+        return SampleType (clamp (x[0], lo[0], hi[0]), clamp (x[1], lo[1], hi[1]));
+    }
+
+
+
+    /** 'pow' for int and SampleType exponents 
+    
+        T:
+        - SampleType: vectorized version of pow with floating point arguments
+        - int: repeated multiplicaton
+    */
+    SampleType vpow<T> (SampleType base, T exponent)
+    {
+        let T_isSampleType = T.isVector;
+
+        static_assert ((T_isSampleType || T.isInt), "vpow: exponent must be SampleType or int");
+        
+        if const (T_isSampleType)
+            return SampleType (pow (base[0], exponent[0]), pow (base[1], exponent[1]));
+        else if const (T.isInt)
+        {
+            SampleType y = base;
+
+            for (int i = 1; i < exponent; ++i)
+                y *= base;
+
+            return y;
+        }
+        return ZERO;
+    }
+
+    /** a < b ? trueStatement : falseStatement */
+    SampleType viflt (SampleType trueStatement, SampleType falseStatement, SampleType a, SampleType b)
+    {
+        return SampleType (a[0] < b[0] ? trueStatement [0] : falseStatement [0], a[1] < b[1] ? trueStatement [1] : falseStatement [1]);
+    }
+    
+    /** a > b ? trueStatement : falseStatement */
+    SampleType vifgt (SampleType trueStatement, SampleType falseStatement, SampleType a, SampleType b)
+    {
+        return SampleType (a[0] > b[0] ? trueStatement [0] : falseStatement [0], a[1] > b[1] ? trueStatement [1] : falseStatement [1]);
     }
 
 /*==============================================================================
@@ -1759,7 +1749,7 @@ Constants
     //soul::filters
     using SampleType = float64<2>; //also used internally as 'CoeffType'
     let updateInterval = 1024;
-    namespace filt = soul::filters (SampleType, SampleType.primitiveType, updateInterval);
+    namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
 
     //soul::oscillators
     namespace osc = soul::oscillators;
@@ -1770,15 +1760,15 @@ Constants
     let ONE = SampleType (1.0);
     let TWO = SampleType (2.0);
     let HALF = SampleType (0.5);
+    let NOISE_FLOOR = SampleType (0.00001);
+    let NOISE_FLOOR_DB = SampleType (-100.0);
 
     //const float
-    let INF32 = float (inf);
-    let NOISE_FLOOR = 0.00001f;
-    let NOISE_FLOOR_DB = -100.f;
     let SLEW_RATE_SECONDS_GAIN = 10.f;
 
     //const int
     let MAX_BUFFER_SIZE = 96000; //for arrays of SampleType
     let MAX_CUTOFF_HZ = 20000;
     let MIN_CUTOFF_HZ = 20;
+
 } //namespace VA
