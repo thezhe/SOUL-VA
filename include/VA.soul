@@ -1050,7 +1050,7 @@ Parameter Processors
     }
 
 /*==============================================================================
-Vectorized Stateless Function Wrapper Processors
+Vectorized Helper Processors
 ==============================================================================*/
 
     /** A standard CTF (compressor transfer function)
@@ -1772,3 +1772,247 @@ Constants
     let MIN_CUTOFF_HZ = 20;
 
 } //namespace VA
+
+namespace VA::Experimental
+{
+    
+
+            /** A modified classical compressor sidechain
+        
+            3 sidechain blocks:
+            - Detector: ideal rectifier
+            - Envelope Filter: nonlinear ballistics filter based on Lan
+            - Compressor Transfer Function: hard-knee with color  
+        */
+        // namespace DynamicsProcessor_Lan_Color
+        // {
+        //     graph Processor (float initialThreshold,
+        //                     float initialRatio,
+        //                     float initialColorHeight,
+        //                     float initialColorWidth,
+        //                     float initialAttack,
+        //                     float initialRelease,
+        //                     float initialNonlinearity)
+        //     {
+        //         input stream SampleType in;
+        //         output stream SampleType out;
+            
+        //         input
+        //         {
+        //             ballisticsFilter.attackIn;
+        //             ballisticsFilter.releaseIn;
+        //             stereoLink.stereoLinkIn;
+        //             ctf.thresholdIn;
+        //             ctf.ratioIn;
+        //             ctf.colorHeight;
+        //             ctf.colorWidth;
+        //         }
+
+        //         let
+        //         {
+        //             detector = Abs::Processor;
+        //             ballisticsFilter = BallisticsFilter_Lan::Processor (initialAttack, initialRelease);
+        //             stereoLink = StereoLink::Processor;
+        //             ctf = CTF_Color::Processor (initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
+        //         }
+            
+        //         connection
+        //         {
+        //             in -> detector.in;
+        //             detector.out -> ballistics.in;
+        //             ballistics.out -> stereoLinkIn;
+        //             stereoLink.out -> ctf.in;
+        //             ctf.out -> out;
+        //         }
+        //     }
+        // }
+
+        /** A modified downward compressor/ upward expander 
+        
+            3 sidechain blocks:
+            - Detector: ideal rectifier
+            - Envelope Filter: nonlinear ballistics filter based on Lan
+            - Compressor Transfer Function: hard-knee 
+        */
+        // namespace DynamicsProcessor_Lan
+        // {
+        //     graph Processor (float initialAttack,
+        //                     float initialAttackNonlinearity,
+        //                     float initialRelease,
+        //                     float initialReleaseNonlinearity,
+        //                     float initialStereoLink,
+        //                     float initialThreshold,
+        //                     float initialRatio1,
+        //                     float initialRatio2)
+        //     {
+        //         input stream SampleType in;
+        //         output stream SampleType out;
+            
+        //         input
+        //         {
+        //             ballisticsFilter_Lan.attackIn;
+        //             ballisticsFilter_Lan.attackNonlinearityIn;
+        //             ballisticsFilter_Lan.releaseIn;
+        //             ballisticsFilter_Lan.releaseNonlinearityIn;
+        //             stereoLink.stereoLinkIn;
+        //             ctf.thresholdIn;
+        //             ctf.ratio1In;
+        //             ctf.ratio2In;
+        //         }
+
+        //         let
+        //         {
+        //             abs_ = Abs::Processor;
+        //             ballisticsFilter_Lan = BallisticsFilter_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
+        //             stereoLink = StereoLink::Processor (initialStereoLink);
+        //             ctf = CTF::Processor (initialThreshold, initialRatio1, initialRatio2);
+        //             multiplier = Multiplier::Processor;
+        //         }
+            
+        //         connection
+        //         {
+        //             in -> abs_.in, multiplier.in1;
+
+        //             abs_.out -> ballisticsFilter_Lan.in;
+        //             ballisticsFilter_Lan.out -> stereoLink.in;
+        //             stereoLink.out -> ctf.in;
+        //             ctf.out -> multiplier.in2;
+
+        //             multiplier -> out;
+        //         }
+        //     }
+        // }
+
+
+    /** Onepole modified for state variable saturation
+
+        Notes:
+        - 2x oversampling recommended
+    */
+    namespace OnepoleS
+    {   
+        struct Coeffs
+        {
+            SampleType b;
+        }
+
+        void update (Coeffs& c, float drive)
+        {
+            c.b = soul::dBtoGain (drive);
+        }
+
+        SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
+        {
+            let v = (x - s.s);
+            let lpf = v + s.s;
+            let hpf = x - lpf;
+
+            s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
+
+            return SampleType[2] (lpf, hpf);
+        }
+
+        processor Processor (float initialDrive)
+        {
+            input stream SampleType in;
+            output stream SampleType lowpassOut, highpassOut;
+
+            input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
+
+            event driveIn (float v) { drive = v; recalc = true; }
+
+            float drive = dBtoGain (initialDrive);
+            bool recalc = true;
+
+            void run()
+            {   
+                Onepole::State s;
+                Coeffs c;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        c.update (drive);
+                    }
+
+                    loop (updateIntervalSamples)
+                    {
+                        let y = s.process (in, c);
+
+                        lowpassOut << y[0];
+                        highpassOut << y[1];
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
+    
+        2x oversampling recommended
+    */  
+    namespace SVF
+    {
+        struct Coeffs
+        {
+            SampleType a0;
+            SampleType a;
+            SampleType p;
+        }
+
+        struct State
+        {
+            SampleType[2] z;
+        }
+
+        SampleType[3] process (State& s, SampleType x, const Coeffs& c)
+        {
+            let hpf = c.a0 * (x - c.p * s.z[0] - s.z[1]);
+            let bpf = c.a * hpf + s.z[0];
+            let lpf = c.a * bpf + s.z[1];
+
+            s.z[0] = c.a * hpf + bpf;
+            s.z[1] = c.a * bpf + lpf;
+
+            return SampleType[3] (lpf, hpf, bpf);
+        }
+
+        processor Processor()
+        {
+            input stream SampleType in;
+            input stream SampleType Omega; //angular cutoff; must be > 0
+            input stream SampleType R; //resonance; must be > 0
+            output stream SampleType lowpassOut, highpassOut, bandpassOut;
+
+            void run()
+            {
+                State s;
+                Coeffs c;
+
+                let Tdiv2 = SampleType (processor.period * 0.5); 
+
+                loop
+                {
+                    c.a = Omega * Tdiv2; //g
+                    c.a0 = ONE / (ONE + TWO * R * c.a + c.a * c.a); //d
+                    c.p = TWO * R + c.a; //g1
+
+                    let y = s.process(in, c);
+
+                    lowpassOut  << y[0];
+                    highpassOut << y[1];
+                    bandpassOut << y[2];
+                    
+                    advance();
+                }
+            }
+        }
+    }
+} //namespace VA::Experimental
