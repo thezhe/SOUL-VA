@@ -24,8 +24,8 @@
     - No user defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
-        *Coefficient 'updateInterval' is every 128 samples at 44.1kHz 
-        or scaled as needed (i.e. every 256 samples at 88.2kHz)
+        *Coefficient 'updateInterval' is every 1024 samples at 44.1kHz 
+        or scaled as needed (i.e. every 2048 samples at 88.2kHz)
     - Expanded set of vector-friendly functions (see 'Vectorized Helper Functions/Processors')
     - All parameters are artifact-free under modultation (no clicks, no clipping, no instabilty)
     unless otherwise stated. Modulation must be below 20Hz.
@@ -41,10 +41,8 @@
     - mark done sections
     - depth, nl increase intensity limit
     - refactor filters
-
-    Future Tasks:
+    - remove units from sub Processors (initialDelayMs) change initialFrequency to initialCutoff
     - SOUL doesnt seem to fully support arrays of input/output events, but refactor if this is changed 
-    - rename params with units
 */
 
 namespace VA 
@@ -83,7 +81,7 @@ VA::HighLevel Processors
         */
         namespace OnepoleC_Lan
         {
-            graph Processor (float initialNonlinearity = 0.f, float initialStereoLink = 0.f)
+            graph Processor (float initialNonlinearity = 0, float initialStereoLinkPercent = 0)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -100,7 +98,7 @@ VA::HighLevel Processors
                     dcBlockerIn = filt::dc_blocker::Processor (5.f);
                     dcBlockerOut = filt::dc_blocker::Processor (5.f);
                     
-                    stereoLink = StereoLink::Processor (initialStereoLink);
+                    stereoLink = StereoLink::Processor (initialStereoLinkPercent);
 
                     internal = Internal::Processor (initialNonlinearity) * 2;
 
@@ -168,12 +166,12 @@ VA::HighLevel Processors
         */
         namespace Chorus_LadderLPFS
         {
-            graph Processor(float initialDelayMs = 3,
+            graph Processor (float initialDelayMs = 3,
                             float initialRateHz = 1,
-                            float initialDepth = 50,
-                            float initialCutoff = 9000,
-                            float initialResonance = 0.f,
-                            float initialMix = 50,
+                            float initialDepthPercent = 50,
+                            float initialCutoffHz = 9000,
+                            float initialResonance = 0,
+                            float initialMixPercent = 50,
                             float initialPan = 0)
             {
                 input stream SampleType in;
@@ -183,8 +181,8 @@ VA::HighLevel Processors
                 { 
                     delayLine.delayIn [[ name: "Delay", min: 0, max: 20, init: initialDelayMs, unit: "ms", step: 1 ]]; //not artifact free under modulation
 
-                    lfo.rateHzIn [[ name: "Rate (Hz)", min: 0.01, max: 2.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
-                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepth, unit: "%", step: 1 ]];
+                    lfo.rateHzIn rateIn [[ name: "Rate (Hz)", min: 0.01, max: 2.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
+                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepthPercent, unit: "%", step: 1 ]];
                     
                     ladderLPFS.cutoffIn;
                     ladderLPFS.resonanceIn;
@@ -200,11 +198,11 @@ VA::HighLevel Processors
                     dcBlockerOut = filt::dc_blocker::Processor (5.f);
 
                     lfo = osc::lfo::Processor;
-                    ladderLPFS = LadderLpfS::Processor (initialCutoff, initialResonance, 0);
+                    ladderLPFS = LadderLpfS::Processor (initialCutoffHz, initialResonance, 0);
 
                     delayLine = DelayLine::Processor (initialDelayMs);
                     
-                    smoothedMixPan = SmoothedMixPan::Processor (initialMix, initialPan, SLEW_RATE_SECONDS_GAIN);
+                    smoothedMixPan = SmoothedMixPan::Processor (initialMixPercent, initialPan, SLEW_RATE_SECONDS_GAIN);
                 }
         
                 connection

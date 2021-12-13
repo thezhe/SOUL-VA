@@ -66,7 +66,7 @@ namespace main
         input
         {
             effect.delayIn;
-            effect.rateHzIn;
+            effect.rateIn;
             effect.depthIn;
             effect.cutoffIn;
             effect.resonanceIn;
