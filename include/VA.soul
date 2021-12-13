@@ -20,13 +20,13 @@
 /** SOUL-VA (https://github.com/thezhe/SOUL-VA)
 
     The following interface is nearly identical to soul::filters EXCEPT:
-    - Each effect is a 'Processor' under 'VA::HighLevel' (see 'Main Interface')
+    - Each effect is a 'Processor' under 'VA::HighLevel'
     - No user defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
         *Coefficient 'updateInterval' is every 128 samples at 44.1kHz 
         or scaled as needed (i.e. every 256 samples at 88.2kHz)
-    - Expanded set of vector-friendly functions (see 'Vectorized Stateless Functions')
+    - Expanded set of vector-friendly functions (see 'Vectorized Helper Functions/Processors')
     - All parameters are artifact-free under modultation (no clicks, no clipping, no instabilty)
     unless otherwise stated. Modulation must be below 20Hz.
     - All effects are optimized for 44.1kHz/24-bit/stereo. 
@@ -38,17 +38,13 @@
 /** Task List
 
     Current Tasks:
-    - general refactor, mark done sections
+    - mark done sections
     - depth, nl increase intensity limit
     - refactor filters
 
     Future Tasks:
     - SOUL doesnt seem to fully support arrays of input/output events, but refactor if this is changed 
     - rename params with units
-    - function capitalization
-    - initialization lists only for Processors and not namespaces
-    - VA::Experimental
-    - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
 */
 
 namespace VA 
@@ -945,9 +941,9 @@ Parameter Processors
                 else if const (mode == Modes::Decibel)
                     c.target.at(0) = vdBtoGain (SampleType (parameter.at(0)));
                 else if const (mode == Modes::MixPan)
-                    c.target = vMixPanToGains (parameter.at(0), parameter.at(1));
+                    c.target = vmixPanToGains (parameter.at(0), parameter.at(1));
                 else if const (mode == Modes::G_Onepole)
-                    c.target.at(0) = vCutoffToG_Onepole (parameter.at(0), fs);
+                    c.target.at(0) = vcutoffToG_Onepole (parameter.at(0), fs);
 
                 if const (mode == Modes::Linear || mode == Modes::Decibel || mode == Modes::G_Onepole)
                     s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
@@ -965,9 +961,9 @@ Parameter Processors
                 else if const (mode == Modes::Decibel)
                     s.current.at(0) = vdBtoGain (SampleType (parameter.at(0)));
                 else if const (mode == Modes::MixPan)
-                    s.current = vMixPanToGains (parameter.at(0), parameter.at(1));
+                    s.current = vmixPanToGains (parameter.at(0), parameter.at(1));
                 else if const (mode == Modes::G_Onepole)
-                    s.current.at(0) = vCutoffToG_Onepole (parameter.at(0), fs); 
+                    s.current.at(0) = vcutoffToG_Onepole (parameter.at(0), fs); 
 
                 s.remainingRampSamples = 0;
             }
@@ -1049,7 +1045,7 @@ Parameter Processors
     }
 
 /*==============================================================================
-Vectorized Helper Processors
+Vectorized Helper Processors                                            12/12/21
 ==============================================================================*/
 
     /** A standard CTF (compressor transfer function)
@@ -1077,7 +1073,7 @@ Vectorized Helper Processors
             return vCTF (x, c.threshold, c.ratio1, c.ratio2);
         }
 
-        processor Processor(float initialThreshold = -20.f, float initialRatio1 = 2.f, float initialRatio2 = 2.f)
+        processor Processor (float initialThreshold = -20.f, float initialRatio1 = 2.f, float initialRatio2 = 2.f)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1212,7 +1208,7 @@ Vectorized Helper Processors
     
         void update (Coeffs& c, float stereoLink)
         {
-            c.b = vMixToGains (stereoLink * 0.5f);
+            c.b = vmixToGains (stereoLink * 0.5f);
             c.stereoLink = stereoLink;
         }
     
@@ -1400,8 +1396,7 @@ Vectorized Helper Processors
 
     /** 'vLan' Processor wrapper
     
-        Notes:
-        - optimized for use with step-reponse filters
+        Optimized for use with step-reponse filter effects
     */
     namespace Lan
     {   
@@ -1523,30 +1518,13 @@ Vectorized Helper Processors
     }
 
 /*==============================================================================
-Vectorized Helper Functions
+Vectorized Helper Functions                                             WIP
 ==============================================================================*/
 
-    SampleType vCutoffToG_Onepole (float x, float fs)
-    {
-        let Tpi = float (pi) / fs;
-        
-        let gOnepole = tanh (SampleType (x) * Tpi);
-
-        return gOnepole / (ONE + gOnepole);
-    }
-
-    /** BBD mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
+    /** CTF with color settings to shape the knee 
     
-        Use for low order, monotonically decreasing harmonics
+        This is a custom implementation using algebraic operations.
     */
-    SampleType vBBD (SampleType x)
-    {
-        let a = SampleType (1.0/8.0);
-        let b = SampleType (1.0/16.0);
-
-        return x - a * vpow (x, 2) - b * vpow (x, 3); 
-    }
-
     SampleType vCTF_Color (SampleType x, SampleType thr, SampleType ratio, SampleType height, SampleType width)
     {
         let xdB = vgainTodB(x);
@@ -1558,6 +1536,7 @@ Vectorized Helper Functions
         return vdBtoGain(ydB) / x;
     }
 
+    /** Classical compressor transfer function (CTF) */
     SampleType vCTF (SampleType x, SampleType threshold, SampleType ratio1, SampleType ratio2)
     {
         let divRatio1m1 = ONE/ratio1 - ONE;
@@ -1568,61 +1547,63 @@ Vectorized Helper Functions
         return vifgt (y, ONE, x, SampleType(0.001));
     }
 
+    /** BBD mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
+    
+        Use for subtle low order, monotonically decreasing harmonics
+    */
+    SampleType vBBD (SampleType x)
+    {
+        let a = SampleType (1.0/8.0);
+        let b = SampleType (1.0/16.0);
+
+        return x - a * vpow (x, 2) - b * vpow (x, 3); 
+    }
+
+    /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b
+    
+        Notes:
+        - use for state saturation
+        - needs makeup gain
+    */
+    SampleType vsigmoidCD_S (SampleType x, SampleType b)
+    {
+        return vsigmoidCD (b * x) * (ONE / b); 
+    }
+
+    /** An continuously differentiable algebraic sigmoid function. 
+
+            f(x) = x / sqrt (x^2 + 1) 
+    
+        A cheap 'tanh' approximation
+    */
+    SampleType vsigmoidCD (SampleType x)
+    {
+        return x / sqrt (x * x + ONE);
+    }
+
     /** Cutoff (Omega) modulation from an anhysteretic first-order nonlinear inductor circuit
     
         The linear cutoff is 1. Add a bias if a different linear cutoff is desired
-        ie:
-        vLan(x, N) + bias
+        (i.e. vLan(x, N) + bias)
     */
     SampleType vLan (SampleType x, SampleType N)
     {
         return vpow (N * vabs (x) + ONE, 2);
     }
 
-
-    /** Convert a mix and a pan to a SampleType[2] gain array
-    
-        Use case: mix and pan 2 SampleType streams simultaneously
-    */
-    SampleType[2] vMixPanToGains (float m, float p)
+    /** Return 1 if x is positive, -1 if negative, and 0 otherwise */
+    SampleType vsgn (SampleType x)
     {
-        let bPan = vPanToGains (p);
-        let bMix = vMixToGains (m);
-
-        return SampleType[2] (bMix.at(0) * bPan.at(0), bMix.at(1) * bPan.at(1));
+        return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
     }
 
-    /** Convert a mix value in range [0, 100] to a SampleType[2] gain array
-    
-        Use case: mix 2 SampleType streams
-    */
-    SampleType[2] vMixToGains (float x)
+    SampleType vcutoffToG_Onepole (float x, float fs)
     {
-        let b1 = SampleType (x) * SampleType (1.0/100.0);
+        let Tpi = float (pi) / fs;
+        
+        let gOnepole = tanh (SampleType (x) * Tpi);
 
-        return SampleType[2] (ONE - b1, b1);
-    }
-    
-    /** Convert a pan value in range [-1, 1] to a SampleType[2] gain array
-    
-        Use case: pan 2 SampleType streams simultaneously
-    */
-    SampleType[2] vPanToGains (float x)
-    {
-        let b1 = vPanToGain(x);
-
-        return SampleType[2] (ONE - b1, b1);
-    }
-
-    /** Convert a linear pan value in range [-1, 1] to a SampleType gain 
-
-        Use case: pan 1 SampleType stream
-    */
-    SampleType vPanToGain (float x)
-    {
-        let bR = (float64 (x) + 1.0) * 0.5;
-
-        return SampleType (1.0 - bR, bR);
+        return gOnepole / (ONE + gOnepole);
     }
 
     /** Convert gain to decibels and clamp results to greater than -100.0 dB */
@@ -1641,32 +1622,53 @@ Vectorized Helper Functions
         return vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0));
     }
 
-    /** Return 1 if x is positive, -1 if negative, and 0 otherwise */
-    SampleType vsgn (SampleType x)
-    {
-        return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
-    }
-
+    /** Convert a mix and a pan to a SampleType[2] gain array
     
-    /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b, good for state saturation */
-    SampleType vsigmoidCD_S (SampleType x, SampleType b)
-    {
-        return vsigmoidCD (b * x) * (ONE / b); 
-    }
-
-    /** An continuously differentiable algebraic sigmoid function. 
-
-            f(x) = x / sqrt (x^2 + 1) 
-    
-        A cheap 'tanh' approximation
+        Use case: mix and pan 2 SampleType streams simultaneously
     */
-    SampleType vsigmoidCD (SampleType x)
+    SampleType[2] vmixPanToGains (float m, float p)
     {
-        return x / sqrt (x * x + ONE);
+        let bPan = vpanToGains (p);
+        let bMix = vmixToGains (m);
+
+        return SampleType[2] (bMix.at(0) * bPan.at(0), bMix.at(1) * bPan.at(1));
+    }
+
+    /** Convert a mix value in range [0, 100] to a SampleType[2] gain array
+    
+        Use case: mix 2 SampleType streams
+    */
+    SampleType[2] vmixToGains (float x)
+    {
+        let b1 = SampleType (x) * SampleType (1.0/100.0);
+
+        return SampleType[2] (ONE - b1, b1);
+    }
+    
+    /** Convert a pan value in range [-1, 1] to a SampleType[2] gain array
+    
+        Use case: pan 2 SampleType streams simultaneously
+    */
+    SampleType[2] vpanToGains (float x)
+    {
+        let b1 = vpanToGain(x);
+
+        return SampleType[2] (ONE - b1, b1);
+    }
+
+    /** Convert a linear pan value in range [-1, 1] to a SampleType gain 
+
+        Use case: pan 1 SampleType stream
+    */
+    SampleType vpanToGain (float x)
+    {
+        let bR = (float64 (x) + 1.0) * 0.5;
+
+        return SampleType (1.0 - bR, bR);
     }
 
 /*==============================================================================
-Vectorized Intrinsic Functions
+Vectorized Intrinsic Functions                                          12/12/21
 ==============================================================================*/
 
     SampleType vabs (SampleType x)
@@ -1700,8 +1702,6 @@ Vectorized Intrinsic Functions
     {
         return SampleType (clamp (x[0], lo[0], hi[0]), clamp (x[1], lo[1], hi[1]));
     }
-
-
 
     /** 'pow' for int and SampleType exponents 
     
@@ -1742,7 +1742,7 @@ Vectorized Intrinsic Functions
     }
 
 /*==============================================================================
-Constants
+Constants                                                               12/12/21
 ==============================================================================*/
     
     //soul::filters
@@ -1754,14 +1754,14 @@ Constants
     namespace osc = soul::oscillators;
     
     //const SampleType
-    let ADAA_TOL = SampleType (0.0000001);
     let ZERO = SampleType (0.0);
+    let HALF = SampleType (0.5);
     let ONE = SampleType (1.0);
     let TWO = SampleType (2.0);
-    let HALF = SampleType (0.5);
+    let ADAA_TOL = SampleType (0.0000001);
     let NOISE_FLOOR = SampleType (0.00001);
     let NOISE_FLOOR_DB = SampleType (-100.0);
-
+    
     //const float
     let SLEW_RATE_SECONDS_GAIN = 10.f;
 
@@ -1771,6 +1771,12 @@ Constants
     let MIN_CUTOFF_HZ = 20;
 
 } //namespace VA
+
+
+/** Task List
+
+    - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
+*/
 
 namespace VA::Experimental
 {
