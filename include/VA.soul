@@ -27,7 +27,7 @@
         *Coefficient 'updateInterval' is every 1024 samples at 44.1kHz 
         or scaled as needed (i.e. every 2048 samples at 88.2kHz)
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
-    - Sampling rates from 44.1kHz to 96kHz are officially supported
+    - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are supported
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
 */
 
@@ -809,40 +809,42 @@ Mix Processors
     }
 
 /*==============================================================================
-Parameter Processors
+Parameter Processors                                                    12/13/21
 ==============================================================================*/
 
     /** Automatic/manual parameters
 
-        Use case: currently only for makeup volume
+        Notes:
+        - Use to control a event float endpoint
+        - Passes events from 'parameterIn' to 'out' unless the current value of 'parameterIn' is below the mode's MinManualParameter.
+        'controlIn' is mapped to 'out' in this case ('out' is automatically determined by 'controlIn')
+        - Currently only for makeup volume
     */
     namespace AutoParameter
     {   
         namespace Modes
         {
-            let None = 0;
-            let Volume_OnepoleC_Lan = 1;
-            let NumModes = 2;
+            let Volume_OnepoleC_Lan = 0;
+            let NumModes = 1;
         }
 
-        namespace M (int mode = Modes::None)
+        namespace M (int mode = Modes::Volume_OnepoleC_Lan)
         {
             static_assert ((mode < Modes::NumModes) && (mode > -1), "AutoParameter: mode out of range.");
 
-            let MaxParameter = (mode == Modes::None ? 12.f : 0.f);
-            let MinParameter = (mode == Modes::None ? -12.f : -6.1f);
-            let InitialParameter = (mode == Modes::None ? 0.f : MinParameter);
-            let MinManualParameter = (mode == Modes::None ? -inf : MinParameter + 0.1f);
-            let PtsSize = (mode == Modes::None ? 1 : 4);
-            let Pts = (mode == Modes::None ? float[PtsSize] (0) : float[PtsSize] (-0.f, -1.f, -2.f, -3.5f));
+            let MaxParameter = (mode == Modes::Volume_OnepoleC_Lan ? 0.f : 0.f);
+            let MinParameter = (mode == Modes::Volume_OnepoleC_Lan ? -6.1f : -6.1f);
+            let InitialParameter = (mode == Modes::Volume_OnepoleC_Lan ? MinParameter : MinParameter);
+            let Step = (mode == Modes::Volume_OnepoleC_Lan ? 0.1f : 0.1f);
+            let MinManualParameter = (mode == Modes::Volume_OnepoleC_Lan ? MinParameter + Step : MinParameter + Step);
+            let PtsSize = (mode == Modes::Volume_OnepoleC_Lan ? 4 : 1);
+            let Pts = (mode == Modes::Volume_OnepoleC_Lan ? float[PtsSize] (-0.f, -1.f, -2.f, -3.5f) : float[PtsSize] (0));
 
             float update (float parameter, float control)
             {
                 if (parameter < MinManualParameter)
                 {
-                    if const (mode == Modes::None)
-                        return control;
-                    else if const (mode == Modes::Volume_OnepoleC_Lan)
+                    if const (mode == Modes::Volume_OnepoleC_Lan)
                         return Pts.readLinearInterpolated (min (control * 0.1f, 3.f));
                 }
                 else
@@ -850,17 +852,17 @@ Parameter Processors
             }
         }
 
-        processor Processor (int mode = Modes::None)
+        processor Processor (int mode = Modes::Volume_OnepoleC_Lan)
         {
             output event float out;
 
-            input event float parameterIn [[name: "Volume", min: M(mode)::MinParameter, max: M(mode)::MaxParameter, init: M(mode)::InitialParameter, step: 0.1, unit: "dB"]];
+            input event float parameterIn [[name: "Volume", min: M(mode)::MinParameter, max: M(mode)::MaxParameter, init: M(mode)::InitialParameter, step: M(mode)::Step, unit: "dB"]];
             input event float controlIn;
 
             event parameterIn (float v) { parameter = v; recalc = true; }
             event controlIn (float v) { control = v; recalc = true; }
 
-            float parameter;
+            float parameter = M(mode)::initialParameter;
             float control;
             bool recalc = true;
 
@@ -906,10 +908,13 @@ Parameter Processors
             let Decibel = 1;
             let MixPan = 2;
             let G_Onepole = 3;
+            let NumModes = 4;
         }
 
         namespace M (int mode = Modes::Linear)
         {
+            static_assert ((mode < Modes::NumModes) && (mode > -1), "SmoothedParameter: mode out of range.");
+
             let NumIn = (mode == Modes::MixPan ? 2 : 1);
             let NumOut = (mode == Modes::MixPan ? 2 : 1);
             
