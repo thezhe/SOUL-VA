@@ -21,28 +21,21 @@
 
     The following interface is nearly identical to soul::filters EXCEPT:
     - Each effect is a 'Processor' under 'VA::HighLevel'
-    - No user defined types:
+    - No user-defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
         *Coefficient 'updateInterval' is every 1024 samples at 44.1kHz 
         or scaled as needed (i.e. every 2048 samples at 88.2kHz)
-    - Expanded set of vector-friendly functions (see 'Vectorized Helper Functions/Processors')
-    - All parameters are artifact-free under modultation (no clicks, no clipping, no instabilty)
-    unless otherwise stated. Modulation must be below 20Hz.
-    - All effects are optimized for 44.1kHz/24-bit/stereo. 
-    Higher sample rates and bit depths degrade performance 
-    without guaranteed better quality! Any sampling rate beyond 96000
-    is not officially supported.
+    - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
+    - Sampling rates from 44.1kHz to 96kHz are officially supported
+    - Each section is marked with a date of last stable update (MM/DD/YYYY)
 */
 
 /** Task List
 
     Current Tasks:
-    - mark done sections
     - depth, nl increase intensity limit
-    - refactor filters
     - remove units from sub Processors (initialDelayMs) change initialFrequency to initialCutoff
-    - SOUL doesnt seem to fully support arrays of input/output events, but refactor if this is changed 
 */
 
 namespace VA 
