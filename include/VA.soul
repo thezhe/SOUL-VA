@@ -1036,7 +1036,7 @@ Parameter Processors
     }
 
 /*==============================================================================
-Vectorized Helper Processors                                            12/12/21
+Vectorized Helper Processors                                            12/13/21
 ==============================================================================*/
 
     /** A standard CTF (compressor transfer function)
@@ -1048,38 +1048,38 @@ Vectorized Helper Processors                                            12/12/21
         struct Coeffs 
         {
             SampleType threshold;
+            SampleType ratio0;
             SampleType ratio1;
-            SampleType ratio2;
         }
     
-        void update (Coeffs& c, float threshold, float ratio1, float ratio2) 
+        void update (Coeffs& c, float threshold, float ratio0, float ratio1) 
         {
             c.threshold = SampleType (threshold);
+            c.ratio0 = SampleType (ratio0);
             c.ratio1 = SampleType (ratio1);
-            c.ratio2 = SampleType (ratio2);
         }
     
         SampleType process (SampleType x, const Coeffs& c) 
         {
-            return vCTF (x, c.threshold, c.ratio1, c.ratio2);
+            return vCTF (x, c.threshold, c.ratio0, c.ratio1);
         }
 
-        processor Processor (float initialThreshold = -20.f, float initialRatio1 = 2.f, float initialRatio2 = 2.f)
+        processor Processor (float initialThreshold = -20.f, float initialRatio0 = 2, float initialRatio1 = 2)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB" ]];
+            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f ]];
+            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 50.f, init: initialRatio0 ]];
             input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 50.f, init: initialRatio1 ]];
-            input event float ratio2In [[ name: "Ratio 2", min: 0.5f, max: 50.f, init: initialRatio2 ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
+            event ratio0In (float v) { ratio0 = v; recalc = true; }
             event ratio1In (float v) { ratio1 = v; recalc = true; }
-            event ratio2In (float v) { ratio2 = v; recalc = true; }
 
             float threshold = initialThreshold;
+            float ratio0 = initialRatio0;
             float ratio1 = initialRatio1;
-            float ratio2 = initialRatio2;
             bool recalc = true;
 
             void run()
@@ -1094,7 +1094,7 @@ Vectorized Helper Processors                                            12/12/21
                     {
                         recalc = false;
     
-                        c.update (threshold, ratio1, ratio2);
+                        c.update (threshold, ratio0, ratio1);
                     }
     
                     loop (updateIntervalSamples)
@@ -1120,44 +1120,50 @@ Vectorized Helper Processors                                            12/12/21
         struct Coeffs 
         {
             SampleType threshold;
-            SampleType ratio;
+            SampleType ratio0;
+            SampleType ratio1;
             SampleType height;
             SampleType width; 
         }
     
-        void update (Coeffs& c, float threshold, float ratio, float colorHeight, float colorWidth) 
+        void update (Coeffs& c, float threshold, float ratio0, float ratio1, float colorHeight, float colorWidth) 
         {
             c.threshold = SampleType (threshold);
-            c.ratio = SampleType (ratio);
+            c.ratio0 = SampleType (ratio0);
+            c.ratio1 = SampleType (ratio1);
             c.height = SampleType (colorHeight);
             c.width = SampleType (colorWidth);
         }
     
         SampleType process (SampleType x, const Coeffs& c) 
         {
-            return vCTF_Color (x, c.threshold, c.ratio, c.height, c.width);
+            return vCTF_Color (x, c.threshold, c.ratio0, c.ratio1, c.height, c.width);
         }
 
         processor Processor(float initialThreshold = -20,
-                            float initialRatio = 5,
+                            float initialRatio0 = 2,
+                            float initialRatio1 = 2,
                             float initialHeight = 5,
                             float initialWidth = 3)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB" ]];
-            input event float ratioIn [[ name: "Ratio", min: 1.f, max: 100.f, init: initialRatio ]];
+            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f ]];
+            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: initialRatio ]];
+            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 20.f, init: initialRatio ]];
             input event float heightIn [[ name: "Height", min: -12.f, max: 12.f, init: initialHeight, unit: "dB" ]];
-            input event float widthIn [[ name: "Width", min: -12.f, max: 12.f, init: initialWidth, unit: "dB" ]];
+            input event float widthIn [[ name: "Width", min: 0.1f, max: 12.f, init: initialWidth, unit: "dB" ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
-            event ratioIn (float v) { ratio = v; recalc = true; }
+            event ratio0In (float v) { ratio0 = v; recalc = true; }
+            event ratio1In (float v) { ratio1 = v; recalc = true; }
             event colorHeightIn (float v) { height = v; recalc = true; }
             event colorWidthIn (float v) { width = v; recalc = true; }
 
             float threshold = initialThreshold;
-            float ratio = initialRatio;
+            float ratio0 = initialRatio0;
+            float ratio1 = initialRatio1;
             float height = initialHeight;
             float width = initialWidth;
             bool recalc = true;
@@ -1174,7 +1180,7 @@ Vectorized Helper Processors                                            12/12/21
                     {
                         recalc = false;
     
-                        c.update (threshold, ratio, height, width);
+                        c.update (threshold, ratio0, ratio1, height, width);
                     }
     
                     loop (updateIntervalSamples)
@@ -1222,7 +1228,7 @@ Vectorized Helper Processors                                            12/12/21
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: initialStereoLink, unit: "%" ]];
+            input event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: initialStereoLink, unit: "%", step: 1 ]];
             
             event stereoLinkIn (float v) { stereoLink = v; recalc = true; }
 
@@ -1258,8 +1264,8 @@ Vectorized Helper Processors                                            12/12/21
     /** 'vLan' with ADAA and a linear angular cutoff of 2pi
     
         Notes:
-        - optimized for use with OnepoleC or modulating frequency domain filters
-        - If sampling rate is 44.1kHz, use 2x oversampling
+        - Optimized for use with OnepoleC or modulating frequency domain filters
+        - Use with 2x oversampling
     */
     namespace LanADAA
     {   
@@ -1345,7 +1351,7 @@ Vectorized Helper Processors                                            12/12/21
             return s.processADAA2 (x, c);
         }
     
-        processor Processor (float initialNonlinearity = 0.f)
+        processor Processor (float initialNonlinearity = 0)
         {
             input stream SampleType in;
             output stream SampleType Omega;
@@ -1408,7 +1414,7 @@ Vectorized Helper Processors                                            12/12/21
             return c.bias + vLan (x, c.N);
         }
     
-        processor Processor (float initialNonlinearity = 0.f, float initialTau = 20.f)
+        processor Processor (float initialNonlinearity = 0, float initialTau = 20)
         {
             input stream SampleType in;
             output stream SampleType Omega;
@@ -1509,33 +1515,39 @@ Vectorized Helper Processors                                            12/12/21
     }
 
 /*==============================================================================
-Vectorized Helper Functions                                             WIP
+Vectorized Helper Functions                                             12/13/21
 ==============================================================================*/
 
-    /** CTF with color settings to shape the knee 
+    /** vCTF with additional color settings to shape the knee 
     
         This is a custom implementation using algebraic operations.
     */
-    SampleType vCTF_Color (SampleType x, SampleType thr, SampleType ratio, SampleType height, SampleType width)
+    SampleType vCTF_Color (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType height, SampleType width)
     {
         let xdB = vgainTodB(x);
-        let xdBmthr = xdB - thr;
+        let xdBmthr = xdB - threshold;
 
         let color = height / (ONE + vpow (xdBmthr * ONE/width, 2));
-        let ydB = vifgt (thr + xdBmthr * ONE/ratio + color, xdB + color, xdB, thr);
+        let ydB = vifgt (threshold + xdBmthr * ONE/ratio0 + color, threshold + xdBmthr * ONE/ratio1 + color, xdB, threshold);
 
-        return vdBtoGain(ydB) / x;
+        let y = vdBtoGain(ydB) / x;
+
+        return vifgt (y, ZERO, x, NOISE_FLOOR);
     }
 
-    /** Classical compressor transfer function (CTF) */
-    SampleType vCTF (SampleType x, SampleType threshold, SampleType ratio1, SampleType ratio2)
+    /** Classical compressor transfer function (CTF) with ratio control for envelope values below threshold (ratio1) 
+    
+        The recommended range for ratio0 and ratio1 is [0.5, inf]
+    */
+    SampleType vCTF (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1)
     {
-        let divRatio1m1 = ONE/ratio1 - ONE;
-        let divRatio2m1 = ONE/ratio2 - ONE;
+        let divRatio1m1 = ONE/ratio0 - ONE;
+        let divRatio2m1 = ONE/ratio1 - ONE;
         let thrlin = vdBtoGain (threshold);
 
         let y = vifgt (vpow (x * (ONE/thrlin), divRatio1m1), vpow (x * (ONE/thrlin), divRatio2m1), x, thrlin);
-        return vifgt (y, ONE, x, SampleType(0.001));
+
+        return vifgt (y, ZERO, x, NOISE_FLOOR); //avoid very high gain from ratio1 < 1
     }
 
     /** BBD mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
@@ -1838,8 +1850,8 @@ namespace VA::Experimental
         //                     float initialReleaseNonlinearity,
         //                     float initialStereoLink,
         //                     float initialThreshold,
-        //                     float initialRatio1,
-        //                     float initialRatio2)
+        //                     float initialRatio0,
+        //                     float initialRatio1)
         //     {
         //         input stream SampleType in;
         //         output stream SampleType out;
@@ -1853,7 +1865,7 @@ namespace VA::Experimental
         //             stereoLink.stereoLinkIn;
         //             ctf.thresholdIn;
         //             ctf.ratio1In;
-        //             ctf.ratio2In;
+        //             ctf.ratio1In;
         //         }
 
         //         let
@@ -1861,7 +1873,7 @@ namespace VA::Experimental
         //             abs_ = Abs::Processor;
         //             ballisticsFilter_Lan = BallisticsFilter_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
         //             stereoLink = StereoLink::Processor (initialStereoLink);
-        //             ctf = CTF::Processor (initialThreshold, initialRatio1, initialRatio2);
+        //             ctf = CTF::Processor (initialThreshold, initialRatio0, initialRatio1);
         //             multiplier = Multiplier::Processor;
         //         }
             
