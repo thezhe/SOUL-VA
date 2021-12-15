@@ -38,6 +38,7 @@
 
     Future Tasks:
     - all ADAA in one processor
+    - convert Omega endpoints to cutoff endpoints for consistency
 */
 
 namespace VA 
@@ -168,6 +169,7 @@ VA::HighLevel Processors                                                12/15/21
                             float initialDepthPercent = 50,
                             float initialCutoffHz = 9000,
                             float initialResonance = 0,
+                            int initialNlMode = LadderLpfS::NlModes::Linear,
                             float initialMixPercent = 50,
                             float initialPan = 0)
             {
@@ -195,7 +197,7 @@ VA::HighLevel Processors                                                12/15/21
                     dcBlockerOut = filt::dc_blocker::Processor (5.f);
 
                     lfo = osc::lfo::Processor;
-                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, 0);
+                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNlMode);
 
                     delayLine = DelayLine::Processor (initialDelayMs);
                     
@@ -219,34 +221,44 @@ VA::HighLevel Processors                                                12/15/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors
+Filter Processors                                                       12/15/21
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
     
         Notes:
-        - Resonance up to order/2 reccomended
-        - Even though its nonlinear, the filter can become unstable because the state sat function is not bounded
+        - currently hard-coded to 4th order lpf
+        - Resonance up to 2 reccomended
+        - Even though its nonlinear, the filter can become unstable if using an unbounded nonlinearity
+          i.e., the filter can self-oscillate with nonlinear functions like 'tanh'
     */
     namespace LadderLpfS
-    {
-        graph Processor (float initialCutoff = 10000, float initialResonance = 1, float initialNonlinearity = 0)
+    {       
+        namespace NlModes
+        {
+            let Linear = 0;
+            let BBD = 1;
+            let NumNlModes = 2;
+        }
+
+        graph Processor (float initialCutoff = 10000, float initialResonance = 1, int initialNlMode = NlModes::Linear)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: MIN_CUTOFF_HZ, max: MAX_CUTOFF_HZ, init: initialCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 5000, max: 11000, init: initialCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
-                ladderLpfSC.nlModeIn;
+                internal.nlModeIn;
             }
     
             let
             {
                 smoothedParameter0 = SmoothedParameter::Processor (float[] (initialCutoff), SmoothedParameter::Modes::G_Onepole);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (initialResonance), SmoothedParameter::Modes::Linear);
-                internal = Internal::Processor (initialNonlinearity);
+                
+                internal = Internal::Processor (initialNlMode);
             }
     
             connection
@@ -272,7 +284,7 @@ Filter Processors
             {
                 c.nlMode = int (nlMode);
             }
-        
+
             namespace M (int order)
             {
                 static_assert (order % 2 == 0, "LadderFilter: order must be even.");
@@ -302,30 +314,35 @@ Filter Processors
                         y = v  + s.s.at(i);
                         let sLin = v + y;
 
-                        if (c.nlMode == 0)
-                            s.s.at(i) =  sLin;
-                        else if (c.nlMode == 1)
-                            s.s.at(i) =  vBBD (sLin);
-                        else if (c.nlMode == 2)
-                            s.s.at(i) =  vsigmoidCD (sLin);
+                        if (i == order - 1)
+                        {
+                            if (c.nlMode == 0)
+                                s.s.at(i) =  sLin;
+                            else if (c.nlMode == 1)
+                                s.s.at(i) =  vBBD (sLin, 3);
+                        }
+                        else 
+                        {
+                            s.s.at(i) = sLin;
+                        }
                     }
                     
                     return y * (ONE + c.k); //normalize
                 }
             }
         
-            processor Processor (float initialNlMode = 0, int order = 4)
+            processor Processor (int initialNlMode = NlModes::Linear, int order = 4)
             {
                 input stream SampleType in;
                 output stream SampleType out;
 
                 input stream SampleType G_Onepole, k;
 
-                input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 2, init: initialNlMode, text: "None|BBD|Tanh", step: 1 ]];
+                input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 1, init: initialNlMode, text: "Linear|BBD", step: 1 ]];
 
                 event nlModeIn (float v) { nlMode = v; recalc = true; }
 
-                float nlMode = initialNlMode;
+                float nlMode = float (initialNlMode);
                 bool recalc = true;
         
                 void run()
@@ -372,15 +389,15 @@ Filter Processors
     
             input
             {
-                branchingCutoff.attackIn;
-                branchingCutoff.attackNonlinearityIn;
-                branchingCutoff.releaseIn;
-                branchingCutoff.releaseNonlinearityIn;
+                branchingCutoffLan.attackIn;
+                branchingCutoffLan.attackNonlinearityIn;
+                branchingCutoffLan.releaseIn;
+                branchingCutoffLan.releaseNonlinearityIn;
             }
     
             let
             {
-                branchingCutoff = BranchingCutoff_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
+                branchingCutoffLan = BranchingCutoffLan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
                 onepoleC = OnepoleC::Processor;
             }
     
@@ -388,9 +405,9 @@ Filter Processors
             {
                 in -> onepoleC.in;
 
-                onepoleC.lowpassOut -> [1] -> branchingCutoff.x;
-                onepoleC.lowpassOut -> [2] -> branchingCutoff.y;
-                branchingCutoff.Omega -> onepoleC.Omega;
+                onepoleC.lowpassOut -> [1] -> branchingCutoffLan.x;
+                onepoleC.lowpassOut -> [2] -> branchingCutoffLan.y;
+                branchingCutoffLan.Omega -> onepoleC.Omega;
 
                 onepoleC.lowpassOut -> out;
             }
@@ -406,8 +423,8 @@ Filter Processors
 
             void update (Coeffs& c, float attack, float attackNonlinearity, float release, float releaseNonlinearity) 
             {
-                Lan::update (c.attack, attackNonlinearity, attack);
-                Lan::update (c.release, releaseNonlinearity, release);
+                Lan::update (c.attack, attack, attackNonlinearity);
+                Lan::update (c.release, release, releaseNonlinearity);
             }
 
             SampleType process (SampleType x, SampleType y, const Coeffs& c) 
@@ -459,7 +476,7 @@ Filter Processors
         
                         loop (updateIntervalSamples)
                         {
-                            Omega << process(x, y, c);
+                            Omega << process (x, y, c);
         
                             advance();
                         }
@@ -540,7 +557,7 @@ Filter Processors
         }
     }
 
-    /** soul::filters::tpt::onepole modified for cutoff modulation
+    /** soul::filters::tpt::onepole modified for angular cutoff modulation
         
         - If sampling rate is 44.1kHz and an accurate frequency response is important, use 2x oversampling
         - Structure is more consistent with SVF and oversampling is used instead of prewarping when compared to soul::filters::tpt::onepole
@@ -557,10 +574,9 @@ Filter Processors
             SampleType s;
         }
 
-        void update (Coeffs& c, SampleType Omega, SampleType Tdiv2)
+        void update (Coeffs& c, SampleType Omega, float64 fs)
         {
-            let g = Tdiv2 * Omega;
-            c.G = g / (ONE + g);
+            c.G = vcutoffToG_OnepoleA (Omega, fs);
         }
 
         SampleType[2] process (State& s, SampleType x, const Coeffs& c)
@@ -585,11 +601,11 @@ Filter Processors
                 State s;
                 Coeffs c;
 
-                let Tdiv2 = SampleType (processor.period * 0.5);
+                let fs = processor.period;
 
                 loop
                 {
-                    c.update (Omega, Tdiv2);
+                    c.update (Omega, fs);
 
                     let y = process (s, in, c);
 
@@ -890,7 +906,7 @@ Parameter Processors                                                    12/13/21
                 int remainingRampSamples;
             }
 
-            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta, float fs)
+            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta, float64 fs)
             {
                 if const (mode == Modes::Linear)
                     c.target.at(0) = SampleType (parameter.at(0));
@@ -910,7 +926,7 @@ Parameter Processors                                                    12/13/21
                     c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
             }
 
-            void updateUnsmoothed (Coeffs& c, float[] parameter, State& s, float fs)
+            void updateUnsmoothed (Coeffs& c, float[] parameter, State& s, float64 fs)
             {
                 if const (mode == Modes::Linear)
                     s.current.at(0) = SampleType (parameter.at(0));
@@ -971,7 +987,7 @@ Parameter Processors                                                    12/13/21
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
                 let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
-                let fs = float (processor.frequency);
+                let fs = processor.frequency;
     
                 M(mode)::updateUnsmoothed (c, parameter, s, fs);
             
@@ -1359,7 +1375,7 @@ Vectorized Helper Processors                                            12/13/21
             SampleType bias;
         }
     
-        void update (Coeffs& c, float nonlinearity, float tau)
+        void update (Coeffs& c, float tau, float nonlinearity)
         {
             c.N = SampleType (nonlinearity);
             c.bias = SampleType (1000.0) / SampleType (tau) - ONE;
@@ -1397,7 +1413,7 @@ Vectorized Helper Processors                                            12/13/21
                     {
                         recalc = false;
 
-                        c.update (nonlinearity, tau);
+                        c.update (tau, nonlinearity);
                     }
 
                     loop (updateIntervalSamples)
@@ -1513,20 +1529,23 @@ Vectorized Helper Functions                                             12/13/21
 
     /** 'BBD' mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
     
-        Use for subtle low order, monotonically decreasing harmonics
+        Notes:
+        - Use for low order, monotonically decreasing harmonics
+        - Needs makeup gain
+        - Harmonics boosted compared to the original version according to the linear gain b 
     */
-    SampleType vBBD (SampleType x)
+    SampleType vBBD (SampleType x, SampleType b)
     {
-        let a = SampleType (1.0/8.0);
-        let b = SampleType (1.0/16.0);
+        let c1 = b * SampleType (1.0/8.0);
+        let c2 = b* SampleType (1.0/16.0);
 
-        return x - a * vpow (x, 2) - b * vpow (x, 3); 
+        return x - c1 * vpow (x, 2) - c2 * vpow (x, 3); 
     }
 
     /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b
     
         Notes:
-        - use for state saturation
+        - use for state saturation with odd order harmonics
         - needs makeup gain
     */
     SampleType vsigmoidCD_S (SampleType x, SampleType b)
@@ -1561,19 +1580,28 @@ Vectorized Helper Functions                                             12/13/21
         return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
     }
 
-    SampleType vcutoffToG_Onepole (float x, float fs)
+    /** Convert a cutoff in Hz to the cutoff gain of a TPT Onepole filter 
+    
+        Use case: convert float event parameters
+    */
+    SampleType vcutoffToG_Onepole (float x, float64 fs)
     {
-        let Tpi = float (pi) / fs;
+        let Tpi = SampleType (pi / fs);
         
         let gOnepole = tanh (SampleType (x) * Tpi);
 
         return gOnepole / (ONE + gOnepole);
     }
 
-    SampleType vcutoffToG_OnepoleA (SampleType x, float fs)
+    /** Convert an angular cutoff (in radians) to the cutoff gain of a TPT Onepole filter 
+    
+        Use case: convert SampleType stream parameters, 2x oversampling
+    */
+    SampleType vcutoffToG_OnepoleA (SampleType x, float64 fs)
     {
-        let Tdiv2 = 1 / (2 * fs)
-        let gOnepole = tanh (SampleType (x) )
+        let Tdiv2 = SampleType (1.0 / (2.0 * fs));
+
+        let gOnepole = SampleType (x) * Tdiv2;
 
         return gOnepole / (ONE + gOnepole);
     }
@@ -1861,75 +1889,75 @@ namespace VA::Experimental
         // }
 
 
-    /** Onepole modified for state variable saturation
+    // /** Onepole modified for state variable saturation
 
-        Notes:
-        - 2x oversampling recommended
-    */
-    namespace OnepoleS
-    {   
-        struct Coeffs
-        {
-            SampleType b;
-        }
+    //     Notes:
+    //     - 2x oversampling recommended
+    // */
+    // namespace OnepoleS
+    // {   
+    //     struct Coeffs
+    //     {
+    //         SampleType b;
+    //     }
 
-        void update (Coeffs& c, float drive)
-        {
-            c.b = soul::dBtoGain (drive);
-        }
+    //     void update (Coeffs& c, float drive)
+    //     {
+    //         c.b = soul::dBtoGain (drive);
+    //     }
 
-        SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
-        {
-            let v = (x - s.s);
-            let lpf = v + s.s;
-            let hpf = x - lpf;
+    //     SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
+    //     {
+    //         let v = (x - s.s);
+    //         let lpf = v + s.s;
+    //         let hpf = x - lpf;
 
-            s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
+    //         s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
 
-            return SampleType[2] (lpf, hpf);
-        }
+    //         return SampleType[2] (lpf, hpf);
+    //     }
 
-        processor Processor (float initialDrive)
-        {
-            input stream SampleType in;
-            output stream SampleType lowpassOut, highpassOut;
+    //     processor Processor (float initialDrive)
+    //     {
+    //         input stream SampleType in;
+    //         output stream SampleType lowpassOut, highpassOut;
 
-            input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
+    //         input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
 
-            event driveIn (float v) { drive = v; recalc = true; }
+    //         event driveIn (float v) { drive = v; recalc = true; }
 
-            float drive = dBtoGain (initialDrive);
-            bool recalc = true;
+    //         float drive = dBtoGain (initialDrive);
+    //         bool recalc = true;
 
-            void run()
-            {   
-                Onepole::State s;
-                Coeffs c;
+    //         void run()
+    //         {   
+    //             Onepole::State s;
+    //             Coeffs c;
 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    //             let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
 
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
+    //             loop
+    //             {
+    //                 if (recalc)
+    //                 {
+    //                     recalc = false;
 
-                        c.update (drive);
-                    }
+    //                     c.update (drive);
+    //                 }
 
-                    loop (updateIntervalSamples)
-                    {
-                        let y = s.process (in, c);
+    //                 loop (updateIntervalSamples)
+    //                 {
+    //                     let y = s.process (in, c);
 
-                        lowpassOut << y[0];
-                        highpassOut << y[1];
+    //                     lowpassOut << y[0];
+    //                     highpassOut << y[1];
 
-                        advance();
-                    }
-                }
-            }
-        }
-    }
+    //                     advance();
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
     

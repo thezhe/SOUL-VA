@@ -42,7 +42,7 @@ The system is significantly nonlinear and all outputs show some sort of nontrivi
 ![OnepoleC_Lan(200)2](https://user-images.githubusercontent.com/42720670/143499888-6d6bb662-d376-4e94-90f3-c417c346b851.png)  
 ![OnepoleC_Lan(200)1](https://user-images.githubusercontent.com/42720670/143499897-f637bf2f-9c7f-469a-954f-06ace715cf5c.png)  
 ### Example 3: `OnepoleC_Lan` (nonlinearity = 500)
-The system is nontrivial, but does not meet the standards of this library. Not all aliasing components are less than -60dB as shown by the non-DC inharmonic partials (black dots) in the bottom right-hand corner of 'SinSweep (BW)'.  
+The system is nontrivial, but does not meet the standards of this library. Not all aliasing components are less than -60dB as shown by the partials (black dots) in the bottom right-hand corner of 'SinSweep (BW)'. These partials are not desired since they are not parallel to any harmonics/inharmonics, nor are their frequencies low enough to be residual DC noise.
 ![OnepoleC_Lan(500)2](https://user-images.githubusercontent.com/42720670/143499912-0e513b21-b668-488e-ae87-a767db9aadab.png)  
 ![OnepoleC_Lan(500)1](https://user-images.githubusercontent.com/42720670/143499917-0621c055-8e9d-4c08-891e-cf0de483885d.png)  
 

@@ -222,7 +222,7 @@ function testMain(Fs)
     % - Length: 1 second
     %%
 
-    y = [0.5, zeros (1, Fs-1)];
+    y = [0.5, zeros(1, Fs-1)];
 
     audiowrite('inputs/Impulse.wav', y, Fs, 'BitsPerSample', 24);
   endfunction
