@@ -36,6 +36,9 @@
     Current Tasks:
     - depth, nl increase intensity limit
     - remove units from sub Processors (initialDelayMs) change initialFrequency to initialCutoff
+
+    Future Tasks:
+    - all ADAA in one processor
 */
 
 namespace VA 
@@ -195,7 +198,7 @@ VA::HighLevel Processors
 
                     delayLine = DelayLine::Processor (initialDelayMs);
                     
-                    smoothedMixPan = SmoothedMixPan::Processor (initialMixPercent, initialPan, SLEW_RATE_SECONDS_GAIN);
+                    smoothedMixPan = SmoothedMixPan::Processor (initialMixPercent, initialPan);
                 }
         
                 connection
@@ -211,6 +214,7 @@ VA::HighLevel Processors
                 }
             }
         }
+
     } //namespace HighLevel
 
 /*==============================================================================
@@ -354,7 +358,7 @@ Filter Processors
         }
     }
 
-    /** OnepoleC with differing cutoff depending on rising/falling output relative to stored output (feedback)*/
+    /** 'OnepoleC' with differing cutoff depending on rising/falling output relative to stored output (feedback) */
     namespace BallisticsFilter_Lan
     {
         namespace BranchingCutoff_Lan
@@ -464,44 +468,17 @@ Filter Processors
         }
     }
 
-    /** Onepole modified for cutoff modulation via an input stream
-        
-        - 2x oversampling reccomended if using as a frequency effect
-    */
-    namespace OnepoleC
-    {   
-        processor Processor
-        {
-            input stream SampleType in;
-            input stream SampleType Omega;
-            output stream SampleType lowpassOut, highpassOut;
-
-            void run()
-            {   
-                Onepole::State s;
-                Onepole::Coeffs c;
-
-                let Tdiv2 = SampleType (processor.period * 0.5);
-
-                loop
-                {
-                    let temp = Omega * Tdiv2; 
-                    c.G = temp / (ONE + temp);
-
-                    let y = Onepole::process (s, in, c);
-
-                    lowpassOut << y[0];
-                    highpassOut << y[1];
-
-                    advance();
-                }
-            }
-        }
-    }
-
     /** Mix outputs from Onepole to make more complicated frequency responses */
     namespace OnepoleMixer
     {   
+        namespace Modes
+        {
+            let HPF = 0;
+            let LPF = 1;
+            let APF = 2;
+            let NumModes = 3;
+        }
+
         struct Coeffs
         {
             int m;
@@ -514,22 +491,22 @@ Filter Processors
     
         SampleType process (SampleType hpf, SampleType lpf, const Coeffs& c)
         {
-            if (c.m == 0)
+            if (c.m == Modes::HPF)
                 return hpf;
-            else if (c.m == 1)
+            else if (c.m == Modes::LPF)
                 return lpf;
             else
                 return lpf - hpf;
         }
     
-        processor Processor (int initialMode = 0)
+        processor Processor (int initialMode = Modes::HPF)
         {
             input stream SampleType lowpassIn, highpassIn;
             output stream SampleType out;
     
-            input event float modeIn [[ name: "Mode", min: 0, max: 2, init: initialMode, text: "HPF|LPF|APF" ]];
+            input event float modeIn [[ name: "Mode", min: Modes::HPF, max: Modes::NumModes - 1, init: initialMode, text: "HPF|LPF|APF" ]];
 
-            static_assert ((initialMode >= 0 && initialMode <= 2), "initialMode must be in range [0, 2]");
+            static_assert ((initialMode > -1 && initialMode < Modes::NumModes), "OnepoleMixer: initialMode must be in range [0, 2]");
     
             event modeIn (float v) { mode = v; recalc = true; }
     
@@ -562,13 +539,12 @@ Filter Processors
         }
     }
 
-    /** SOUL-VA's version of soul::filters::tpt::onepole  
-
-        Notes:
-        - If sampling rate is 44.1kHz, use 2x oversampling
-        - Structure is more consistent with SVF and oversampling is used instead of prewarping
+    /** soul::filters::tpt::onepole modified for cutoff modulation
+        
+        - If sampling rate is 44.1kHz and an accurate frequency response is important, use 2x oversampling
+        - Structure is more consistent with SVF and oversampling is used instead of prewarping when compared to soul::filters::tpt::onepole
     */
-    namespace Onepole
+    namespace OnepoleC
     {   
         struct Coeffs
         {
@@ -580,9 +556,9 @@ Filter Processors
             SampleType s;
         }
 
-        void update (Coeffs& c, float frequency, SampleType Tpi)
+        void update (Coeffs& c, SampleType Omega, SampleType Tdiv2)
         {
-            let g = Tpi * SampleType (frequency);
+            let g = Tdiv2 * Omega;
             c.G = g / (ONE + g);
         }
 
@@ -597,44 +573,29 @@ Filter Processors
             return SampleType[2] (lpf, hpf);
         }
 
-        processor Processor (float initialFrequency)
+        processor Processor
         {
             input stream SampleType in;
+            input stream SampleType Omega;
             output stream SampleType lowpassOut, highpassOut;
-
-            input event float frequencyIn [[ name: "Frequency", min: 20, max: 20000, init: initialFrequency, text: "Hz" ]];
-
-            event frequencyIn (float v) { frequency = v; recalc = true; }
-
-            float frequency = float (initialFrequency);
-            bool recalc = true;
 
             void run()
             {   
                 State s;
                 Coeffs c;
 
-                let Tpi = SampleType (processor.period * pi);
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                let Tdiv2 = SampleType (processor.period * 0.5);
 
                 loop
                 {
-                    if (recalc)
-                    {
-                        recalc = false;
+                    c.update (Omega, Tdiv2);
 
-                        c.update (frequency, Tpi);
-                    }
+                    let y = process (s, in, c);
 
-                    loop (updateIntervalSamples)
-                    {
-                        let y = s.process (in, c);
+                    lowpassOut << y.at(0);
+                    highpassOut << y.at(1);
 
-                        lowpassOut << y[0];
-                        highpassOut << y[1];
-
-                        advance();
-                    }
+                    advance();
                 }
             }
         }
@@ -642,9 +603,7 @@ Filter Processors
 
     /** Modified version of https://soul.dev/lab/?id=Delay 
     
-        Notes:
-        - max 500 ms delay with ability to modulate +- 5ms
-        - for feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> add your effects here -> DelayLine.in)
+        For feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> add your effects here -> DelayLine.in)
     */
     namespace DelayLine
     {   
@@ -663,7 +622,7 @@ Filter Processors
         {
             s.buffer.at (s.writePos) = x;
 
-            let y = s.buffer.readLinearInterpolated (float(s.readPos) - maxDepthSamples * lfo);
+            let y = s.buffer.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
 
             ++s.readPos;
             ++s.writePos;
@@ -671,13 +630,13 @@ Filter Processors
             return y;
         }
 
-        processor Processor (float initialDelayMs = 50, float maxDepthMs = 4)
+        processor Processor (float initialDelayMs = 20, float maxDepthMs = 4)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be <= 1
             output stream SampleType out;
 
-            input event float delayIn [[ name: "Delay", min: 0, max: 500, init: initialDelayMs, unit: "ms", step: 1 ]];
+            input event float delayIn [[ name: "Delay", min: 0, max: 999 - maxDepthMs, init: initialDelayMs, unit: "ms", step: 1 ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
@@ -714,10 +673,10 @@ Filter Processors
     }
     
 /*==============================================================================
-Mix Processors
+Mix Processors                                                          12/14/21
 ==============================================================================*/
     
-    /** Smoothed Volume with an automatic volume curve option */
+    /** Apply a volume via 'AutoParameter' and 'SmoothedVolume' */
     namespace AutoSmoothedVolume
     {
         graph Processor(int mode = AutoParameter::Modes::None)
@@ -727,14 +686,14 @@ Mix Processors
     
             input
             {
-                autoParameter.controlIn;
                 autoParameter.parameterIn;
+                autoParameter.controlIn;
             }
     
             let
             {
                 autoParameter = AutoParameter::Processor (mode);
-                smoothedVolume = SmoothedVolume::Processor (AutoParameter::M(mode)::InitialParameter, SmoothedVolume::Modes::Decibel);
+                smoothedVolume = SmoothedVolume::Processor (AutoParameter::M(mode)::InitialParameter);
             }
     
             connection
@@ -747,10 +706,10 @@ Mix Processors
         }
     }
 
-    /** Apply mixing and panning via VA::SmoothedParameter */
+    /** Apply mixing and panning via 'SmoothedParameter' */
     namespace SmoothedMixPan
     {
-        graph Processor(float initialMix = 50, float initialPan = 0, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
+        graph Processor(float initialMix = 50, float initialPan = 0)
         {
             input stream SampleType in0, in1;
             output stream SampleType out;
@@ -763,8 +722,8 @@ Mix Processors
 
             let
             {
+                smoothedGains = SmoothedParameter::Processor(float[2] (initialMix, initialPan), SmoothedParameter::Modes::MixPan);
                 applyGains = ApplyGains::Processor;
-                smoothedGains = SmoothedParameter::Processor(float[2] (initialMix, initialPan), SmoothedParameter::Modes::MixPan, slewRateSeconds);
             }
     
             connection
@@ -780,10 +739,10 @@ Mix Processors
         }
     }
     
-    /** Apply a volume via VA::SmoothedParameter */
+    /** Apply a volume via 'SmoothedParameter' */
     namespace SmoothedVolume
     {
-        graph Processor (float initialValue = 0, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
+        graph Processor (float initialValue = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -792,7 +751,7 @@ Mix Processors
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (float[] (initialValue), SmoothedParameter::Modes::Decibel, slewRateSeconds);
+                smoothedGain = SmoothedParameter::Processor (float[] (initialValue), SmoothedParameter::Modes::Decibel);
                 applyGain = ApplyGain::Processor;
             }
     
@@ -1044,82 +1003,7 @@ Parameter Processors                                                    12/13/21
 Vectorized Helper Processors                                            12/13/21
 ==============================================================================*/
 
-    /** A standard CTF (compressor transfer function)
-
-        See: https://www.dropbox.com/s/cjq4t08u6pqkaas/ADC17FiftyShadesDistortion.zip?dl=0&file_subpath=%2FCode%2FDynamicsCompressor.cpp
-    */
-    namespace CTF
-    {
-        struct Coeffs 
-        {
-            SampleType threshold;
-            SampleType ratio0;
-            SampleType ratio1;
-        }
-    
-        void update (Coeffs& c, float threshold, float ratio0, float ratio1) 
-        {
-            c.threshold = SampleType (threshold);
-            c.ratio0 = SampleType (ratio0);
-            c.ratio1 = SampleType (ratio1);
-        }
-    
-        SampleType process (SampleType x, const Coeffs& c) 
-        {
-            return vCTF (x, c.threshold, c.ratio0, c.ratio1);
-        }
-
-        processor Processor (float initialThreshold = -20.f, float initialRatio0 = 2, float initialRatio1 = 2)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f ]];
-            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 50.f, init: initialRatio0 ]];
-            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 50.f, init: initialRatio1 ]];
-
-            event thresholdIn (float v) { threshold = v; recalc = true; }
-            event ratio0In (float v) { ratio0 = v; recalc = true; }
-            event ratio1In (float v) { ratio1 = v; recalc = true; }
-
-            float threshold = initialThreshold;
-            float ratio0 = initialRatio0;
-            float ratio1 = initialRatio1;
-            bool recalc = true;
-
-            void run()
-            {
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-            
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (threshold, ratio0, ratio1);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << process (in, c);
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** A compressor transfer function (CTF) with color
-        
-        Notes:
-        - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color
-        - See https://ocw.mit.edu/courses/mathematics/18-01sc-single-variable-calculus-fall-2010/1.-differentiation/part-falseStatement-implicit-differentiation-and-inverse-functions/session-15-implicit-differentiation-and-inverse-functions/MIT18_01SCF10_Ses15b.pdf
-        - See https://blog.audio-tk.com/2015/09/08/audio-toolkit-additional-gain-functions/
-    */
+    /** vCTF_Color wrapper */
     namespace CTF_Color
     {
         struct Coeffs 
@@ -1186,6 +1070,72 @@ Vectorized Helper Processors                                            12/13/21
                         recalc = false;
     
                         c.update (threshold, ratio0, ratio1, height, width);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << process (in, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    /** vCTF wrapper */
+    namespace CTF
+    {
+        struct Coeffs 
+        {
+            SampleType threshold;
+            SampleType ratio0;
+            SampleType ratio1;
+        }
+    
+        void update (Coeffs& c, float threshold, float ratio0, float ratio1) 
+        {
+            c.threshold = SampleType (threshold);
+            c.ratio0 = SampleType (ratio0);
+            c.ratio1 = SampleType (ratio1);
+        }
+    
+        SampleType process (SampleType x, const Coeffs& c) 
+        {
+            return vCTF (x, c.threshold, c.ratio0, c.ratio1);
+        }
+
+        processor Processor (float initialThreshold = -20.f, float initialRatio0 = 2, float initialRatio1 = 2)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f ]];
+            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 50.f, init: initialRatio0 ]];
+            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 50.f, init: initialRatio1 ]];
+
+            event thresholdIn (float v) { threshold = v; recalc = true; }
+            event ratio0In (float v) { ratio0 = v; recalc = true; }
+            event ratio1In (float v) { ratio1 = v; recalc = true; }
+
+            float threshold = initialThreshold;
+            float ratio0 = initialRatio0;
+            float ratio1 = initialRatio1;
+            bool recalc = true;
+
+            void run()
+            {
+                Coeffs c;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+            
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (threshold, ratio0, ratio1);
                     }
     
                     loop (updateIntervalSamples)
@@ -1525,24 +1475,29 @@ Vectorized Helper Functions                                             12/13/21
 
     /** vCTF with additional color settings to shape the knee 
     
-        This is a custom implementation using algebraic operations.
+        Notes:
+        - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color
+        - See https://ocw.mit.edu/courses/mathematics/18-01sc-single-variable-calculus-fall-2010/1.-differentiation/part-falseStatement-implicit-differentiation-and-inverse-functions/session-15-implicit-differentiation-and-inverse-functions/MIT18_01SCF10_Ses15b.pdf
+        - See https://blog.audio-tk.com/2015/09/08/audio-toolkit-additional-gain-functions/
     */
     SampleType vCTF_Color (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType height, SampleType width)
     {
-        let xdB = vgainTodB(x);
+        let xdB = vgainTodB (x);
         let xdBmthr = xdB - threshold;
 
-        let color = height / (ONE + vpow (xdBmthr * ONE/width, 2));
-        let ydB = vifgt (threshold + xdBmthr * ONE/ratio0 + color, threshold + xdBmthr * ONE/ratio1 + color, xdB, threshold);
+        let color = height / (ONE + vpow (xdBmthr * (ONE/width), 2));
+        let ydB = vifgt (threshold + xdBmthr * (ONE/ratio0) + color, threshold + xdBmthr * (ONE/ratio1) + color, xdB, threshold);
 
-        let y = vdBtoGain(ydB) / x;
+        let y = vdBtoGain (ydB) / x;
 
         return vifgt (y, ZERO, x, NOISE_FLOOR);
     }
 
     /** Classical compressor transfer function (CTF) with ratio control for envelope values below threshold (ratio1) 
     
-        The recommended range for ratio0 and ratio1 is [0.5, inf]
+        Notes:
+        - The recommended range for ratio0 and ratio1 is [0.5, inf]
+        - See https://www.dropbox.com/s/cjq4t08u6pqkaas/ADC17FiftyShadesDistortion.zip?dl=0&file_subpath=%2FCode%2FDynamicsCompressor.cpp
     */
     SampleType vCTF (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1)
     {
@@ -1555,7 +1510,7 @@ Vectorized Helper Functions                                             12/13/21
         return vifgt (y, ZERO, x, NOISE_FLOOR); //avoid very high gain from ratio1 < 1
     }
 
-    /** BBD mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
+    /** 'BBD' mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
     
         Use for subtle low order, monotonically decreasing harmonics
     */
@@ -1610,6 +1565,14 @@ Vectorized Helper Functions                                             12/13/21
         let Tpi = float (pi) / fs;
         
         let gOnepole = tanh (SampleType (x) * Tpi);
+
+        return gOnepole / (ONE + gOnepole);
+    }
+
+    SampleType vcutoffToG_OnepoleA (SampleType x, float fs)
+    {
+        let Tdiv2 = 1 / (2 * fs)
+        let gOnepole = tanh (SampleType (x) )
 
         return gOnepole / (ONE + gOnepole);
     }
