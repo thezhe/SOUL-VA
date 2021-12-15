@@ -35,7 +35,6 @@
 
     Current Tasks:
     - depth, nl increase intensity limit
-    - remove units from sub Processors (initialDelayMs) change initialFrequency to initialCutoff
 
     Future Tasks:
     - all ADAA in one processor
@@ -44,12 +43,12 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors
+VA::HighLevel Processors                                                12/15/21
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
     
-        All effects can behave nonlinearly and add their own "virtual analog warmth" 
+        ALL effects can behave nonlinearly and add their own 'virtual analog warmth' 
     */
     namespace HighLevel
     {   
@@ -72,6 +71,8 @@ VA::HighLevel Processors
         }
 
         /** 'OnepoleC' in all pass mode modulated by 'LanADAA' 
+
+            a.k.a. 'The Bass'
         
             Use case: Boost and sustain low frequencies
         */
@@ -97,19 +98,16 @@ VA::HighLevel Processors
                     stereoLink = StereoLink::Processor (initialStereoLinkPercent);
 
                     internal = Internal::Processor (initialNonlinearity) * 2;
-
-                    onepoleMixer = OnepoleMixer::Processor (2);
+                    onepoleMixer = OnepoleMixer::Processor (OnepoleMixer::Modes::APF);
 
                     autoSmoothedVolume = AutoSmoothedVolume::Processor(AutoParameter::Modes::Volume_OnepoleC_Lan);
                 }
         
                 connection
                 {
-                    //event connections
                     nonlinearityIn -> internal.nonlinearityIn;
                     nonlinearityIn -> autoSmoothedVolume.controlIn;
 
-                    //stream connections
                     in -> dcBlockerIn -> stereoLink.in, internal.in;
 
                     stereoLink.out -> internal.Lin;
@@ -124,7 +122,7 @@ VA::HighLevel Processors
 
             namespace Internal 
             {
-                graph Processor (float initialNonlinearity = 0.f)
+                graph Processor (float initialNonlinearity = 0)
                 {
                     input stream SampleType in, Lin;
                     output stream SampleType highpassOut, lowpassOut;
@@ -154,13 +152,16 @@ VA::HighLevel Processors
             }    
         }
         
-        /** Modulated 'DelayLine' with 'LadderFilterS' in the feedback loop 
+        /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
+
+            a.k.a 'The Chorus'
         
             Notes:
-            - Loosely based on Boss CE2 Chorus Pedal
+            - 'delayIn' is not artifact free under modulation
             - Use case: Chorus, slow flange, doubler
+            - Loosely based on Boss CE2 Chorus Pedal (lfo is trangle signal)
         */
-        namespace Chorus_LadderLPFS
+        namespace ChorusLadderLpfS
         {
             graph Processor (float initialDelayMs = 3,
                             float initialRateHz = 1,
@@ -175,14 +176,14 @@ VA::HighLevel Processors
         
                 input
                 { 
-                    delayLine.delayIn [[ name: "Delay", min: 0, max: 20, init: initialDelayMs, unit: "ms", step: 1 ]]; //not artifact free under modulation
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 20, init: initialDelayMs, unit: "ms", step: 1 ]];
 
-                    lfo.rateHzIn rateIn [[ name: "Rate (Hz)", min: 0.01, max: 2.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
+                    lfo.rateHzIn rateIn [[ name: "Rate (Hz)", min: 0.01, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepthPercent, unit: "%", step: 1 ]];
                     
-                    ladderLPFS.cutoffIn;
-                    ladderLPFS.resonanceIn;
-                    ladderLPFS.nlModeIn;
+                    ladderLpfS.cutoffIn;
+                    ladderLpfS.resonanceIn;
+                    ladderLpfS.nlModeIn;
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
@@ -194,7 +195,7 @@ VA::HighLevel Processors
                     dcBlockerOut = filt::dc_blocker::Processor (5.f);
 
                     lfo = osc::lfo::Processor;
-                    ladderLPFS = LadderLpfS::Processor (initialCutoffHz, initialResonance, 0);
+                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, 0);
 
                     delayLine = DelayLine::Processor (initialDelayMs);
                     
@@ -207,8 +208,8 @@ VA::HighLevel Processors
                     
                     in -> dcBlockerIn -> delayLine.in, smoothedMixPan.in0;
                     
-                    delayLine.out -> ladderLPFS.in;
-                    ladderLPFS.out -> smoothedMixPan.in1;
+                    delayLine.out -> ladderLpfS.in;
+                    ladderLpfS.out -> smoothedMixPan.in1;
                     
                     smoothedMixPan.out -> dcBlockerOut -> out;
                 }
@@ -245,113 +246,113 @@ Filter Processors
             {
                 smoothedParameter0 = SmoothedParameter::Processor (float[] (initialCutoff), SmoothedParameter::Modes::G_Onepole);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (initialResonance), SmoothedParameter::Modes::Linear);
-                ladderLpfSC = LadderLpfSC::Processor (initialNonlinearity);
+                internal = Internal::Processor (initialNonlinearity);
             }
     
             connection
             {
-                smoothedParameter0.out0 -> ladderLpfSC.G_Onepole;
-                smoothedParameter1.out0 -> ladderLpfSC.k;
+                smoothedParameter0.out0 -> internal.G_Onepole;
+                smoothedParameter1.out0 -> internal.k;
 
-                in -> ladderLpfSC.in;
-                ladderLpfSC.out -> out;
+                in -> internal.in;
+                internal.out -> out;
             }
         }
-    }
     
-    namespace LadderLpfSC
-    {   
-        struct Coeffs
-        {
-            SampleType g; //G for onepole stages
-            SampleType k; //resonance
-            int nlMode;
-        }
-    
-        void update (Coeffs& c, float nlMode)
-        {
-            c.nlMode = int (nlMode);
-        }
-    
-        namespace M (int order)
-        {
-            static_assert (order % 2 == 0, "LadderFilter: order must be even.");
-
-            struct State
+        namespace Internal
+        {   
+            struct Coeffs
             {
-                SampleType[order] s;
+                SampleType g; //G for onepole stages
+                SampleType k; //resonance
+                int nlMode;
             }
-
-            SampleType process (State& s, SampleType x, const Coeffs& c)
+        
+            void update (Coeffs& c, float nlMode)
             {
-                var S = ZERO;
-                var G = ONE;
-                for (int i = order - 1; i > -1; --i)
+                c.nlMode = int (nlMode);
+            }
+        
+            namespace M (int order)
+            {
+                static_assert (order % 2 == 0, "LadderFilter: order must be even.");
+
+                struct State
                 {
-                    S += G * s.s.at(i);
-                    G *= c.g;
+                    SampleType[order] s;
                 }
 
-                //input to first lowpass ('u')
-                var y = (x - c.k * S) / (ONE + c.k * G);
-
-                //'order' lowpasses in series 
-                for (int i = 0; i < order; ++i)
+                SampleType process (State& s, SampleType x, const Coeffs& c)
                 {
-                    let v = (y - s.s.at(i)) * c.g;
-                    y = v  + s.s.at(i);
-                    let sLin = v + y;
-
-                    if (c.nlMode == 0)
-                        s.s.at(i) =  sLin;
-                    else if (c.nlMode == 1)
-                        s.s.at(i) =  vBBD (sLin);
-                    else if (c.nlMode == 2)
-                        s.s.at(i) =  vsigmoidCD (sLin);
-                }
-                
-                return y * (ONE + c.k); //normalize
-            }
-        }
-    
-        processor Processor (float initialNlMode = 0, int order = 4)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            input stream SampleType G_Onepole, k;
-
-            input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 2, init: initialNlMode, text: "None|BBD|Tanh", step: 1 ]];
-
-            event nlModeIn (float v) { nlMode = v; recalc = true; }
-
-            float nlMode = initialNlMode;
-            bool recalc = true;
-    
-            void run()
-            {   
-                M(order)::State s;
-                Coeffs c;
-    
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-                loop
-                {
-                    if (recalc)
+                    var S = ZERO;
+                    var G = ONE;
+                    for (int i = order - 1; i > -1; --i)
                     {
-                        recalc = false;
-
-                        c.update (nlMode);
+                        S += G * s.s.at(i);
+                        G *= c.g;
                     }
 
-                    loop (updateIntervalSamples)
+                    //input to first lowpass ('u')
+                    var y = (x - c.k * S) / (ONE + c.k * G);
+
+                    //'order' lowpasses in series 
+                    for (int i = 0; i < order; ++i)
                     {
-                        c.g = G_Onepole;
-                        c.k = k;
+                        let v = (y - s.s.at(i)) * c.g;
+                        y = v  + s.s.at(i);
+                        let sLin = v + y;
 
-                        out << M (order)::process (s, in, c);
+                        if (c.nlMode == 0)
+                            s.s.at(i) =  sLin;
+                        else if (c.nlMode == 1)
+                            s.s.at(i) =  vBBD (sLin);
+                        else if (c.nlMode == 2)
+                            s.s.at(i) =  vsigmoidCD (sLin);
+                    }
+                    
+                    return y * (ONE + c.k); //normalize
+                }
+            }
+        
+            processor Processor (float initialNlMode = 0, int order = 4)
+            {
+                input stream SampleType in;
+                output stream SampleType out;
 
-                        advance();
+                input stream SampleType G_Onepole, k;
+
+                input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 2, init: initialNlMode, text: "None|BBD|Tanh", step: 1 ]];
+
+                event nlModeIn (float v) { nlMode = v; recalc = true; }
+
+                float nlMode = initialNlMode;
+                bool recalc = true;
+        
+                void run()
+                {   
+                    M(order)::State s;
+                    Coeffs c;
+        
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+        
+                    loop
+                    {
+                        if (recalc)
+                        {
+                            recalc = false;
+
+                            c.update (nlMode);
+                        }
+
+                        loop (updateIntervalSamples)
+                        {
+                            c.g = G_Onepole;
+                            c.k = k;
+
+                            out << M (order)::process (s, in, c);
+
+                            advance();
+                        }
                     }
                 }
             }
@@ -359,9 +360,43 @@ Filter Processors
     }
 
     /** 'OnepoleC' with differing cutoff depending on rising/falling output relative to stored output (feedback) */
-    namespace BallisticsFilter_Lan
+    namespace BallisticsFilterLan
     {
-        namespace BranchingCutoff_Lan
+        graph Processor (float initialAttackNonlinearity,
+                        float initialAttack,
+                        float initialReleaseNonlinearity,
+                        float initialRelease)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                branchingCutoff.attackIn;
+                branchingCutoff.attackNonlinearityIn;
+                branchingCutoff.releaseIn;
+                branchingCutoff.releaseNonlinearityIn;
+            }
+    
+            let
+            {
+                branchingCutoff = BranchingCutoff_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
+                onepoleC = OnepoleC::Processor;
+            }
+    
+            connection
+            {
+                in -> onepoleC.in;
+
+                onepoleC.lowpassOut -> [1] -> branchingCutoff.x;
+                onepoleC.lowpassOut -> [2] -> branchingCutoff.y;
+                branchingCutoff.Omega -> onepoleC.Omega;
+
+                onepoleC.lowpassOut -> out;
+            }
+        }
+
+        namespace BranchingCutoffLan
         {
             struct Coeffs 
             {
@@ -430,40 +465,6 @@ Filter Processors
                         }
                     }
                 }
-            }
-        }
-
-        graph Processor (float initialAttackNonlinearity,
-                        float initialAttack,
-                        float initialReleaseNonlinearity,
-                        float initialRelease)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                branchingCutoff.attackIn;
-                branchingCutoff.attackNonlinearityIn;
-                branchingCutoff.releaseIn;
-                branchingCutoff.releaseNonlinearityIn;
-            }
-    
-            let
-            {
-                branchingCutoff = BranchingCutoff_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
-                onepoleC = OnepoleC::Processor;
-            }
-    
-            connection
-            {
-                in -> onepoleC.in;
-
-                onepoleC.lowpassOut -> [1] -> branchingCutoff.x;
-                onepoleC.lowpassOut -> [2] -> branchingCutoff.y;
-                branchingCutoff.Omega -> onepoleC.Omega;
-
-                onepoleC.lowpassOut -> out;
             }
         }
     }
