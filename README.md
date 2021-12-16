@@ -2,8 +2,6 @@
 # The SOUL Virtual Analog Library
 [SOUL-VA](https://github.com/thezhe/SOUL-VA) is a collection of analog-inspired audio effects. Unlike other libraries, this project achieves [analytical](https://math.stackexchange.com/questions/935405/what-s-the-difference-between-analytical-and-numerical-approaches-to-problems) solutions and [a strict -60dB peak amplitude limit for aliasing artifacts](https://github.com/thezhe/SOUL-VA#example-3-onepolec_lan-nonlinearity--500). Each effect can run at full quality at 44.1kHz without any additional antialiasing measures. In addition, most parameters are stable and artifact-free under modulation up through 20Hz.
 
-**A 1.0.0 Github release will be uploaded once two VA::Highlevel Processors are finished, thoroughly tested, and documented (Approx. December 2021).**
-
 ## Background Knowledge
 This library considers background knowledge trivial; *SOUL-VA does not re-explain any of the following concepts*:  
 ### To use the high-level features (`VA::HighLevel` namespace), understand:  
@@ -12,6 +10,9 @@ This library considers background knowledge trivial; *SOUL-VA does not re-explai
 ### To use the entire library (all namespaces), also understand:  
 3. [The Art of VA Filter Design](https://www.kvraudio.com/forum/viewtopic.php?t=350246) (through Chapter 6)   
 4. [Antiderivative Antialiasing for Memoryless Nonlinearities](https://acris.aalto.fi/ws/portalfiles/portal/27135145/ELEC_bilbao_et_al_antiderivative_antialiasing_IEEESPL.pdf)
+
+## Updates
+The current effect endpoints in `VA::HighLevel` will not be removed (excluding major bugs and design revisions), but new endpoints may appear in updates (i.e., updates are backwards compatible). All other code may change in any major, minor, or patch updates. Currently, `OnepoleC_Lan` and `ChorusLadderLpfS` are the two effects included in SOUL-VA 1.0.0.
 
 ## Contents
 - `include/VA.soul` - single-file library
