@@ -248,7 +248,7 @@ Filter Processors                                                       12/15/21
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 5000, max: 11000, init: initialCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 5000, max: 10000, init: initialCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
                 internal.nlModeIn;
             }
