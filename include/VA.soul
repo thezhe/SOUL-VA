@@ -33,10 +33,8 @@
 
 /** Task List
 
-    Current Tasks:
-    - depth, nl increase intensity limit
-
     Future Tasks:
+    - Ladder compile time order
     - all ADAA in one processor
     - convert Omega endpoints to cutoff endpoints for consistency
 */
@@ -101,7 +99,7 @@ VA::HighLevel Processors                                                12/15/21
                     internal = Internal::Processor (initialNonlinearity) * 2;
                     onepoleMixer = OnepoleMixer::Processor (OnepoleMixer::Modes::APF);
 
-                    autoSmoothedVolume = AutoSmoothedVolume::Processor(AutoParameter::Modes::Volume_OnepoleC_Lan);
+                    autoSmoothedVolume = AutoSmoothedVolume::Processor (AutoParameter::Modes::Volume_OnepoleC_Lan);
                 }
         
                 connection
@@ -314,7 +312,7 @@ Filter Processors                                                       12/15/21
                         y = v  + s.s.at(i);
                         let sLin = v + y;
 
-                        if (i == order - 1)
+                        if (i == order - 1) //the last lpf has 'state saturation'
                         {
                             if (c.nlMode == 0)
                                 s.s.at(i) =  sLin;
@@ -601,7 +599,7 @@ Filter Processors                                                       12/15/21
                 State s;
                 Coeffs c;
 
-                let fs = processor.period;
+                let fs = processor.frequency;
 
                 loop
                 {
@@ -696,7 +694,7 @@ Mix Processors                                                          12/14/21
     /** Apply a volume via 'AutoParameter' and 'SmoothedVolume' */
     namespace AutoSmoothedVolume
     {
-        graph Processor(int mode = AutoParameter::Modes::None)
+        graph Processor(int mode = AutoParameter::Modes::Volume_OnepoleC_Lan)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -832,18 +830,20 @@ Parameter Processors                                                    12/13/21
         {
             output event float out;
 
-            input event float parameterIn [[name: "Volume", min: M(mode)::MinParameter, max: M(mode)::MaxParameter, init: M(mode)::InitialParameter, step: M(mode)::Step, unit: "dB"]];
+            input event float parameterIn [[name: "Volume", min: M (mode)::MinParameter, max: M(mode)::MaxParameter, init: M(mode)::InitialParameter, step: M(mode)::Step, unit: "dB"]];
             input event float controlIn;
 
             event parameterIn (float v) { parameter = v; recalc = true; }
             event controlIn (float v) { control = v; recalc = true; }
 
-            float parameter = M(mode)::initialParameter;
+            float parameter = M(mode)::InitialParameter;
             float control;
             bool recalc = true;
 
             void run() 
             { 
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                 loop
                 {
                     if (recalc)

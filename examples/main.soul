@@ -65,20 +65,15 @@ namespace main
 
         input
         {
-            effect.delayIn;
-            effect.rateIn;
-            effect.depthIn;
-            effect.cutoffIn;
-            effect.resonanceIn;
-            effect.nlModeIn;
-            effect.mixIn;
-            effect.panIn;
+            effect.nonlinearityIn;
+            effect.stereoLinkIn;
+            effect.volumeIn;
         }
 
         let
         { 
-            //define effect as a 'Processor' from  'VA::HighLevel'
-            effect = VA::HighLevel::ChorusLadderLpfS::Processor (0, 0, 0, 10000, 1, 1, 100, 0);
+            //define effect as a 'Processor' from 'VA::HighLevel'
+            effect = VA::HighLevel::OnepoleC_Lan::Processor (75);
 
             //comment out for stereo
             up = FloatToSampleType::Processor;
