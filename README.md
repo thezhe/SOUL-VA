@@ -12,7 +12,7 @@ This library considers background knowledge trivial; *SOUL-VA does not re-explai
 4. [Antiderivative Antialiasing for Memoryless Nonlinearities](https://acris.aalto.fi/ws/portalfiles/portal/27135145/ELEC_bilbao_et_al_antiderivative_antialiasing_IEEESPL.pdf)
 
 ## Updates
-The current effect endpoints in `VA::HighLevel` will not be removed (excluding major bugs and design revisions), but new endpoints may appear in updates (i.e., updates are backwards compatible). All other code may change in any major, minor, or patch updates. Currently, `OnepoleC_Lan` and `ChorusLadderLpfS` are the two effects included in SOUL-VA 1.0.0.
+The current effect endpoints in `VA::HighLevel` will not be removed (excluding major bugs and design revisions), but new endpoints may appear in updates. In other words, effects are backward compatible, but internal code is subject to changes.
 
 ## Contents
 - `include/VA.soul` - single-file library
