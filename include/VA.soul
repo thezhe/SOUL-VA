@@ -33,9 +33,12 @@
 
 /** Task List
 
-    Future Tasks:
+    Tasks:
+    - Modulation stable change to smoothed vs not smoothed
+    - MixPan constant volume
+    - Change annotation names for non-modulation stable params
     - Ladder compile time order
-    - all ADAA in one processor
+    - all ADAA in one processor, fix approximation for ADAA2 and snippet
     - convert Omega endpoints to cutoff endpoints for consistency
 */
 
@@ -71,9 +74,11 @@ VA::HighLevel Processors                                                12/15/21
 
         /** 'OnepoleC' in all pass mode modulated by 'LanADAA' 
 
-            a.k.a. 'The Bass'
+            a.k.a. 'TheBass'
         
             Use case: Boost and sustain low frequencies
+            
+            'nonlinearityIn' can modulate using low lfo frequencies, but this isn't recommended
         */
         namespace OnepoleC_Lan
         {
@@ -153,7 +158,7 @@ VA::HighLevel Processors                                                12/15/21
         
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
 
-            a.k.a 'The Chorus'
+            a.k.a 'TheChorus'
         
             Notes:
             - 'delayIn' is not artifact free under modulation
@@ -178,7 +183,7 @@ VA::HighLevel Processors                                                12/15/21
                 { 
                     delayLine.delayIn [[ name: "Delay", min: 0, max: 20, init: initialDelayMs, unit: "ms", step: 1 ]];
 
-                    lfo.rateHzIn rateIn [[ name: "Rate (Hz)", min: 0.01, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
+                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.01, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepthPercent, unit: "%", step: 1 ]];
                     
                     ladderLpfS.cutoffIn;
@@ -625,7 +630,7 @@ Filter Processors                                                       12/15/21
         struct State 
         {
             wrap<MAX_BUFFER_SIZE> readPos, writePos;
-            SampleType[MAX_BUFFER_SIZE] buffer;
+            SampleType[MAX_BUFFER_SIZE] buf;
         }
 
         void update (State& s, float delayMs, float fsDiv1k)
@@ -635,9 +640,9 @@ Filter Processors                                                       12/15/21
 
         SampleType process (State& s, SampleType x, float lfo, float maxDepthSamples)
         {
-            s.buffer.at (s.writePos) = x;
+            s.buf.at (s.writePos) = x;
 
-            let y = s.buffer.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
+            let y = s.buf.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
 
             ++s.readPos;
             ++s.writePos;
@@ -651,12 +656,15 @@ Filter Processors                                                       12/15/21
             input stream float lfoIn; //max amplitude should be <= 1
             output stream SampleType out;
 
-            input event float delayIn [[ name: "Delay", min: 0, max: 999 - maxDepthMs, init: initialDelayMs, unit: "ms", step: 1 ]];
+            input event float delayIn [[ name: "Delay", min: 0, max: MAX_BUFFER_SIZE_MS - maxDepthMs, init: initialDelayMs, unit: "ms", step: 1 ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
             float delayMs = initialDelayMs;
             bool recalc = true;
+
+           // static_assert (initialDelayMs < MAX_BUFFER_SIZE_MS, "DelayLine: initialDelayMs must be < MAX_BUFFER_SIZE_MS");
+           // static_assert (initialDelayMs < MAX_BUFFER_SIZE_MS, "DelayLine: initialDelayMs must be < MAX_BUFFER_SIZE_MS");
     
             void run()
             {  
@@ -1662,9 +1670,9 @@ Vectorized Helper Functions                                             12/13/21
     */
     SampleType vpanToGain (float x)
     {
-        let bR = (float64 (x) + 1.0) * 0.5;
+        let bR = (float64 (x) + 1.0);
 
-        return SampleType (1.0 - bR, bR);
+        return SampleType (2.0 - bR, bR);
     }
 
 /*==============================================================================
@@ -1766,7 +1774,8 @@ Constants                                                               12/12/21
     let SLEW_RATE_SECONDS_GAIN = 10.f;
 
     //const int
-    let MAX_BUFFER_SIZE = 96000; //for arrays of SampleType
+    let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
+    let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
     let MAX_CUTOFF_HZ = 20000;
     let MIN_CUTOFF_HZ = 20;
 

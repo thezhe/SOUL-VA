@@ -65,6 +65,7 @@ namespace main
 
         input
         {
+            //expose effect event endpoints
             effect.nonlinearityIn;
             effect.stereoLinkIn;
             effect.volumeIn;
