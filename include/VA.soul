@@ -35,9 +35,14 @@
 /** Task List
 
     Tasks:
-    - Ladder compile time order
-    - all ADAA in one processor, fix approximation for ADAA2 and snippet
+    - min buffer size
+    - fix approximation for ADAA2 and snippet
+
+    Future Tasks:
+    - all ADAA in one processor
+    - Add more static_assert checks
     - convert Omega endpoints to cutoff endpoints for consistency
+    - Ladder compile time order
 */
 
 namespace VA 
@@ -186,7 +191,7 @@ VA::HighLevel Processors                                                12/15/21
                     
                     ladderLpfS.cutoffIn;
                     ladderLpfS.resonanceIn;
-                    ladderLpfS.nlModeIn;
+                    ladderLpfS.nonlinearityIn;
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
@@ -200,7 +205,7 @@ VA::HighLevel Processors                                                12/15/21
                     lfo = osc::lfo::Processor;
                     ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNlMode);
 
-                    delayLine = DelayLine::Processor (initialDelayMs);
+                    delayLine = DelayLine::Processor (initialDelayMs, 20, 4);
                     
                     smoothedMixPan = SmoothedMixPan::Processor (initialMixPercent, initialPan);
                 }
@@ -222,7 +227,7 @@ VA::HighLevel Processors                                                12/15/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       12/15/21
+Filter Processors                                                       12/21/21
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -235,14 +240,7 @@ Filter Processors                                                       12/15/21
     */
     namespace LadderLpfS
     {       
-        namespace NlModes
-        {
-            let Linear = 0;
-            let BBD = 1;
-            let NumNlModes = 2;
-        }
-
-        graph Processor (float initialCutoff = 10000, float initialResonance = 1, int initialNlMode = NlModes::Linear)
+        graph Processor (float initialCutoff = 10000, float initialResonance = 1, float initialNonlinearity = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -251,7 +249,7 @@ Filter Processors                                                       12/15/21
             {
                 smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 5000, max: 10000, init: initialCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
-                internal.nlModeIn;
+                internal.nonlinearityIn;
             }
     
             let
@@ -259,7 +257,7 @@ Filter Processors                                                       12/15/21
                 smoothedParameter0 = SmoothedParameter::Processor (float[] (initialCutoff), SmoothedParameter::Modes::G_Onepole);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (initialResonance), SmoothedParameter::Modes::Linear);
                 
-                internal = Internal::Processor (initialNlMode);
+                internal = Internal::Processor (initialNonlinearity);
             }
     
             connection
@@ -278,17 +276,23 @@ Filter Processors                                                       12/15/21
             {
                 SampleType g; //G for onepole stages
                 SampleType k; //resonance
-                int nlMode;
+                SampleType N;
             }
         
-            void update (Coeffs& c, float nlMode)
+            void update (Coeffs& c, float nonlinearity)
             {
-                c.nlMode = int (nlMode);
+                c.N = SampleType (nonlinearity);
+            }
+
+            void updatePerSample (Coeffs& c, SampleType G_Onepole, SampleType k)
+            {
+                c.g = G_Onepole;
+                c.k = k;
             }
 
             namespace M (int order)
             {
-                static_assert (order % 2 == 0, "LadderFilter: order must be even.");
+                static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
 
                 struct State
                 {
@@ -316,35 +320,30 @@ Filter Processors                                                       12/15/21
                         let sLin = v + y;
 
                         if (i == order - 1) //the last lpf has 'state saturation'
-                        {
-                            if (c.nlMode == 0)
-                                s.s.at(i) =  sLin;
-                            else if (c.nlMode == 1)
-                                s.s.at(i) =  vBBD (sLin, 3);
-                        }
+                            s.s.at(i) = vBBD (sLin, c.N);
                         else 
-                        {
                             s.s.at(i) = sLin;
-                        }
                     }
                     
                     return y * (ONE + c.k); //normalize
                 }
             }
         
-            processor Processor (int initialNlMode = NlModes::Linear, int order = 4)
+            processor Processor (float initialNonlinearity = 0, int order = 4)
             {
                 input stream SampleType in;
                 output stream SampleType out;
 
                 input stream SampleType G_Onepole, k;
 
-                input event float nlModeIn [[ name: "Nonlinearity", min: 0, max: 1, init: initialNlMode, text: "Linear|BBD", step: 1 ]];
+                input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 4, init: initialNonlinearity, step: 0.01f ]];
 
-                event nlModeIn (float v) { nlMode = v; recalc = true; }
+                event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
 
-                float nlMode = float (initialNlMode);
+                float nonlinearity = initialNonlinearity;
                 bool recalc = true;
+
+                static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
         
                 void run()
                 {   
@@ -359,15 +358,14 @@ Filter Processors                                                       12/15/21
                         {
                             recalc = false;
 
-                            c.update (nlMode);
+                            c.update (nonlinearity);
                         }
 
                         loop (updateIntervalSamples)
                         {
-                            c.g = G_Onepole;
-                            c.k = k;
+                            c.updatePerSample (G_Onepole, k);                            
 
-                            out << M (order)::process (s, in, c);
+                            out << M(order)::process (s, in, c);
 
                             advance();
                         }
@@ -525,7 +523,7 @@ Filter Processors                                                       12/15/21
     
             input event float modeIn [[ name: "Mode", min: Modes::HPF, max: Modes::NumModes - 1, init: initialMode, text: "HPF|LPF|APF" ]];
 
-            static_assert ((initialMode > -1 && initialMode < Modes::NumModes), "OnepoleMixer: initialMode must be in range [0, 2]");
+            static_assert ((initialMode > -1) && (initialMode < Modes::NumModes), "OnepoleMixer::Processor [[Filter Processors]]");
     
             event modeIn (float v) { mode = v; recalc = true; }
     
@@ -575,7 +573,7 @@ Filter Processors                                                       12/15/21
             SampleType s;
         }
 
-        void update (Coeffs& c, SampleType Omega, float64 fs)
+        void updatePerSample (Coeffs& c, SampleType Omega, float64 fs)
         {
             c.G = vcutoffToG_OnepoleA (Omega, fs);
         }
@@ -606,7 +604,7 @@ Filter Processors                                                       12/15/21
 
                 loop
                 {
-                    c.update (Omega, fs);
+                    c.updatePerSample (Omega, fs);
 
                     let y = process (s, in, c);
 
@@ -625,53 +623,62 @@ Filter Processors                                                       12/15/21
     */
     namespace DelayLine
     {   
-        struct State 
+        namespace M (float maxDelayMs, float maxDepthMs)
         {
-            wrap<MAX_BUFFER_SIZE> readPos, writePos;
-            SampleType[MAX_BUFFER_SIZE] buf;
+            static_assert ((maxDelayMs + maxDepthMs) < MAX_BUFFER_SIZE_MS, "DelayLine::M [[Filter Processors]]");
+            
+            let maxBufferSize = int ((float (maxDelayMs + maxDepthMs + 1) / float (MAX_BUFFER_SIZE_MS)) * float (MAX_BUFFER_SIZE));
+
+            struct State 
+            {
+                wrap<maxBufferSize> readPos, writePos;
+                SampleType[maxBufferSize] buf;
+            }
+
+            void update (State& s, float delayMs, float fs)
+            {
+                let fsDiv1k = fs / 1000.f;
+
+                s.readPos = wrap<maxBufferSize> (s.writePos - int (fsDiv1k * delayMs));
+            }
+
+            SampleType process (State& s, SampleType x, float lfo, float fs)
+            {
+                let maxDepthSamples = maxDepthMs * fs / 1000.f;
+
+                s.buf.at (s.writePos) = x;
+
+                let y = s.buf.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
+
+                ++s.readPos;
+                ++s.writePos;
+
+                return y;
+            }
         }
 
-        void update (State& s, float delayMs, float fsDiv1k)
-        {
-            s.readPos = wrap<MAX_BUFFER_SIZE> (s.writePos - int (fsDiv1k * delayMs));
-        }
-
-        SampleType process (State& s, SampleType x, float lfo, float maxDepthSamples)
-        {
-            s.buf.at (s.writePos) = x;
-
-            let y = s.buf.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
-
-            ++s.readPos;
-            ++s.writePos;
-
-            return y;
-        }
-
-        processor Processor (float initialDelayMs = 20, float maxDepthMs = 4)
+        processor Processor (float initialDelayMs = 3, float maxDelayMs = 20, float maxDepthMs = 4)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be <= 1
             output stream SampleType out;
 
-            input event float delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: MAX_BUFFER_SIZE_MS - maxDepthMs, init: initialDelayMs, unit: "ms", step: 1 ]];
+            input event float delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: maxDelayMs, init: initialDelayMs, unit: "ms", step: 1 ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
             float delayMs = initialDelayMs;
             bool recalc = true;
 
-           // static_assert (initialDelayMs < MAX_BUFFER_SIZE_MS, "DelayLine: initialDelayMs must be < MAX_BUFFER_SIZE_MS");
-           // static_assert (initialDelayMs < MAX_BUFFER_SIZE_MS, "DelayLine: initialDelayMs must be < MAX_BUFFER_SIZE_MS");
-    
+            static_assert (initialDelayMs <= maxDelayMs, "DelayLine::Processor [[Filter Processors]]'");
+
+            namespace m = M (maxDelayMs, maxDepthMs);
+
             void run()
             {  
-                State s;
-
+                m::State s;
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                let fsDiv1k = float (processor.frequency) / 1000.f;
-                let maxDepthSamples = maxDepthMs * fsDiv1k;
+                let fs = float (processor.frequency);
 
                 loop
                 {
@@ -679,12 +686,12 @@ Filter Processors                                                       12/15/21
                     {
                         recalc = false;
     
-                        s.update (delayMs, fsDiv1k);
+                        m::update (s, delayMs, fs);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        out << s.process (in, lfoIn, maxDepthSamples);
+                        out << m::process (s, in, lfoIn, fs);
 
                         advance();
                     }
@@ -810,7 +817,7 @@ Parameter Processors                                                    12/13/21
 
         namespace M (int mode = Modes::Volume_OnepoleC_Lan)
         {
-            static_assert ((mode < Modes::NumModes) && (mode > -1), "AutoParameter: mode out of range.");
+            static_assert ((mode > -1) && (mode < Modes::NumModes), "AutoParameter [[Parameter Processors]]");
 
             let MaxParameter = (mode == Modes::Volume_OnepoleC_Lan ? 0.f : 0.f);
             let MinParameter = (mode == Modes::Volume_OnepoleC_Lan ? -6.1f : -6.1f);
@@ -895,7 +902,7 @@ Parameter Processors                                                    12/13/21
 
         namespace M (int mode = Modes::Linear)
         {
-            static_assert ((mode < Modes::NumModes) && (mode > -1), "SmoothedParameter: mode out of range.");
+            static_assert ((mode > -1) && (mode < Modes::NumModes), "SmoothedParameter::M [[Parameter Processors]]");
 
             let NumIn = (mode == Modes::MixPan ? 2 : 1);
             let NumOut = (mode == Modes::MixPan ? 2 : 1);
@@ -982,7 +989,7 @@ Parameter Processors                                                    12/13/21
             float[2] parameter;
             bool recalc = false;
 
-            static_assert (initialParameter.size <= parameter.size, "SmoothedParameter: initialParameter.size must be less than or equal to parameter.size");
+            static_assert (initialParameter.size <= parameter.size, "SmoothedParameter::Processor [[Parameter Processors]]");
 
             void init()
             {
@@ -1295,7 +1302,6 @@ Vectorized Helper Processors                                            12/13/21
         SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
         {
             //Find F1_0
-            
             let x_0mx_1 = x - s.x_1;
             let F2_0 = F2 (x, c);
     
@@ -1307,12 +1313,12 @@ Vectorized Helper Processors                                            12/13/21
             let x_0mx_2 = x - s.x_2;
     
             let xBar = HALF * (x + s.x_2);
-            let delta = xBar - x;
+            let delta = xBar - s.x_1;
     
             let f_0 = viflt (
                 viflt (
-                    f (HALF * (xBar + x), c),
-                    (TWO / delta) * (F1 (xBar, c) + (F2_0 - F2 (xBar, c)) / delta),
+                    f (HALF * (xBar + s.x_1), c),
+                    (TWO / delta) * (F1 (xBar, c) + (F2_1 - F2 (xBar, c)) / delta),
                     vabs (delta), ADAA_TOL
                 ),
                 (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
@@ -1723,7 +1729,7 @@ Vectorized Intrinsic Functions                                          12/12/21
     {
         let T_isSampleType = T.isVector;
 
-        static_assert ((T_isSampleType || T.isInt), "vpow: exponent must be SampleType or int");
+        static_assert ((T_isSampleType || T.isInt), "vpow [[Vectorized Intrinsic Functions]]");
         
         if const (T_isSampleType)
             return SampleType (pow (base[0], exponent[0]), pow (base[1], exponent[1]));
@@ -1777,7 +1783,7 @@ Constants                                                               12/20/21
 
     //const int
     let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
-    let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
+    let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz
     let MAX_CUTOFF_HZ = 20000;
     let MIN_CUTOFF_HZ = 20;
 
