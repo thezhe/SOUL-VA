@@ -92,8 +92,8 @@ VA::HighLevel Processors                                                12/15/21
         
                 input
                 {
-                    event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 275, init: initialNonlinearity, step: 1]];
                     stereoLink.stereoLinkIn;
+                    event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 275, init: initialNonlinearity, step: 1]];
                     autoSmoothedVolume.parameterIn volumeIn;
                 }
         
@@ -336,7 +336,7 @@ Filter Processors                                                       12/21/21
 
                 input stream SampleType G_Onepole, k;
 
-                input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 4, init: initialNonlinearity, step: 0.01f ]];
+                input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 3.5f, init: initialNonlinearity, step: 0.01f ]];
 
                 event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
 
@@ -1344,7 +1344,7 @@ Vectorized Helper Processors                                            12/13/21
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 275, init: initialNonlinearity, step: 1]];
+            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: initialNonlinearity, step: 1]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
