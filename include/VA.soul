@@ -33,10 +33,10 @@
 */
 
 /** Task List
-
-    Tasks:
+    Test:
     - min buffer size
     - fix approximation for ADAA2 and snippet
+    - variable nl in Ladder
 
     Future Tasks:
     - all ADAA in one processor
@@ -625,9 +625,9 @@ Filter Processors                                                       12/21/21
     {   
         namespace M (float maxDelayMs, float maxDepthMs)
         {
-            static_assert ((maxDelayMs + maxDepthMs) < MAX_BUFFER_SIZE_MS, "DelayLine::M [[Filter Processors]]");
+            static_assert ((maxDelayMs + maxDepthMs) < float (MAX_BUFFER_SIZE_MS), "DelayLine::M [[Filter Processors]]");
             
-            let maxBufferSize = int ((float (maxDelayMs + maxDepthMs + 1) / float (MAX_BUFFER_SIZE_MS)) * float (MAX_BUFFER_SIZE));
+            let maxBufferSize = int (((maxDelayMs + maxDepthMs) / float (MAX_BUFFER_SIZE_MS)) * float (MAX_BUFFER_SIZE));
 
             struct State 
             {
@@ -1783,7 +1783,7 @@ Constants                                                               12/20/21
 
     //const int
     let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
-    let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz
+    let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
     let MAX_CUTOFF_HZ = 20000;
     let MIN_CUTOFF_HZ = 20;
 
