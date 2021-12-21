@@ -181,7 +181,7 @@
             "        let f_0 = viflt (",
             "            viflt (",
             "                f (HALF * (xBar + s.x_1), c),",
-            "                (TWO / delta) * (F1 (xBar, c) + (F2_1 - F2 (xBar, c)) / delta),",
+            "                (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),",
             "                vabs (delta), ADAA_TOL",
             "            ),",
             "            (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),",

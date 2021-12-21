@@ -175,7 +175,7 @@ VA::HighLevel Processors                                                12/15/21
                             float initialDepthPercent = 50,
                             float initialCutoffHz = 9000,
                             float initialResonance = 0,
-                            int initialNlMode = LadderLpfS::NlModes::Linear,
+                            float initialNonlinearity = 0,
                             float initialMixPercent = 50,
                             float initialPan = 0)
             {
@@ -203,7 +203,7 @@ VA::HighLevel Processors                                                12/15/21
                     dcBlockerOut = filt::dc_blocker::Processor (5.f);
 
                     lfo = osc::lfo::Processor;
-                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNlMode);
+                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNonlinearity);
 
                     delayLine = DelayLine::Processor (initialDelayMs, 20, 4);
                     
@@ -1318,7 +1318,7 @@ Vectorized Helper Processors                                            12/13/21
             let f_0 = viflt (
                 viflt (
                     f (HALF * (xBar + s.x_1), c),
-                    (TWO / delta) * (F1 (xBar, c) + (F2_1 - F2 (xBar, c)) / delta),
+                    (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),
                     vabs (delta), ADAA_TOL
                 ),
                 (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
