@@ -35,7 +35,6 @@
 
     Tasks:
     - Modulation stable change to smoothed vs not smoothed
-    - MixPan constant volume
     - Change annotation names for non-modulation stable params
     - Ladder compile time order
     - all ADAA in one processor, fix approximation for ADAA2 and snippet
@@ -928,7 +927,11 @@ Parameter Processors                                                    12/13/21
                 if const (mode == Modes::Linear || mode == Modes::Decibel || mode == Modes::G_Onepole)
                     s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
                 else if const (mode == Modes::MixPan)
-                    s.remainingRampSamples = int (vmaxr (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
+                {
+                    let r0 = int (vmaxr (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
+                    let r1 = int (vmaxr (vmax (ONE, vabs (c.target.at(1) - s.current.at(1)) * divMaxDelta)));
+                    s.remainingRampSamples = max (r0, r1);
+                }
 
                 for (int i = 0; i < NumOut; ++i)
                     c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
@@ -1661,7 +1664,7 @@ Vectorized Helper Functions                                             12/13/21
     {
         let b1 = vpanToGain(x);
 
-        return SampleType[2] (ONE - b1, b1);
+        return SampleType[2] (TWO - b1, b1);
     }
 
     /** Convert a linear pan value in range [-1, 1] to a SampleType gain 
@@ -1670,7 +1673,7 @@ Vectorized Helper Functions                                             12/13/21
     */
     SampleType vpanToGain (float x)
     {
-        let bR = (float64 (x) + 1.0);
+        let bR = float64 (x) + 1.0;
 
         return SampleType (2.0 - bR, bR);
     }
@@ -1750,7 +1753,7 @@ Vectorized Intrinsic Functions                                          12/12/21
     }
 
 /*==============================================================================
-Constants                                                               12/12/21
+Constants                                                               12/20/21
 ==============================================================================*/
     
     //soul::filters
