@@ -1,3 +1,4 @@
+/** VSCode snippets (https://code.visualstudio.com/docs/editor/userdefinedsnippets) */
 {	
 	"VA::graph": {
 		"prefix": "VA::graph",

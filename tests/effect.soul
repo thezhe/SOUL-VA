@@ -1,4 +1,4 @@
-/** Duplicate of '../examples/main.soul' for testEffect.m */
+/** Duplicate of '../examples/main.soul' boilerplate for testEffect.m */
 
 namespace main
 {
@@ -66,7 +66,7 @@ namespace main
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::OnepoleC_Lan::Processor;
+            effect = VA::HighLevel::OnepoleC_Lan::Processor (200);
 
             //comment out for stereo
             up = FloatToSampleType::Processor;

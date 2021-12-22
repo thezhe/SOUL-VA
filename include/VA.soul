@@ -35,10 +35,9 @@
 /** Task List
     Test:
     - min buffer size
-    - fix approximation for ADAA2 and snippet
-    - smooth nl, increase slew rate
 
     Future Tasks:
+    - add updateSample to snippets
     - all ADAA in one processor
     - Add more static_assert checks
     - convert Omega endpoints to cutoff endpoints for consistency
@@ -147,8 +146,8 @@ VA::HighLevel Processors                                                12/22/21
                 let
                 {
                     dcBlockerIn = filt::dc_blocker::Processor (5.f);
-                    dcBlockerOut = filt::dc_blocker::Processor (5.f);
-                    
+                    dcBlockerOutN = DC_BlockerN::Processor (5.f, 8);
+
                     stereoLink = StereoLink::Processor (initialStereoLinkPercent);
 
                     internal = Internal::Processor (initialNonlinearity) * 2;
@@ -170,7 +169,7 @@ VA::HighLevel Processors                                                12/22/21
                     internal.lowpassOut -> onepoleMixer.lowpassIn;
                     
                     onepoleMixer.out -> autoSmoothedVolume.in;
-                    autoSmoothedVolume.out -> dcBlockerOut -> out; 
+                    autoSmoothedVolume.out -> dcBlockerOutN -> out; 
                 }
             }
 
@@ -601,6 +600,62 @@ Filter Processors                                                       12/21/21
             }
         }
     }
+
+    /** Variable order DC blocker using soul::filters::dc_blocker */
+    namespace DC_BlockerN
+    {   
+        namespace M (int order)
+        {
+            struct Coeffs
+            {
+                filt::dc_blocker::Coeffs[order] coeffs;
+            }
+
+            void update (Coeffs& c, float64 SampleRate, float64 freqHz)
+            {
+                for (int i = 0; i < order; ++i)
+                    filt::dc_blocker::update (c.coeffs.at(i), SampleRate, freqHz);
+            }
+
+            struct State
+            {
+                filt::dc_blocker::State[order] state;
+            }
+
+            SampleType process (State& s, SampleType x, Coeffs& c)
+            {
+                var y = filt::dc_blocker::process (s.state.at(0), x, c.coeffs.at(0));
+
+                for (int i = 1; i < order; ++i)
+                    y = filt::dc_blocker::process (s.state.at(i), y, c.coeffs.at(i));
+
+                return y;
+            }
+        }
+    
+        processor Processor (float64 frequency = 5, int order = 1)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            void run()
+            {   
+                M(order)::State s;
+                M(order)::Coeffs c;
+    
+                M(order)::update (c, processor.frequency, frequency);
+
+                loop
+                {
+                    out << M(order)::process (s, in, c);
+
+                    advance();
+                }
+            }
+        }
+    }
+    
+    
 
     /** Modified version of https://soul.dev/lab/?id=Delay 
     
