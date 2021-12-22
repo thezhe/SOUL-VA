@@ -18,11 +18,12 @@
   %%
 
 
-%% testMain.m (https://github.com/thezhe/SOUL-VA)
+%% testEffect.m (https://github.com/thezhe/SOUL-VA)
+  %
+  % Run test cases on 'effect.soulpatch'
   %
   % Requirements:
   % - The SOUL CLI (soul.exe) must be part of the system PATH
-  % - testMain.m must remain in its original path to work
   %
   % Arguments:
   % - Fs:  sampling rate; only values in the range [44100, 96000] are officially supported
@@ -37,7 +38,7 @@
   % - Experiencing issues? Try deleting 'inputs/' and 'output/' or restarting Octave
   %%
 
-function testMain(Fs)
+function testEffect(Fs)
 %%==============================================================================
 %% Main Script
 
@@ -47,31 +48,31 @@ function testMain(Fs)
   %timestamp
   timestamp = strftime ("%Y-%m-%d %H:%M:%S", localtime (time ()));
   printf('\n++++++++++++++++++++++++++++++++++++++++\n');
-  printf(['testMain(' num2str(Fs) '), ' timestamp '\n']);
+  printf(['testEffect(' num2str(Fs) '), ' timestamp '\n']);
   printf('++++++++++++++++++++++++++++++++++++++++\n');
 
   %render '/inputs'
   persistent frequency = 0;
-  persistent testMainTime = 0;
-  [testMainInfo, ~, ~] = stat('testMain.m');
+  persistent testEffectTime = 0;
+  [testEffectInfo, ~, ~] = stat('testEffect.m');
 
-  if (~isfolder('inputs') || testMainInfo.mtime ~= testMainTime || Fs ~= frequency)
+  if (~isfolder('inputs') || testEffectInfo.mtime ~= testEffectTime || Fs ~= frequency)
     genInputs();
   end
 
   %render '/outputs'
   persistent vaTime = 0;
-  persistent mainTime = 0;
-  persistent mainPatchTime = 0;
+  persistent effectTime = 0;
+  persistent effectPatchTime = 0;
   [vaInfo, ~, ~] = stat('../include/VA.soul');
-  [mainInfo, ~, ~] = stat('../examples/main.soul');
-  [mainPatchInfo, ~, ~] = stat('../examples/main.soulpatch');
+  [effectInfo, ~, ~] = stat('effect.soul');
+  [effectPatchInfo, ~, ~] = stat('effect.soulpatch');
 
-  if (vaInfo.mtime ~= vaTime || mainInfo.mtime ~= mainTime || mainPatchInfo.mtime ~= mainPatchTime || testMainInfo.mtime ~= testMainTime || ~isfolder('outputs') || Fs ~= frequency)
+  if (vaInfo.mtime ~= vaTime || effectInfo.mtime ~= effectTime || effectPatchInfo.mtime ~= effectPatchTime || testEffectInfo.mtime ~= testEffectTime || ~isfolder('outputs') || Fs ~= frequency)
     vaTime = vaInfo.mtime;
-    mainTime = mainInfo.mtime;
-    mainPatchTime = mainPatchInfo.mtime;
-    testMainTime = testMainInfo.mtime;
+    effectTime = effectInfo.mtime;
+    effectPatchTime = effectPatchInfo.mtime;
+    testEffectTime = testEffectInfo.mtime;
     frequency = Fs;
 
     genOutputs();
@@ -102,7 +103,7 @@ function testMain(Fs)
   endfunction
   
   function genOutputs()
-    %%  Generate 'outputs/' by passing 'inputs/' thru 'main.soulpatch'
+    %%  Generate 'outputs/' by passing 'inputs/' thru 'effect.soulpatch'
 
     mkdir('outputs');
 
@@ -119,7 +120,7 @@ function testMain(Fs)
     renderSoul('outputs/ZerosSin1k.wav', 'inputs/ZerosSin1k.wav');
 
     function renderSoul(target_file, source_audio_file)
-      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(Fs) ' --bitdepth=24 ../examples/main.soulpatch']); 
+      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(Fs) ' --bitdepth=24 effect.soulpatch']); 
     endfunction
   endfunction
   
@@ -127,7 +128,7 @@ function testMain(Fs)
     %%  Plot results using '/inputs' and '/outputs'
 
     printf('===========================================================================\n');
-    printf('                             testMain.m logs                               \n');
+    printf('                             testEffect.m logs                               \n');
     printf('===========================================================================\n');
 
     grid off

@@ -36,7 +36,7 @@
     Test:
     - min buffer size
     - fix approximation for ADAA2 and snippet
-    - variable nl in Ladder
+    - smooth nl, increase slew rate
 
     Future Tasks:
     - all ADAA in one processor
@@ -48,7 +48,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                12/15/21
+VA::HighLevel Processors                                                12/22/21
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -57,108 +57,6 @@ VA::HighLevel Processors                                                12/15/21
     */
     namespace HighLevel
     {   
-        /** A dummy processor that doesn't modify streams
-        
-            Use case: Debugging
-        */
-        namespace Dummy
-        {
-            graph Processor()
-            {
-                input stream SampleType in;
-                output stream SampleType out;
-                
-                connection
-                {
-                    in -> out;
-                }
-            }
-        }
-
-        /** 'OnepoleC' in all pass mode modulated by 'LanADAA' 
-
-            a.k.a. 'TheBass'
-        
-            Use case: Boost and sustain low frequencies
-            
-            'nonlinearityIn' can modulate using low lfo frequencies, but this isn't recommended
-        */
-        namespace OnepoleC_Lan
-        {
-            graph Processor (float initialNonlinearity = 0, float initialStereoLinkPercent = 0)
-            {
-                input stream SampleType in;
-                output stream SampleType out;
-        
-                input
-                {
-                    stereoLink.stereoLinkIn;
-                    event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 275, init: initialNonlinearity, step: 1]];
-                    autoSmoothedVolume.parameterIn volumeIn;
-                }
-        
-                let
-                {
-                    dcBlockerIn = filt::dc_blocker::Processor (5.f);
-                    dcBlockerOut = filt::dc_blocker::Processor (5.f);
-                    
-                    stereoLink = StereoLink::Processor (initialStereoLinkPercent);
-
-                    internal = Internal::Processor (initialNonlinearity) * 2;
-                    onepoleMixer = OnepoleMixer::Processor (OnepoleMixer::Modes::APF);
-
-                    autoSmoothedVolume = AutoSmoothedVolume::Processor (AutoParameter::Modes::Volume_OnepoleC_Lan);
-                }
-        
-                connection
-                {
-                    nonlinearityIn -> internal.nonlinearityIn;
-                    nonlinearityIn -> autoSmoothedVolume.controlIn;
-
-                    in -> dcBlockerIn -> stereoLink.in, internal.in;
-
-                    stereoLink.out -> internal.Lin;
-
-                    internal.highpassOut -> onepoleMixer.highpassIn;
-                    internal.lowpassOut -> onepoleMixer.lowpassIn;
-                    
-                    onepoleMixer.out -> autoSmoothedVolume.in;
-                    autoSmoothedVolume.out -> dcBlockerOut -> out; 
-                }
-            }
-
-            namespace Internal 
-            {
-                graph Processor (float initialNonlinearity = 0)
-                {
-                    input stream SampleType in, Lin;
-                    output stream SampleType highpassOut, lowpassOut;
-            
-                    input
-                    {
-                        L.nonlinearityIn;
-                    }
-
-                    let
-                    {
-                        L = LanADAA::Processor (initialNonlinearity);
-                        onepoleC = OnepoleC::Processor;
-                    }
-            
-                    connection
-                    {
-                        in -> onepoleC.in;
-
-                        Lin -> L.in;
-                        L.Omega -> onepoleC.Omega;
-
-                        onepoleC.highpassOut -> highpassOut;
-                        onepoleC.lowpassOut -> lowpassOut;
-                    }
-                }
-            }    
-        }
-        
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
 
             a.k.a 'TheChorus'
@@ -224,6 +122,107 @@ VA::HighLevel Processors                                                12/15/21
             }
         }
 
+        /** 'OnepoleC' in all pass mode modulated by 'LanADAA' 
+
+            a.k.a. 'TheBass'
+        
+            Use case: Boost and sustain low frequencies
+            
+            'nonlinearityIn' can modulate using low lfo frequencies, but this isn't recommended
+        */
+        namespace OnepoleC_Lan
+        {
+            graph Processor (float initialNonlinearity = 0, float initialStereoLinkPercent = 0)
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+        
+                input
+                {
+                    stereoLink.stereoLinkIn;
+                    event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: initialNonlinearity, step: 1]];
+                    autoSmoothedVolume.parameterIn volumeIn;
+                }
+        
+                let
+                {
+                    dcBlockerIn = filt::dc_blocker::Processor (5.f);
+                    dcBlockerOut = filt::dc_blocker::Processor (5.f);
+                    
+                    stereoLink = StereoLink::Processor (initialStereoLinkPercent);
+
+                    internal = Internal::Processor (initialNonlinearity) * 2;
+                    onepoleMixer = OnepoleMixer::Processor (OnepoleMixer::Modes::APF);
+
+                    autoSmoothedVolume = AutoSmoothedVolume::Processor (AutoParameter::Modes::Volume_OnepoleC_Lan);
+                }
+        
+                connection
+                {
+                    nonlinearityIn -> internal.nonlinearityIn;
+                    nonlinearityIn -> autoSmoothedVolume.controlIn;
+
+                    in -> dcBlockerIn -> stereoLink.in, internal.in;
+
+                    stereoLink.out -> internal.Lin;
+
+                    internal.highpassOut -> onepoleMixer.highpassIn;
+                    internal.lowpassOut -> onepoleMixer.lowpassIn;
+                    
+                    onepoleMixer.out -> autoSmoothedVolume.in;
+                    autoSmoothedVolume.out -> dcBlockerOut -> out; 
+                }
+            }
+
+            namespace Internal 
+            {
+                graph Processor (float initialNonlinearity = 0)
+                {
+                    input stream SampleType in, Lin;
+                    output stream SampleType highpassOut, lowpassOut;
+            
+                    input
+                    {
+                        L.nonlinearityIn;
+                    }
+
+                    let
+                    {
+                        L = LanADAA::Processor (initialNonlinearity);
+                        onepoleC = OnepoleC::Processor;
+                    }
+            
+                    connection
+                    {
+                        in -> onepoleC.in;
+
+                        Lin -> L.in;
+                        L.Omega -> onepoleC.Omega;
+
+                        onepoleC.highpassOut -> highpassOut;
+                        onepoleC.lowpassOut -> lowpassOut;
+                    }
+                }
+            }    
+        }
+
+        /** A dummy processor that doesn't modify streams
+        
+            Use case: Debugging
+        */
+        namespace Dummy
+        {
+            graph Processor()
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+                
+                connection
+                {
+                    in -> out;
+                }
+            }
+        }
     } //namespace HighLevel
 
 /*==============================================================================
@@ -249,21 +248,23 @@ Filter Processors                                                       12/21/21
             {
                 smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 5000, max: 10000, init: initialCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
-                internal.nonlinearityIn;
+                smoothedParameter2.in0 nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 3.5f, init: initialNonlinearity, step: 0.01f ]];
             }
     
             let
             {
                 smoothedParameter0 = SmoothedParameter::Processor (float[] (initialCutoff), SmoothedParameter::Modes::G_Onepole);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (initialResonance), SmoothedParameter::Modes::Linear);
+                smoothedParameter2 = SmoothedParameter::Processor (float[] (initialNonlinearity), SmoothedParameter::Modes::Linear);
                 
-                internal = Internal::Processor (initialNonlinearity);
+                internal = Internal::Processor;
             }
     
             connection
             {
-                smoothedParameter0.out0 -> internal.G_Onepole;
-                smoothedParameter1.out0 -> internal.k;
+                smoothedParameter0.out0 -> internal.G_OnepoleIn;
+                smoothedParameter1.out0 -> internal.kIn;
+                smoothedParameter2.out0 -> internal.nonlinearityIn;
 
                 in -> internal.in;
                 internal.out -> out;
@@ -284,10 +285,11 @@ Filter Processors                                                       12/21/21
                 c.N = SampleType (nonlinearity);
             }
 
-            void updatePerSample (Coeffs& c, SampleType G_Onepole, SampleType k)
+            void updatePerSample (Coeffs& c, SampleType G_Onepole, SampleType k, SampleType nonlinearity)
             {
                 c.g = G_Onepole;
                 c.k = k;
+                c.N = nonlinearity;
             }
 
             namespace M (int order)
@@ -329,19 +331,12 @@ Filter Processors                                                       12/21/21
                 }
             }
         
-            processor Processor (float initialNonlinearity = 0, int order = 4)
+            processor Processor (int order = 4)
             {
                 input stream SampleType in;
                 output stream SampleType out;
 
-                input stream SampleType G_Onepole, k;
-
-                input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 3.5f, init: initialNonlinearity, step: 0.01f ]];
-
-                event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
-
-                float nonlinearity = initialNonlinearity;
-                bool recalc = true;
+                input stream SampleType G_OnepoleIn, kIn, nonlinearityIn;
 
                 static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
         
@@ -354,21 +349,11 @@ Filter Processors                                                       12/21/21
         
                     loop
                     {
-                        if (recalc)
-                        {
-                            recalc = false;
+                        c.updatePerSample (G_OnepoleIn, kIn, nonlinearityIn);                            
 
-                            c.update (nonlinearity);
-                        }
+                        out << M(order)::process (s, in, c);
 
-                        loop (updateIntervalSamples)
-                        {
-                            c.updatePerSample (G_Onepole, k);                            
-
-                            out << M(order)::process (s, in, c);
-
-                            advance();
-                        }
+                        advance();
                     }
                 }
             }
@@ -1779,7 +1764,7 @@ Constants                                                               12/20/21
     let NOISE_FLOOR_DB = SampleType (-100.0);
     
     //const float
-    let SLEW_RATE_SECONDS_GAIN = 10.f;
+    let SLEW_RATE_SECONDS_GAIN = 100.f;
 
     //const int
     let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType

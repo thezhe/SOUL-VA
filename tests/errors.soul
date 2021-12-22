@@ -1,11 +1,11 @@
 /** Processor [[main]] 
 
-    To test an effect, change the definition of 'effect' and expose endpoints under 'graph Processor [[main]]'.
+    '../examples/main.soul' modified to include all 'Processors' in 'VA::HighLevel' connected in series
 
-    Extra step if not using CLI or Octave:
-
-        The SOUL CLI doesn't take 'VA::SampleType' streams so 'float' must cast to 'VA::SampleType' and vice versa for processing.
-        Follow the comments to bypass the mono compatibility code and enable stereo mode if using soul.dev/lab.
+    Notes:
+    - Tests that all 'Processors' compile without errors
+    - command: soul errors errors.soulpatch | echo
+    - Only use with CLI is officially supported
 */
 
 namespace main
@@ -58,33 +58,46 @@ namespace main
         }
     }
 
+    namespace va = VA::HighLevel;
+
     graph Processor [[main]]
     {
-        input stream float in; //change streams to 'VA::SampleType' for stereo
+        input stream float in;
         output stream float out;
 
         input
         {
-            //expose effect event endpoints
-            effect.stereoLinkIn;
-            effect.nonlinearityIn;
-            effect.volumeIn;
+            //all input events from VA::HighLevel
+            va1.stereoLinkIn va1_0;
+            va1.nonlinearityIn va1_1;
+            va1.volumeIn va1_2;
+
+            va2.delayIn va2_0;
+            va2.rateIn va2_1;
+            va2.depthIn va2_2;
+            va2.cutoffIn va2_3;
+            va2.resonanceIn va2_4;
+            va2.nonlinearityIn va2_5;
+            va2.mixIn va2_6;
+            va2.panIn va2_7;
         }
 
         let
         { 
-            //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::OnepoleC_Lan::Processor;
+            //all 'Processors' from VA::HighLevel
+            va0 = va::Dummy::Processor;
+            va1 = va::OnepoleC_Lan::Processor;
+            va2 = va::ChorusLadderLpfS::Processor;
 
-            //comment out for stereo
             up = FloatToSampleType::Processor;
             down = SampleTypeToFloat::Processor;
         }
 
         connection
         {       
-            in -> up -> effect.in; //comment out 'up' and 'down' for stereo
-            effect.out -> down -> out;
+            in -> up -> va0 -> va1.in;
+            va1.out -> va2.in;
+            va2.out -> down -> out;
         }
     }
 }

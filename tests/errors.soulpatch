@@ -1,0 +1,16 @@
+{
+    "soulPatchV1": {
+        "ID": "com.TheZhe.SOULVA.errors",
+        "version": "1.0",
+        "name": "errors",
+        "description": "link VA.soul with errors.soul",
+        "category": "effect",
+        "manufacturer": "TheZhe",
+        "website": "https://github.com/thezhe/SOUL-VA",
+        "isInstrument": false,
+        "source": [
+            "errors.soul",
+            "../include/VA.soul"
+        ]
+    }
+}

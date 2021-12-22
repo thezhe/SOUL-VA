@@ -1,12 +1,4 @@
-/** Processor [[main]] 
-
-    To test an effect, change the definition of 'effect' and expose endpoints under 'graph Processor [[main]]'.
-
-    Extra step if not using CLI or Octave:
-
-        The SOUL CLI doesn't take 'VA::SampleType' streams so 'float' must cast to 'VA::SampleType' and vice versa for processing.
-        Follow the comments to bypass the mono compatibility code and enable stereo mode if using soul.dev/lab.
-*/
+/** Duplicate of '../examples/main.soul' for testEffect.m */
 
 namespace main
 {
