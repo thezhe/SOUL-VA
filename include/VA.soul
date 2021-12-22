@@ -33,8 +33,6 @@
 */
 
 /** Task List
-    Test:
-    - min buffer size
 
     Future Tasks:
     - add updateSample to snippets
@@ -225,7 +223,7 @@ VA::HighLevel Processors                                                12/22/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       12/21/21
+Filter Processors                                                       12/22/21
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -245,7 +243,7 @@ Filter Processors                                                       12/21/21
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 5000, max: 10000, init: initialCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 6000, max: 10000, init: initialCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
                 smoothedParameter2.in0 nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 3.5f, init: initialNonlinearity, step: 0.01f ]];
             }
@@ -654,8 +652,6 @@ Filter Processors                                                       12/21/21
             }
         }
     }
-    
-    
 
     /** Modified version of https://soul.dev/lab/?id=Delay 
     
