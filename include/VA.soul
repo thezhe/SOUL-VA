@@ -45,7 +45,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                12/22/21
+VA::HighLevel Processors                                                12/23/21
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -79,9 +79,9 @@ VA::HighLevel Processors                                                12/22/21
         
                 input
                 { 
-                    delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 20, init: initialDelayMs, unit: "ms", step: 1 ]];
+                    delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 35, init: initialDelayMs, unit: "ms", step: 1 ]];
 
-                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.01, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.01 ]];
+                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.1 ]];
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepthPercent, unit: "%", step: 1 ]];
                     
                     ladderLpfS.cutoffIn;
@@ -100,7 +100,7 @@ VA::HighLevel Processors                                                12/22/21
                     lfo = osc::lfo::Processor;
                     ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNonlinearity);
 
-                    delayLine = DelayLine::Processor (initialDelayMs, 20, 4);
+                    delayLine = DelayLine::Processor (initialDelayMs, 35, 4);
                     
                     smoothedMixPan = SmoothedMixPan::Processor (initialMixPercent, initialPan);
                 }
