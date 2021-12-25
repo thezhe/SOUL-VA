@@ -45,7 +45,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                12/23/21
+VA::HighLevel Processors                                                12/25/21
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -79,14 +79,13 @@ VA::HighLevel Processors                                                12/23/21
         
                 input
                 { 
+                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepthPercent, unit: "%", step: 1 ]];
+                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.1 ]];
                     delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 35, init: initialDelayMs, unit: "ms", step: 1 ]];
 
-                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.1 ]];
-                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepthPercent, unit: "%", step: 1 ]];
-                    
-                    ladderLpfS.cutoffIn;
-                    ladderLpfS.resonanceIn;
                     ladderLpfS.nonlinearityIn;
+                    ladderLpfS.resonanceIn;
+                    ladderLpfS.cutoffIn;
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
@@ -94,13 +93,13 @@ VA::HighLevel Processors                                                12/23/21
         
                 let
                 {
-                    dcBlockerIn = filt::dc_blocker::Processor (5.f);
-                    dcBlockerOut = filt::dc_blocker::Processor (5.f);
+                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
 
                     lfo = osc::lfo::Processor;
-                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNonlinearity);
-
                     delayLine = DelayLine::Processor (initialDelayMs, 35, 4);
+
+                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNonlinearity);
                     
                     smoothedMixPan = SmoothedMixPan::Processor (initialMixPercent, initialPan);
                 }
@@ -136,15 +135,14 @@ VA::HighLevel Processors                                                12/23/21
         
                 input
                 {
-                    stereoLink.stereoLinkIn;
                     event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: initialNonlinearity, step: 1]];
+                    stereoLink.stereoLinkIn;
                     autoSmoothedVolume.parameterIn volumeIn;
                 }
         
                 let
                 {
-                    dcBlockerIn = filt::dc_blocker::Processor (5.f);
-                    dcBlockerOutN = DC_BlockerN::Processor (5.f, 8);
+                    dcBlockerIn = filt::dc_blocker::Processor (0.1);
 
                     stereoLink = StereoLink::Processor (initialStereoLinkPercent);
 
@@ -167,7 +165,7 @@ VA::HighLevel Processors                                                12/23/21
                     internal.lowpassOut -> onepoleMixer.lowpassIn;
                     
                     onepoleMixer.out -> autoSmoothedVolume.in;
-                    autoSmoothedVolume.out -> dcBlockerOutN -> out; 
+                    autoSmoothedVolume.out -> out; 
                 }
             }
 
@@ -223,7 +221,7 @@ VA::HighLevel Processors                                                12/23/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       12/22/21
+Filter Processors                                                       12/25/21
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -631,7 +629,7 @@ Filter Processors                                                       12/22/21
             }
         }
     
-        processor Processor (float64 frequency = 5, int order = 1)
+        processor Processor (int order = 1, float64 frequency = DC_BLOCKER_CUTOFF_HZ)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1794,7 +1792,7 @@ Vectorized Intrinsic Functions                                          12/12/21
     }
 
 /*==============================================================================
-Constants                                                               12/20/21
+Constants                                                               12/25/21
 ==============================================================================*/
     
     //soul::filters
@@ -1816,6 +1814,7 @@ Constants                                                               12/20/21
     
     //const float
     let SLEW_RATE_SECONDS_GAIN = 100.f;
+    let DC_BLOCKER_CUTOFF_HZ = 1;
 
     //const int
     let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
