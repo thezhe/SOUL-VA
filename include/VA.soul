@@ -234,6 +234,8 @@ Filter Processors                                                       12/25/21
     */
     namespace LadderLpfS
     {       
+        let oversampling = 2;
+
         graph Processor (float initialCutoff = 10000, float initialResonance = 1, float initialNonlinearity = 0)
         {
             input stream SampleType in;
@@ -241,25 +243,23 @@ Filter Processors                                                       12/25/21
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 6000, max: 10000, init: initialCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 10000, max: 20000, init: initialCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
-                smoothedParameter2.in0 nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 3.5f, init: initialNonlinearity, step: 0.01f ]];
+                internal.nonlinearityIn;
             }
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (initialCutoff), SmoothedParameter::Modes::G_Onepole);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (initialCutoff), SmoothedParameter::Modes::G_Onepole, 2);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (initialResonance), SmoothedParameter::Modes::Linear);
-                smoothedParameter2 = SmoothedParameter::Processor (float[] (initialNonlinearity), SmoothedParameter::Modes::Linear);
                 
-                internal = Internal::Processor;
+                internal = Internal::Processor (initialNonlinearity) * oversampling;
             }
     
             connection
             {
                 smoothedParameter0.out0 -> internal.G_OnepoleIn;
                 smoothedParameter1.out0 -> internal.kIn;
-                smoothedParameter2.out0 -> internal.nonlinearityIn;
 
                 in -> internal.in;
                 internal.out -> out;
@@ -272,28 +272,30 @@ Filter Processors                                                       12/25/21
             {
                 SampleType g; //G for onepole stages
                 SampleType k; //resonance
-                SampleType N;
-            }
-        
-            void update (Coeffs& c, float nonlinearity)
-            {
-                c.N = SampleType (nonlinearity);
+                BBD_ADAA::Coeffs ca;
             }
 
-            void updatePerSample (Coeffs& c, SampleType G_Onepole, SampleType k, SampleType nonlinearity)
+            void updatePerSample (Coeffs& c, SampleType G_Onepole, SampleType k)
             {
                 c.g = G_Onepole;
                 c.k = k;
-                c.N = nonlinearity;
             }
 
             namespace M (int order)
             {
                 static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
 
+                void update (Coeffs& c, float nonlinearity, State& s)
+                {
+                    BBD_ADAA::update (c.ca, nonlinearity);
+                    BBD_ADAA::reset (s.sa0);
+                    BBD_ADAA::reset (s.sa1);
+                }
+
                 struct State
                 {
                     SampleType[order] s;
+                    BBD_ADAA::State sa0, sa1;
                 }
 
                 SampleType process (State& s, SampleType x, const Coeffs& c)
@@ -313,25 +315,36 @@ Filter Processors                                                       12/25/21
                     for (int i = 0; i < order; ++i)
                     {
                         let v = (y - s.s.at(i)) * c.g;
-                        y = v  + s.s.at(i);
-                        let sLin = v + y;
-
-                        if (i == order - 1) //the last lpf has 'state saturation'
-                            s.s.at(i) = vBBD (sLin, c.N);
+                        
+                        if (i != 3) //the last lpf has 'state saturation'
+                        {
+                           y = v  + s.s.at(i);
+                           s.s.at(i) = v + y;
+                        }
                         else 
-                            s.s.at(i) = sLin;
+                        {
+                            y = BBD_ADAA::process (s.sa0, v + s.s.at(i), c.ca); //saturate y and s, more stable than 1 stage
+                            s.s.at(i) = BBD_ADAA::process (s.sa1, v + y, c.ca);
+                        }     
                     }
                     
                     return y * (ONE + c.k); //normalize
                 }
             }
         
-            processor Processor (int order = 4)
+            processor Processor (float initialNonlinearity = 0, int order = 4)
             {
                 input stream SampleType in;
                 output stream SampleType out;
 
-                input stream SampleType G_OnepoleIn, kIn, nonlinearityIn;
+                input stream SampleType G_OnepoleIn, kIn;
+
+                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 8, init: initialNonlinearity, step: 0.1]];
+
+                event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
+            
+                float nonlinearity = initialNonlinearity;
+                bool recalc = true;
 
                 static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
         
@@ -339,16 +352,26 @@ Filter Processors                                                       12/25/21
                 {   
                     M(order)::State s;
                     Coeffs c;
-        
+
                     let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
         
                     loop
                     {
-                        c.updatePerSample (G_OnepoleIn, kIn, nonlinearityIn);                            
+                        if (recalc)
+                        {
+                            recalc = false;
 
-                        out << M(order)::process (s, in, c);
+                            M(order)::update (c, nonlinearity, s);
+                        }
 
-                        advance();
+                        loop (updateIntervalSamples)
+                        {
+                            c.updatePerSample (G_OnepoleIn, kIn);                            
+
+                            out << M(order)::process (s, in, c);
+
+                            advance();
+                        }
                     }
                 }
             }
@@ -784,7 +807,7 @@ Mix Processors                                                          12/14/21
 
             let
             {
-                smoothedGains = SmoothedParameter::Processor(float[2] (initialMix, initialPan), SmoothedParameter::Modes::MixPan);
+                smoothedGains = SmoothedParameter::Processor (float[2] (initialMix, initialPan), SmoothedParameter::Modes::MixPan);
                 applyGains = ApplyGains::Processor;
             }
     
@@ -1011,7 +1034,7 @@ Parameter Processors                                                    12/13/21
             }
         }
 
-        processor Processor (float[] initialParameter, int mode = Modes::Linear, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
+        processor Processor (float[] initialParameter, int mode = Modes::Linear, int oversampling = 1, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
         {
             output stream SampleType out0, out1;
 
@@ -1024,6 +1047,7 @@ Parameter Processors                                                    12/13/21
             bool recalc = false;
 
             static_assert (initialParameter.size <= parameter.size, "SmoothedParameter::Processor [[Parameter Processors]]");
+            static_assert (oversampling > 0, "SmoothedParameter::Processor [[ParameterProcessors]]");
 
             void init()
             {
@@ -1038,7 +1062,7 @@ Parameter Processors                                                    12/13/21
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
                 let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
-                let fs = processor.frequency;
+                let fs = processor.frequency * float64 (oversampling);
     
                 M(mode)::updateUnsmoothed (c, parameter, s, fs);
             
@@ -1283,6 +1307,160 @@ Vectorized Helper Processors                                            12/13/21
             }
         }
     }
+
+    /** Bucket Brigade Device Waveshaper
+    
+        Notes:
+        - dynamic ADAA specifically optimized for 'LadderLpfS'
+        - If sampling rate is 44.1kHz, use 2x oversampling
+        - Parameters are not suitable for modulation
+    */
+    namespace BBD_ADAA
+    {   
+        struct Coeffs
+        {
+            SampleType N;
+        }
+    
+        void update (Coeffs& c, float nonlinearity)
+        {
+            c.N = nonlinearity;
+        }    
+    
+        SampleType f (SampleType x, const Coeffs& c)
+        {
+            return vBBD(x, c.N);
+        }
+    
+        SampleType F1 (SampleType x, const Coeffs& c)
+        {
+            let c1 = c.N * SampleType (1.0/8.0);
+            let c2 = c.N * SampleType (1.0/16.0);
+            
+            return HALF * vpow(x, 2) - c1 * SampleType(1.0 / 3.0) * vpow (x, 3) - c2 * SampleType (1.0 / 4.0) * vpow (x, 4);
+        }
+    
+        SampleType F2 (SampleType x, const Coeffs& c)
+        {
+            let c1 = c.N * SampleType (1.0/8.0);
+            let c2 = c.N * SampleType (1.0/16.0);
+            
+            return SampleType (1.0 / 6.0) * vpow (x, 3) - c1 * SampleType(1.0 / 12.0) * vpow (x, 4) - c2 * SampleType (1.0 / 20.0) * vpow (x, 5);
+        }
+    
+        struct State
+        {
+            SampleType x_2;
+            SampleType x_1;
+            SampleType F2_1;
+            SampleType F1_1;
+        }
+        
+        void reset (State& s)
+        {
+            s.x_2 = ZERO;
+            s.x_1 = ZERO;
+            s.F2_1 = ZERO;
+            s.F1_1 = ZERO;
+        }
+    
+        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
+        {
+            //Find F1_0
+            let x_0mx_1 = x - s.x_1;
+            let F2_0 = F2 (x, c);
+    
+            let F1_0 = viflt (F1 (HALF * (x + s.x_1), c), 
+                (F2_0 - s.F2_1) / x_0mx_1,
+                vabs (x_0mx_1), ADAA_TOL);
+    
+            //Find f_0
+            let x_0mx_2 = x - s.x_2;
+    
+            let xBar = HALF * (x + s.x_2);
+            let delta = xBar - s.x_1;
+    
+            let f_0 = viflt (
+                viflt (
+                    f (HALF * (xBar + s.x_1), c),
+                    (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),
+                    vabs (delta), ADAA_TOL
+                ),
+                (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
+                vabs (x_0mx_2), ADAA_TOL
+            );
+    
+            //update s
+            s.x_2 = s.x_1;
+            s.x_1 = x;
+            s.F2_1 = F2_0;
+            s.F1_1 = F1_0;
+    
+            return f_0;
+        }
+    
+        SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)
+        {
+            //Find f_0
+            let x_0mx_1 = x - s.x_1;
+            let F1_0 = F1 (x, c);
+    
+            let f_0 = viflt (f (HALF * (x + s.x_1), c), 
+                (F1_0 - s.F1_1) / x_0mx_1,
+                vabs (x_0mx_1), ADAA_TOL);
+    
+            //update s
+            s.x_1 = x;
+            s.F1_1 = F1_0;
+    
+            return f_0;
+        }
+    
+        SampleType process (State& s, SampleType x, const Coeffs& c)
+        {
+               return s.processADAA1 (x, c);
+        }
+    
+        processor Processor(float initialNonlinearity = 0)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 5.5, init: initialNonlinearity, step: 0.1]];
+
+            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
+            
+            float nonlinearity = initialNonlinearity;
+            bool recalc = true;
+    
+            void run()
+            {
+                State s;
+                Coeffs c;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (nonlinearity);
+                        s.reset();
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << s.process (in, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+    
 
     /** 'vLan' with ADAA and a linear angular cutoff of 2pi
     
