@@ -36,7 +36,6 @@
 
     Future Tasks:
     - add updateSample to snippets
-    - all ADAA in one processor
     - Add more static_assert checks
     - convert Omega endpoints to cutoff endpoints for consistency
     - Ladder compile time order
@@ -221,7 +220,7 @@ VA::HighLevel Processors                                                12/25/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       12/25/21
+Filter Processors                                                       12/26/21
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -853,7 +852,7 @@ Mix Processors                                                          12/14/21
     }
 
 /*==============================================================================
-Parameter Processors                                                    12/13/21
+Parameter Processors                                                    12/26/21
 ==============================================================================*/
 
     /** Automatic/manual parameters
@@ -1092,7 +1091,7 @@ Parameter Processors                                                    12/13/21
     }
 
 /*==============================================================================
-Vectorized Helper Processors                                            12/13/21
+Vectorized Helper Processors                                            12/26/21
 ==============================================================================*/
 
     /** vCTF_Color wrapper */
