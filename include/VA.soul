@@ -35,6 +35,8 @@
 /** Task List
 
     Future Tasks:
+    - update README for new dc blocker on OnepoleC_Lan
+    - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
     - add updateSample to snippets
     - Add more static_assert checks
     - convert Omega endpoints to cutoff endpoints for consistency
