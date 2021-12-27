@@ -63,7 +63,7 @@ namespace main
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::ChorusLadderLpfS::Processor (0, 0, 0, 20000.f, 1.f, 5.5f, 100, 0);
+            effect = VA::HighLevel::ChorusLadderLpfS::Processor (0, 0, 0, 20000.f, 1.f, 3.5f, 100, 0);
 
             //comment out for stereo
             up = FloatToSampleType::Processor;

@@ -1427,7 +1427,7 @@ Vectorized Helper Processors                                            12/26/21
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 5.5, init: initialNonlinearity, step: 0.1]];
+            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 3.5, init: initialNonlinearity, step: 0.1]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
