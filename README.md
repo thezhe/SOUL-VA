@@ -36,11 +36,13 @@ The system is trivial (and linear) and simply passes signals through unmodified.
 ![Dummy1](https://user-images.githubusercontent.com/42720670/143499553-e699e725-ad35-413c-9378-3121313d5d49.png)  
 ### Example Effect 2: `OnepoleC_Lan` (nonlinearity = 200)
 The system is significantly nonlinear and all outputs show some sort of nontrivial filtering. While the 'Magnitude Response' only applies to linear systems, its plot accurately predicts that `OnepoleC_Lan` tends to boost bass frequencies. In addition, the internal DC blocker filter corresponds to the high-pass effect at 5 Hz. Consequently, the 'DC IO Plot' does not contain any meaningful information for this effect.
-![200_0](https://user-images.githubusercontent.com/42720670/147148475-dc21dedf-9284-4529-a9b7-74b98baecfe6.png)
-![200_1](https://user-images.githubusercontent.com/42720670/147148476-9aaa2d1f-2d8a-4496-8b24-4f6b70fc15a6.png)
+![200_0](https://user-images.githubusercontent.com/42720670/147501416-b4dd38a7-3c66-49b3-8b57-07cc84e9f2ea.png)
+![200_1](https://user-images.githubusercontent.com/42720670/147501419-4961ac5c-b33e-49fc-822b-9c117b886c2c.png)
+
 
 ### Example Effect 3: `OnepoleC_Lan` (nonlinearity = 500)
 The system is nontrivial, but does not meet the standards of this library. Not all aliasing components are less than -60 dB because they are visible in 'SinSweep Spectrogram (BW)'. Partials that are not parallel to any harmonics/inharmonics, nor low enough in frequency to be residual DC noise appear on the figure -- these are the aliasing components above -60 dB.
-![500_0](https://user-images.githubusercontent.com/42720670/147148490-fd0496f2-d4d9-44f1-818d-ad4febcae9b9.png)
-![500_1](https://user-images.githubusercontent.com/42720670/147148491-4341c1e4-c262-4543-9b6b-8bac971bee60.png)
+![500_0](https://user-images.githubusercontent.com/42720670/147501429-f1b6f600-2b86-40c1-a913-f888c2f9ef35.png)
+![500_1](https://user-images.githubusercontent.com/42720670/147501430-67f85641-2030-4946-bb75-9630ddbed1b7.png)
+
 
