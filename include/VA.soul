@@ -35,7 +35,6 @@
 /** Task List
 
     Future Tasks:
-    - update README for new dc blocker on OnepoleC_Lan
     - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
     - add updateSample to snippets
     - Add more static_assert checks
@@ -69,7 +68,7 @@ VA::HighLevel Processors                                                12/25/21
             graph Processor (float initialDelayMs = 3,
                             float initialRateHz = 1,
                             float initialDepthPercent = 50,
-                            float initialCutoffHz = 9000,
+                            float initialCutoffHz = 10000,
                             float initialResonance = 0,
                             float initialNonlinearity = 0,
                             float initialMixPercent = 50,
@@ -222,7 +221,7 @@ VA::HighLevel Processors                                                12/25/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       12/26/21
+Filter Processors                                                       12/27/21
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -286,9 +285,11 @@ Filter Processors                                                       12/26/21
             {
                 static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
 
-                void update (Coeffs& c, float nonlinearity, State& s)
+                void update (Coeffs& c, float nonlinearity, State& s, float64 fs)
                 {
-                    BBD_ADAA::update (c.ca, nonlinearity);
+                    let nonlinearityScaled = float (44100.0 / fs) * nonlinearity;
+
+                    BBD_ADAA::update (c.ca, nonlinearityScaled);
                     BBD_ADAA::reset (s.sa0);
                     BBD_ADAA::reset (s.sa1);
                 }
@@ -362,7 +363,7 @@ Filter Processors                                                       12/26/21
                         {
                             recalc = false;
 
-                            M(order)::update (c, nonlinearity, s);
+                            M(order)::update (c, nonlinearity, s, processor.frequency);
                         }
 
                         loop (updateIntervalSamples)
