@@ -128,7 +128,7 @@ VA::HighLevel Processors                                                12/25/21
         */
         namespace OnepoleC_Lan
         {
-            graph Processor (float initialNonlinearity = 350, float initialStereoLinkPercent = 100)
+            graph Processor (float initialNonlinearity = 250, float initialStereoLinkPercent = 100)
             {
                 input stream SampleType in;
                 output stream SampleType out;
