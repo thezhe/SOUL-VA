@@ -65,14 +65,14 @@ VA::HighLevel Processors                                                12/25/21
         */
         namespace ChorusLadderLpfS
         {
-            graph Processor (float initialDelayMs = 3,
-                            float initialRateHz = 1,
+            graph Processor (float initialDelayMs = 27,
+                            float initialRateHz = 1.5f,
                             float initialDepthPercent = 50,
-                            float initialCutoffHz = 10000,
-                            float initialResonance = 0,
-                            float initialNonlinearity = 0,
+                            float initialCutoffHz = 16000,
+                            float initialResonance = 0.15,
+                            float initialNonlinearity = 3.5f,
                             float initialMixPercent = 50,
-                            float initialPan = 0)
+                            float initialPan = -1.f)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -128,7 +128,7 @@ VA::HighLevel Processors                                                12/25/21
         */
         namespace OnepoleC_Lan
         {
-            graph Processor (float initialNonlinearity = 0, float initialStereoLinkPercent = 0)
+            graph Processor (float initialNonlinearity = 350, float initialStereoLinkPercent = 100)
             {
                 input stream SampleType in;
                 output stream SampleType out;
