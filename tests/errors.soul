@@ -72,7 +72,7 @@ namespace main
             va1.nonlinearityIn va1_1;
             va1.volumeIn va1_2;
 
-            va2.delayIn va2_0;
+            vva2.delayIn va2_0;
             va2.rateIn va2_1;
             va2.depthIn va2_2;
             va2.cutoffIn va2_3;
