@@ -70,7 +70,7 @@ VA::HighLevel Processors                                                12/25/21
                             float initialDepthPercent = 50,
                             float initialCutoffHz = 16000,
                             float initialResonance = 0.15f,
-                            float initialNonlinearity = 3.5f,
+                            float initialNonlinearity = 4.5f,
                             float initialMixPercent = 50,
                             float initialPan = -1.f)
             {
@@ -341,7 +341,7 @@ Filter Processors                                                       12/27/21
 
                 input stream SampleType G_OnepoleIn, kIn;
 
-                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 8, init: initialNonlinearity, step: 0.1]];
+                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 4.5, init: initialNonlinearity, step: 0.1]];
 
                 event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
