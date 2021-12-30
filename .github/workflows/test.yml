@@ -19,7 +19,7 @@ jobs:
         with:
           submodules: recursive
 
-        - name: Get SOUL compiler and Test (win)
+      - name: Get SOUL compiler and Test (win)
         if: matrix.os == 'windows-latest'
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/soul-lang/SOUL/releases/download/latest_release/binaries-windows-x64.zip -OutFile SOUL.zip
@@ -27,7 +27,7 @@ jobs:
           ./windows/x64/soul.exe errors tests/errors.soulpatch | echo
         shell: pwsh
 
-        - name: Get SOUL compiler and Test (mac)
+      - name: Get SOUL compiler and Test (mac)
         if: matrix.os == 'macos-11'
         run: |
           curl -L "https://github.com/soul-lang/SOUL/releases/download/latest_release/binaries-osx-x64.zip" -o SOUL.zip
@@ -35,7 +35,7 @@ jobs:
           ./osx/x64/soul errors tests/errors.soulpatch | echo
         shell: bash
 
-        - name: Get SOUL compiler and Test (ubuntu)
+      - name: Get SOUL compiler and Test (ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           curl -L "https://github.com/soul-lang/SOUL/releases/download/latest_release/binaries-linux-combined.zip" -o SOUL.zip
