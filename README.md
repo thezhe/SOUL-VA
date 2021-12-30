@@ -11,12 +11,6 @@ This library considers background knowledge trivial; *SOUL-VA does not re-explai
 3. [The Art of VA Filter Design](https://www.kvraudio.com/forum/viewtopic.php?t=350246) (through Chapter 6)   
 4. [Antiderivative Antialiasing for Memoryless Nonlinearities](https://acris.aalto.fi/ws/portalfiles/portal/27135145/ELEC_bilbao_et_al_antiderivative_antialiasing_IEEESPL.pdf)
 
-## Updates
-The current effect endpoints in `VA::HighLevel` are permanent (excluding major bugs and design revisions), but new endpoints may appear in updates. In other words, effect endpoints are backward compatible, but all other code may change.
-
-## Contents
-Files in each top-level directory start with a short summary. Users can utilize `VA::HighLevel` using only the `include/` and `examples/` directories.
-
 ## Official Ways to Use SOUL-VA
 1. [SOUL Playground](https://soul.dev/lab/)  
 Copy `include/VA.soul`, `examples/main.soul`, and `examples/main.soulpatch` into the editor. Delete '../include/' on line 13 in main.soulpatch. Click 'Compile' to run in mono mode. To enable stereo processing, modify main.soul according to the instructions.
@@ -24,6 +18,13 @@ Copy `include/VA.soul`, `examples/main.soul`, and `examples/main.soulpatch` into
 Read the CLI instructions by executing soul.exe in a terminal and use main.soulpatch as the `<soul file>`. This method does not support stereo processing.
 3.  [Octave 6.3.0](https://www.gnu.org/software/octave/index)   
 Include soul.exe in the 'Path' environment variable. Set `tests/` as the current working directory in Octave and run `testEffect(44100)`. See `tests/testEffect.m` for more info on test cases and usage.
+
+## Contents
+Files in each top-level directory start with a short summary. Users can utilize `VA::HighLevel` using only the `include/` and `examples/` directories.
+
+## Update Policy 
+1. The current effect endpoints in `VA::HighLevel` are permanent (excluding major bugs and design revisions), but new endpoints may appear in updates. In other words, effect endpoints are backward compatible, but all other code may change.
+2. In release versions, `tests/errors.soulpatch` compiles successfully (i.e. all effects compile on Mac, Windows, and Linux without errors). Furthermore, all effects achieve proper aliasing levels, parameter modulation stability, and stereo compatibility in Octave and SOUL Playground on Windows.
 
 ## Contributing
 Please post bugs in issues and feature requests in discussions. Bug fixes take priority. Pull requests are not accepted at the moment.
