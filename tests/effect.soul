@@ -57,13 +57,24 @@ namespace main
 
         input
         {
-            //expose effect event endpoints
+            effect.stereoLinkIn;
+            effect.attackIn;
+            effect.attackNonlinearityIn;
+            effect.releaseIn;
+            effect.thresholdIn;
+            effect.ratio0In;
+            effect.ratio1In;
+            effect.heightIn;
+            effect.widthIn;
+            effect.makeupVolumeIn;
+            effect.mixIn;
+            effect.panIn;
         }
 
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::ChorusLadderLpfS::Processor (0, 0, 0, 20000, 1, 4.5f, 100, 0);
+            effect = VA::HighLevel::CompColorLan::Processor;
 
             //comment out for stereo
             up = FloatToSampleType::Processor;

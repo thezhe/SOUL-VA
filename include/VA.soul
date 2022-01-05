@@ -36,7 +36,7 @@
 
     Current Tasks:
     - CompColorLan, sc hpf
-    - add mixpan to all
+    - add mixpan/dc blocker to all high level and add to snippet
 
     Future Tasks:
     - TheBass abs before stereo link and rectified lan
@@ -214,6 +214,8 @@ VA::HighLevel Processors                                                01/05/21
                     event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: iNonlinearity, step: 1]];
                     stereoLink.stereoLinkIn;
                     autoSmoothedVolume.parameterIn volumeIn;
+                    smoothedMixPan.mixIn;
+                    smoothedMixPan.panIn;
                 }
         
                 let
@@ -226,6 +228,7 @@ VA::HighLevel Processors                                                01/05/21
                     onepoleMixer = OnepoleMixer::Processor (OnepoleMixer::Modes::APF);
 
                     autoSmoothedVolume = AutoSmoothedVolume::Processor (AutoParameter::Modes::Volume_OnepoleC_Lan);
+                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
                 }
         
                 connection
@@ -523,9 +526,9 @@ Filter Processors                                                       01/05/21
                 input event
                 { 
                     float attackIn [[ name: "Attack", min: 1, max: 200, init: iAttack, unit: "ms", step: 1 ]];
-                    float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 1000, init: iAttackNonlinearity, step: 1 ]];
+                    float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 250, init: iAttackNonlinearity, step: 1 ]];
                     float releaseIn [[ name: "Release", min: 1, max: 500, init: iRelease, unit: "ms", step: 1 ]];
-                    float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 1000, init: iReleaseNonlinearity, step: 1]];
+                    float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 20, init: iReleaseNonlinearity, step: 1]];
                 }
 
                 event attackIn (float v) { attack = v; recalc = true; }
@@ -970,10 +973,10 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
             output stream SampleType out;
     
             input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f ]];
-            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: iRatio0 ]];
-            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 20.f, init: iRatio1 ]];
-            input event float heightIn [[ name: "Height", min: -12.f, max: 12.f, init: iHeight, unit: "dB" ]];
-            input event float widthIn [[ name: "Width", min: 0.1f, max: 12.f, init: iWidth, unit: "dB" ]];
+            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: iRatio0, step: 0.01f ]];
+            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 20.f, init: iRatio1, step: 0.01f ]];
+            input event float heightIn [[ name: "Height", min: -6.f, max: 6.f, init: iHeight, unit: "dB", step: 0.1f ]];
+            input event float widthIn [[ name: "Width", min: 0.1f, max: 12.f, init: iWidth, unit: "dB", step: 0.1f ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
