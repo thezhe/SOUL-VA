@@ -34,7 +34,12 @@
 
 /** Task List
 
+    Current Tasks:
+    - CompColorLan, sc hpf
+    - add mixpan to all
+
     Future Tasks:
+    - TheBass abs before stereo link and rectified lan
     - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
     - add updateSample to snippets
     - Add more static_assert checks
@@ -45,7 +50,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                12/25/21
+VA::HighLevel Processors                                                01/05/21
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -54,6 +59,77 @@ VA::HighLevel Processors                                                12/25/21
     */
     namespace HighLevel
     {   
+        /** Compressor with a colored CTF and nonlinear ballistics */
+        namespace CompColorLan
+        {
+            graph Processor(float iStereoLinkPercent = 0,
+                            float iAttackMs = 100,
+                            float iAttackNonlinearity = 50,
+                            float iReleaseMs = 150, 
+                            float iReleaseNonlinearity = 150,
+                            float iThreshold_dB = -30,
+                            float iRatio0 = 2,
+                            float iRatio1 = 2,
+                            float iHeight_dB = 6,
+                            float iWidth_dB = 3,
+                            float iMakeupVolume_dB = 0,
+                            float iMixPercent = 100,
+                            float iPan = 0)
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+        
+                input
+                {
+                    stereoLink.stereoLinkIn;
+
+                    ballisticsFilterLan.attackIn;
+                    ballisticsFilterLan.attackNonlinearityIn;
+                    ballisticsFilterLan.releaseIn;
+                    ballisticsFilterLan.releaseNonlinearityIn;
+
+                    ctfColor.thresholdIn;
+                    ctfColor.ratio0In;
+                    ctfColor.ratio1In;
+                    ctfColor.heightIn;
+                    ctfColor.widthIn;
+
+                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                    smoothedMixPan.mixIn;
+                    smoothedMixPan.panIn;
+                }
+        
+                let
+                {
+                    pAbs = Abs::Processor;
+
+                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
+                    ballisticsFilterLan = BallisticsFilterLan::Processor (iAttackMs, iAttackNonlinearity, iReleaseMs, iReleaseNonlinearity);
+                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iHeight_dB, iWidth_dB);
+
+                    applyGain = ApplyGain::Processor;
+
+                    smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
+                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
+                }
+        
+                connection
+                {
+                    in -> pAbs -> stereoLink.in;
+                    stereoLink.out -> ballisticsFilterLan.in;
+                    ballisticsFilterLan.out -> ctfColor.in;
+                    ctfColor.out -> applyGain.b;
+
+                    in -> applyGain.in, smoothedMixPan.in0;
+
+                    applyGain.out -> smoothedVolume.in;
+                    smoothedVolume.out -> smoothedMixPan.in1;
+
+                    smoothedMixPan.out -> out;
+                }
+            }
+        }
+        
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
 
             a.k.a 'TheChorus'
@@ -65,23 +141,23 @@ VA::HighLevel Processors                                                12/25/21
         */
         namespace ChorusLadderLpfS
         {
-            graph Processor (float initialDelayMs = 27,
-                            float initialRateHz = 1.5f,
-                            float initialDepthPercent = 50,
-                            float initialCutoffHz = 16000,
-                            float initialResonance = 0.15f,
-                            float initialNonlinearity = 4.5f,
-                            float initialMixPercent = 50,
-                            float initialPan = -1.f)
+            graph Processor (float iDepthPercent = 50,
+                            float iRateHz = 1.5f,
+                            float iDelayMs = 27,
+                            float iNonlinearity = 4.5f,
+                            float iResonance = 0.15f,
+                            float iCutoffHz = 16000,
+                            float iMixPercent = 50,
+                            float iPan = -1.f)
             {
                 input stream SampleType in;
                 output stream SampleType out;
         
                 input
                 { 
-                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: initialDepthPercent, unit: "%", step: 1 ]];
-                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: initialRateHz, unit: "Hz", step: 0.1 ]];
-                    delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 35, init: initialDelayMs, unit: "ms", step: 1 ]];
+                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: iDepthPercent, unit: "%", step: 1 ]];
+                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1 ]];
+                    delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 ]];
 
                     ladderLpfS.nonlinearityIn;
                     ladderLpfS.resonanceIn;
@@ -97,11 +173,11 @@ VA::HighLevel Processors                                                12/25/21
                     dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
 
                     lfo = osc::lfo::Processor;
-                    delayLine = DelayLine::Processor (initialDelayMs, 35, 4);
+                    delayLine = DelayLine::Processor (iDelayMs, 35, 4);
 
-                    ladderLpfS = LadderLpfS::Processor (initialCutoffHz, initialResonance, initialNonlinearity);
+                    ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
                     
-                    smoothedMixPan = SmoothedMixPan::Processor (initialMixPercent, initialPan);
+                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
                 }
         
                 connection
@@ -128,14 +204,14 @@ VA::HighLevel Processors                                                12/25/21
         */
         namespace OnepoleC_Lan
         {
-            graph Processor (float initialNonlinearity = 250, float initialStereoLinkPercent = 100)
+            graph Processor (float iNonlinearity = 250, float iStereoLinkPercent = 100)
             {
                 input stream SampleType in;
                 output stream SampleType out;
         
                 input
                 {
-                    event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: initialNonlinearity, step: 1]];
+                    event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: iNonlinearity, step: 1]];
                     stereoLink.stereoLinkIn;
                     autoSmoothedVolume.parameterIn volumeIn;
                 }
@@ -144,9 +220,9 @@ VA::HighLevel Processors                                                12/25/21
                 {
                     dcBlockerIn = filt::dc_blocker::Processor (0.1);
 
-                    stereoLink = StereoLink::Processor (initialStereoLinkPercent);
+                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
 
-                    internal = Internal::Processor (initialNonlinearity) * 2;
+                    internal = Internal::Processor (iNonlinearity) * 2;
                     onepoleMixer = OnepoleMixer::Processor (OnepoleMixer::Modes::APF);
 
                     autoSmoothedVolume = AutoSmoothedVolume::Processor (AutoParameter::Modes::Volume_OnepoleC_Lan);
@@ -171,7 +247,7 @@ VA::HighLevel Processors                                                12/25/21
 
             namespace Internal 
             {
-                graph Processor (float initialNonlinearity = 0)
+                graph Processor (float iNonlinearity = 0)
                 {
                     input stream SampleType in, Lin;
                     output stream SampleType highpassOut, lowpassOut;
@@ -183,7 +259,7 @@ VA::HighLevel Processors                                                12/25/21
 
                     let
                     {
-                        L = LanADAA::Processor (initialNonlinearity);
+                        L = LanADAA::Processor (iNonlinearity);
                         onepoleC = OnepoleC::Processor;
                     }
             
@@ -221,7 +297,7 @@ VA::HighLevel Processors                                                12/25/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       12/27/21
+Filter Processors                                                       01/05/21
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -236,24 +312,24 @@ Filter Processors                                                       12/27/21
     {       
         let oversampling = 2;
 
-        graph Processor (float initialCutoff = 10000, float initialResonance = 1, float initialNonlinearity = 0)
+        graph Processor (float iCutoff = 10000, float iResonance = 1, float iNonlinearity = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 10000, max: 20000, init: initialCutoff, unit: "Hz", step: 1 ]];
-                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: initialResonance, step: 0.01f ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 10000, max: 20000, init: iCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: iResonance, step: 0.01f ]];
                 internal.nonlinearityIn;
             }
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (initialCutoff), SmoothedParameter::Modes::G_Onepole, 2);
-                smoothedParameter1 = SmoothedParameter::Processor (float[] (initialResonance), SmoothedParameter::Modes::Linear);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iCutoff), SmoothedParameter::Modes::G_Onepole, 2);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (iResonance), SmoothedParameter::Modes::Linear);
                 
-                internal = Internal::Processor (initialNonlinearity) * oversampling;
+                internal = Internal::Processor (iNonlinearity) * oversampling;
             }
     
             connection
@@ -334,18 +410,18 @@ Filter Processors                                                       12/27/21
                 }
             }
         
-            processor Processor (float initialNonlinearity = 0, int order = 4)
+            processor Processor (float iNonlinearity = 0, int order = 4)
             {
                 input stream SampleType in;
                 output stream SampleType out;
 
                 input stream SampleType G_OnepoleIn, kIn;
 
-                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 4.5, init: initialNonlinearity, step: 0.1]];
+                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 4.5, init: iNonlinearity, step: 0.1]];
 
                 event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
-                float nonlinearity = initialNonlinearity;
+                float nonlinearity = iNonlinearity;
                 bool recalc = true;
 
                 static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
@@ -383,10 +459,10 @@ Filter Processors                                                       12/27/21
     /** 'OnepoleC' with differing cutoff depending on rising/falling output relative to stored output (feedback) */
     namespace BallisticsFilterLan
     {
-        graph Processor (float initialAttackNonlinearity,
-                        float initialAttack,
-                        float initialReleaseNonlinearity,
-                        float initialRelease)
+        graph Processor (float iAttack,
+                        float iAttackNonlinearity,
+                        float iRelease,
+                        float iReleaseNonlinearity)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -401,7 +477,7 @@ Filter Processors                                                       12/27/21
     
             let
             {
-                branchingCutoffLan = BranchingCutoffLan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
+                branchingCutoffLan = BranchingCutoffLan::Processor (iAttack, iAttackNonlinearity, iRelease, iReleaseNonlinearity);
                 onepoleC = OnepoleC::Processor;
             }
     
@@ -436,20 +512,20 @@ Filter Processors                                                       12/27/21
                 return vifgt (Lan::process (x, c.attack), Lan::process(x, c.release), x, y);  
             }
 
-            processor Processor(float initialAttackNonlinearity,
-                                float initialAttack,
-                                float initialReleaseNonlinearity,
-                                float initialRelease)
+            processor Processor(float iAttackNonlinearity,
+                                float iAttack,
+                                float iReleaseNonlinearity,
+                                float iRelease)
             {
                 input stream SampleType x, y;
                 output stream SampleType Omega;
         
                 input event
                 { 
-                    float attackIn [[ name: "Attack", min: 1, max: 200, init: initialAttack, unit: "ms", step: 1 ]];
-                    float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 1000, init: initialAttackNonlinearity, step: 1 ]];
-                    float releaseIn [[ name: "Release", min: 1, max: 500, init: initialRelease, unit: "ms", step: 1 ]];
-                    float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 1000, init: initialReleaseNonlinearity, step: 1]];
+                    float attackIn [[ name: "Attack", min: 1, max: 200, init: iAttack, unit: "ms", step: 1 ]];
+                    float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 1000, init: iAttackNonlinearity, step: 1 ]];
+                    float releaseIn [[ name: "Release", min: 1, max: 500, init: iRelease, unit: "ms", step: 1 ]];
+                    float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 1000, init: iReleaseNonlinearity, step: 1]];
                 }
 
                 event attackIn (float v) { attack = v; recalc = true; }
@@ -457,10 +533,10 @@ Filter Processors                                                       12/27/21
                 event releaseIn (float v) { release = v; recalc = true; }
                 event releaseNonlinearityIn (float v) { releaseNonlinearity = v; recalc = true; }
 
-                float attack = initialAttack;
-                float attackNonlinearity = initialAttackNonlinearity;
-                float release = initialRelease;
-                float releaseNonlinearity = initialReleaseNonlinearity;
+                float attack = iAttack;
+                float attackNonlinearity = iAttackNonlinearity;
+                float release = iRelease;
+                float releaseNonlinearity = iReleaseNonlinearity;
                 bool recalc = true;
         
                 void run()
@@ -521,18 +597,18 @@ Filter Processors                                                       12/27/21
                 return lpf - hpf;
         }
     
-        processor Processor (int initialMode = Modes::HPF)
+        processor Processor (int iMode = Modes::HPF)
         {
             input stream SampleType lowpassIn, highpassIn;
             output stream SampleType out;
     
-            input event float modeIn [[ name: "Mode", min: Modes::HPF, max: Modes::NumModes - 1, init: initialMode, text: "HPF|LPF|APF" ]];
+            input event float modeIn [[ name: "Mode", min: Modes::HPF, max: Modes::NumModes - 1, init: iMode, text: "HPF|LPF|APF" ]];
 
-            static_assert ((initialMode > -1) && (initialMode < Modes::NumModes), "OnepoleMixer::Processor [[Filter Processors]]");
+            static_assert ((iMode > -1) && (iMode < Modes::NumModes), "OnepoleMixer::Processor [[Filter Processors]]");
     
             event modeIn (float v) { mode = v; recalc = true; }
     
-            float mode = float (initialMode);
+            float mode = float (iMode);
             bool recalc = true;
     
             void run()
@@ -716,20 +792,20 @@ Filter Processors                                                       12/27/21
             }
         }
 
-        processor Processor (float initialDelayMs = 3, float maxDelayMs = 20, float maxDepthMs = 4)
+        processor Processor (float iDelayMs = 3, float maxDelayMs = 20, float maxDepthMs = 4)
         {
             input stream SampleType in;
             input stream float lfoIn; //max amplitude should be <= 1
             output stream SampleType out;
 
-            input event float delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: maxDelayMs, init: initialDelayMs, unit: "ms", step: 1 ]];
+            input event float delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1 ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
-            float delayMs = initialDelayMs;
+            float delayMs = iDelayMs;
             bool recalc = true;
 
-            static_assert (initialDelayMs <= maxDelayMs, "DelayLine::Processor [[Filter Processors]]'");
+            static_assert (iDelayMs <= maxDelayMs, "DelayLine::Processor [[Filter Processors]]'");
 
             namespace m = M (maxDelayMs, maxDepthMs);
 
@@ -780,7 +856,7 @@ Mix Processors                                                          12/14/21
             let
             {
                 autoParameter = AutoParameter::Processor (mode);
-                smoothedVolume = SmoothedVolume::Processor (AutoParameter::M(mode)::InitialParameter);
+                smoothedVolume = SmoothedVolume::Processor (AutoParameter::M(mode)::iParameter);
             }
     
             connection
@@ -796,20 +872,20 @@ Mix Processors                                                          12/14/21
     /** Apply mixing and panning via 'SmoothedParameter' */
     namespace SmoothedMixPan
     {
-        graph Processor(float initialMix = 50, float initialPan = 0)
+        graph Processor(float iMix = 50, float iPan = 0)
         {
             input stream SampleType in0, in1;
             output stream SampleType out;
     
             input
             {
-                smoothedGains.in0 mixIn [[ name: "Mix", min: 0, max: 100, init: initialMix, unit: "%", step: 1 ]];
-                smoothedGains.in1 panIn [[ name: "Pan", min: -1, max: 1, init: initialPan, step: 0.01f ]];
+                smoothedGains.in0 mixIn [[ name: "Mix", min: 0, max: 100, init: iMix, unit: "%", step: 1 ]];
+                smoothedGains.in1 panIn [[ name: "Pan", min: -1, max: 1, init: iPan, step: 0.01f ]];
             }
 
             let
             {
-                smoothedGains = SmoothedParameter::Processor (float[2] (initialMix, initialPan), SmoothedParameter::Modes::MixPan);
+                smoothedGains = SmoothedParameter::Processor (float[2] (iMix, iPan), SmoothedParameter::Modes::MixPan);
                 applyGains = ApplyGains::Processor;
             }
     
@@ -829,16 +905,16 @@ Mix Processors                                                          12/14/21
     /** Apply a volume via 'SmoothedParameter' */
     namespace SmoothedVolume
     {
-        graph Processor (float initialValue = 0)
+        graph Processor (float iVolume = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float volumeIn [[ name: "Volume", min: -12, max: 0, init: initialValue, step: 0.1f, unit: "dB" ]];
+            input event float volumeIn [[ name: "Volume", min: -12, max: 0, init: iVolume, step: 0.1f, unit: "dB" ]];
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (float[] (initialValue), SmoothedParameter::Modes::Decibel);
+                smoothedGain = SmoothedParameter::Processor (float[] (iVolume), SmoothedParameter::Modes::Decibel);
                 applyGain = ApplyGain::Processor;
             }
     
@@ -855,246 +931,7 @@ Mix Processors                                                          12/14/21
     }
 
 /*==============================================================================
-Parameter Processors                                                    12/26/21
-==============================================================================*/
-
-    /** Automatic/manual parameters
-
-        Notes:
-        - Use to control a event float endpoint
-        - Passes events from 'parameterIn' to 'out' unless the current value of 'parameterIn' is below the mode's MinManualParameter.
-        'controlIn' is mapped to 'out' in this case ('out' is automatically determined by 'controlIn')
-        - Currently only for makeup volume
-    */
-    namespace AutoParameter
-    {   
-        namespace Modes
-        {
-            let Volume_OnepoleC_Lan = 0;
-            let NumModes = 1;
-        }
-
-        namespace M (int mode = Modes::Volume_OnepoleC_Lan)
-        {
-            static_assert ((mode > -1) && (mode < Modes::NumModes), "AutoParameter [[Parameter Processors]]");
-
-            let MaxParameter = (mode == Modes::Volume_OnepoleC_Lan ? 0.f : 0.f);
-            let MinParameter = (mode == Modes::Volume_OnepoleC_Lan ? -6.1f : -6.1f);
-            let InitialParameter = (mode == Modes::Volume_OnepoleC_Lan ? MinParameter : MinParameter);
-            let Step = (mode == Modes::Volume_OnepoleC_Lan ? 0.1f : 0.1f);
-            let MinManualParameter = (mode == Modes::Volume_OnepoleC_Lan ? MinParameter + Step : MinParameter + Step);
-            let PtsSize = (mode == Modes::Volume_OnepoleC_Lan ? 4 : 1);
-            let Pts = (mode == Modes::Volume_OnepoleC_Lan ? float[PtsSize] (-0.f, -1.f, -2.f, -3.5f) : float[PtsSize] (0));
-
-            float update (float parameter, float control)
-            {
-                if (parameter < MinManualParameter)
-                {
-                    if const (mode == Modes::Volume_OnepoleC_Lan)
-                        return Pts.readLinearInterpolated (min (control * 0.1f, 3.f));
-                }
-                else
-                    return parameter; 
-            }
-        }
-
-        processor Processor (int mode = Modes::Volume_OnepoleC_Lan)
-        {
-            output event float out;
-
-            input event float parameterIn [[name: "Volume", min: M (mode)::MinParameter, max: M(mode)::MaxParameter, init: M(mode)::InitialParameter, step: M(mode)::Step, unit: "dB"]];
-            input event float controlIn;
-
-            event parameterIn (float v) { parameter = v; recalc = true; }
-            event controlIn (float v) { control = v; recalc = true; }
-
-            float parameter = M(mode)::InitialParameter;
-            float control;
-            bool recalc = true;
-
-            void run() 
-            { 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        out << M(mode)::update (parameter, control);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** Maps float event(s) to smoothed output SampleType stream(s); heavily modified version of soul::gain::SmoothedGainParameter
-
-        Modes:
-        - Linear: Maps unsmoothed (in0) to smoothed (out0)
-        - Decibel: Maps unsmoothed dB scale (in0) to smoothed linear scale (out0)
-        - MixPan: Maps unsmoothed mix and pan (in0, in1) to smoothed gains for mixing two SampleType streams via ApplyGains (out0, out1)
-        - G_Onepole: Maps unsmoothed cutoff in Hz (in0) to smoothed Onepole cutoff gain (out0) 
-
-        Note:
-        - initial parameter is a float[] that defines the initial value of the parameter(s) corresponding to each of the float event(s)
-        - 'slewRateSeconds' is NOT the same as in soul::gain::SmoothedGainParameter; it is the max change in linear gain per second
-        (e.g., if slewRateSeconds 0.5 and gain changes by 1, then it will take 2 seconds to reach a gain of 1)  
-        - This Processor may be modified in the future to include other one-to-one, one-to-two, two-to-one, or two-to-two event-stream mapping Modes
-    */    
-    namespace SmoothedParameter
-    {
-        namespace Modes
-        {
-            let Linear = 0;
-            let Decibel = 1;
-            let MixPan = 2;
-            let G_Onepole = 3;
-            let NumModes = 4;
-        }
-
-        namespace M (int mode = Modes::Linear)
-        {
-            static_assert ((mode > -1) && (mode < Modes::NumModes), "SmoothedParameter::M [[Parameter Processors]]");
-
-            let NumIn = (mode == Modes::MixPan ? 2 : 1);
-            let NumOut = (mode == Modes::MixPan ? 2 : 1);
-            
-            struct Coeffs
-            {
-                SampleType[NumOut] target;
-                SampleType[NumOut] increment;
-            }
-
-            struct State
-            {
-                SampleType[NumOut] current;
-                int remainingRampSamples;
-            }
-
-            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta, float64 fs)
-            {
-                if const (mode == Modes::Linear)
-                    c.target.at(0) = SampleType (parameter.at(0));
-                else if const (mode == Modes::Decibel)
-                    c.target.at(0) = vdBtoGain (SampleType (parameter.at(0)));
-                else if const (mode == Modes::MixPan)
-                    c.target = vmixPanToGains (parameter.at(0), parameter.at(1));
-                else if const (mode == Modes::G_Onepole)
-                    c.target.at(0) = vcutoffToG_Onepole (parameter.at(0), fs);
-
-                if const (mode == Modes::Linear || mode == Modes::Decibel || mode == Modes::G_Onepole)
-                    s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
-                else if const (mode == Modes::MixPan)
-                {
-                    let r0 = int (vmaxr (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta));
-                    let r1 = int (vmaxr (vabs (c.target.at(1) - s.current.at(1)) * divMaxDelta));
-                    s.remainingRampSamples = max (1, max (r0, r1));
-                }
-
-                for (int i = 0; i < NumOut; ++i)
-                    c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
-            }
-
-            void updateUnsmoothed (Coeffs& c, float[] parameter, State& s, float64 fs)
-            {
-                if const (mode == Modes::Linear)
-                    s.current.at(0) = SampleType (parameter.at(0));
-                else if const (mode == Modes::Decibel)
-                    s.current.at(0) = vdBtoGain (SampleType (parameter.at(0)));
-                else if const (mode == Modes::MixPan)
-                    s.current = vmixPanToGains (parameter.at(0), parameter.at(1));
-                else if const (mode == Modes::G_Onepole)
-                    s.current.at(0) = vcutoffToG_Onepole (parameter.at(0), fs); 
-
-                s.remainingRampSamples = 0;
-            }
-
-            SampleType[NumOut] process (State& s, const Coeffs& c)
-            {
-                if (s.remainingRampSamples != 0)
-                {
-                    if (--(s.remainingRampSamples) == 0)
-                    {
-                        for (int i = 0; i < s.current.size; ++i)
-                            s.current.at(i) = c.target.at(i);
-                    }
-                    else
-                    {
-                        for (int i = 0; i < s.current.size; ++i)
-                            s.current.at(i) += c.increment.at(i);
-                    }
-                }
-
-                return s.current;
-            }
-        }
-
-        processor Processor (float[] initialParameter, int mode = Modes::Linear, int oversampling = 1, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
-        {
-            output stream SampleType out0, out1;
-
-            input event float in0, in1;
-
-            event in0 (float v) { parameter.at(0) = v; recalc = true; }
-            event in1 (float v) { parameter.at(1) = v; recalc = true; }
-
-            float[2] parameter;
-            bool recalc = false;
-
-            static_assert (initialParameter.size <= parameter.size, "SmoothedParameter::Processor [[Parameter Processors]]");
-            static_assert (oversampling > 0, "SmoothedParameter::Processor [[ParameterProcessors]]");
-
-            void init()
-            {
-                for (int i = 0; i < initialParameter.size; ++i)
-                    parameter.at(i) = initialParameter.at(i);
-            }
-
-            void run()
-            {   
-                M(mode)::State s;
-                M(mode)::Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-                let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
-                let fs = processor.frequency * float64 (oversampling);
-    
-                M(mode)::updateUnsmoothed (c, parameter, s, fs);
-            
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        M(mode)::update (c, parameter, s, divMaxDelta, fs);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        let y = M(mode)::process (s, c);
-
-                        out0 << y.at(0);
-
-                        if const (M(mode)::NumOut > 1)
-                            out1 << y.at(1);
-
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-/*==============================================================================
-Vectorized Helper Processors                                            12/26/21
+Vectorized Instrinsic/Helper Processors                                 01/05/22
 ==============================================================================*/
 
     /** vCTF_Color wrapper */
@@ -1123,32 +960,32 @@ Vectorized Helper Processors                                            12/26/21
             return vCTF_Color (x, c.threshold, c.ratio0, c.ratio1, c.height, c.width);
         }
 
-        processor Processor(float initialThreshold = -20,
-                            float initialRatio0 = 2,
-                            float initialRatio1 = 2,
-                            float initialHeight = 5,
-                            float initialWidth = 3)
+        processor Processor(float iThreshold = -20,
+                            float iRatio0 = 2,
+                            float iRatio1 = 2,
+                            float iHeight = 6,
+                            float iWidth = 3)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f ]];
-            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: initialRatio ]];
-            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 20.f, init: initialRatio ]];
-            input event float heightIn [[ name: "Height", min: -12.f, max: 12.f, init: initialHeight, unit: "dB" ]];
-            input event float widthIn [[ name: "Width", min: 0.1f, max: 12.f, init: initialWidth, unit: "dB" ]];
+            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f ]];
+            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: iRatio0 ]];
+            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 20.f, init: iRatio1 ]];
+            input event float heightIn [[ name: "Height", min: -12.f, max: 12.f, init: iHeight, unit: "dB" ]];
+            input event float widthIn [[ name: "Width", min: 0.1f, max: 12.f, init: iWidth, unit: "dB" ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
             event ratio1In (float v) { ratio1 = v; recalc = true; }
-            event colorHeightIn (float v) { height = v; recalc = true; }
-            event colorWidthIn (float v) { width = v; recalc = true; }
+            event heightIn (float v) { height = v; recalc = true; }
+            event widthIn (float v) { width = v; recalc = true; }
 
-            float threshold = initialThreshold;
-            float ratio0 = initialRatio0;
-            float ratio1 = initialRatio1;
-            float height = initialHeight;
-            float width = initialWidth;
+            float threshold = iThreshold;
+            float ratio0 = iRatio0;
+            float ratio1 = iRatio1;
+            float height = iHeight;
+            float width = iWidth;
             bool recalc = true;
 
             void run()
@@ -1164,72 +1001,6 @@ Vectorized Helper Processors                                            12/26/21
                         recalc = false;
     
                         c.update (threshold, ratio0, ratio1, height, width);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << process (in, c);
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** vCTF wrapper */
-    namespace CTF
-    {
-        struct Coeffs 
-        {
-            SampleType threshold;
-            SampleType ratio0;
-            SampleType ratio1;
-        }
-    
-        void update (Coeffs& c, float threshold, float ratio0, float ratio1) 
-        {
-            c.threshold = SampleType (threshold);
-            c.ratio0 = SampleType (ratio0);
-            c.ratio1 = SampleType (ratio1);
-        }
-    
-        SampleType process (SampleType x, const Coeffs& c) 
-        {
-            return vCTF (x, c.threshold, c.ratio0, c.ratio1);
-        }
-
-        processor Processor (float initialThreshold = -20.f, float initialRatio0 = 2, float initialRatio1 = 2)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f ]];
-            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 50.f, init: initialRatio0 ]];
-            input event float ratio1In [[ name: "Ratio 1", min: 0.5f, max: 50.f, init: initialRatio1 ]];
-
-            event thresholdIn (float v) { threshold = v; recalc = true; }
-            event ratio0In (float v) { ratio0 = v; recalc = true; }
-            event ratio1In (float v) { ratio1 = v; recalc = true; }
-
-            float threshold = initialThreshold;
-            float ratio0 = initialRatio0;
-            float ratio1 = initialRatio1;
-            bool recalc = true;
-
-            void run()
-            {
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-            
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (threshold, ratio0, ratio1);
                     }
     
                     loop (updateIntervalSamples)
@@ -1272,16 +1043,16 @@ Vectorized Helper Processors                                            12/26/21
             }
         }
     
-        processor Processor (float initialStereoLink = 0)
+        processor Processor (float iStereoLink = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: initialStereoLink, unit: "%", step: 1 ]];
+            input event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLink, unit: "%", step: 1 ]];
             
             event stereoLinkIn (float v) { stereoLink = v; recalc = true; }
 
-            float stereoLink = initialStereoLink;
+            float stereoLink = iStereoLink;
             bool recalc = true;
     
             void run()
@@ -1423,16 +1194,16 @@ Vectorized Helper Processors                                            12/26/21
                return s.processADAA1 (x, c);
         }
     
-        processor Processor(float initialNonlinearity = 0)
+        processor Processor(float iNonlinearity = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 3.5, init: initialNonlinearity, step: 0.1]];
+            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 3.5, init: iNonlinearity, step: 0.1]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
-            float nonlinearity = initialNonlinearity;
+            float nonlinearity = iNonlinearity;
             bool recalc = true;
     
             void run()
@@ -1462,7 +1233,6 @@ Vectorized Helper Processors                                            12/26/21
             }
         }
     }
-    
 
     /** 'vLan' with ADAA and a linear angular cutoff of 2pi
     
@@ -1553,16 +1323,16 @@ Vectorized Helper Processors                                            12/26/21
             return s.processADAA2 (x, c);
         }
     
-        processor Processor (float initialNonlinearity = 0)
+        processor Processor (float iNonlinearity = 0)
         {
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: initialNonlinearity, step: 1]];
+            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: iNonlinearity, step: 1]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
-            float nonlinearity = initialNonlinearity;
+            float nonlinearity = iNonlinearity;
             bool recalc = true;
 
             void run()
@@ -1616,19 +1386,19 @@ Vectorized Helper Processors                                            12/26/21
             return c.bias + vLan (x, c.N);
         }
     
-        processor Processor (float initialNonlinearity = 0, float initialTau = 20)
+        processor Processor (float iNonlinearity = 0, float iTau = 20)
         {
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: initialNonlinearity, step: 1 ]];
-            input event float tauIn [[ name: "Tau", min: 0, max: 500, init: initialTau, step: 1 ]];
+            input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: iNonlinearity, step: 1 ]];
+            input event float tauIn [[ name: "Tau", min: 0, max: 500, init: iTau, step: 1 ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             event tauIn (float v) { tau = v; recalc = true; }
 
-            float tau = initialTau;
-            float nonlinearity = initialNonlinearity;
+            float tau = iTau;
+            float nonlinearity = iNonlinearity;
             bool recalc = true;
 
             void run()
@@ -1717,10 +1487,249 @@ Vectorized Helper Processors                                            12/26/21
     }
 
 /*==============================================================================
+Parameter Processors                                                    01/05/21
+==============================================================================*/
+
+    /** Automatic/manual parameters
+
+        Notes:
+        - Use to control a event float endpoint
+        - Passes events from 'parameterIn' to 'out' unless the current value of 'parameterIn' is below the mode's MinManualParameter.
+        'controlIn' is mapped to 'out' in this case ('out' is automatically determined by 'controlIn')
+        - Currently only for makeup volume
+    */
+    namespace AutoParameter
+    {   
+        namespace Modes
+        {
+            let Volume_OnepoleC_Lan = 0;
+            let NumModes = 1;
+        }
+
+        namespace M (int mode = Modes::Volume_OnepoleC_Lan)
+        {
+            static_assert ((mode > -1) && (mode < Modes::NumModes), "AutoParameter [[Parameter Processors]]");
+
+            let MaxParameter = (mode == Modes::Volume_OnepoleC_Lan ? 0.f : 0.f);
+            let MinParameter = (mode == Modes::Volume_OnepoleC_Lan ? -6.1f : -6.1f);
+            let iParameter = (mode == Modes::Volume_OnepoleC_Lan ? MinParameter : MinParameter);
+            let Step = (mode == Modes::Volume_OnepoleC_Lan ? 0.1f : 0.1f);
+            let MinManualParameter = (mode == Modes::Volume_OnepoleC_Lan ? MinParameter + Step : MinParameter + Step);
+            let PtsSize = (mode == Modes::Volume_OnepoleC_Lan ? 4 : 1);
+            let Pts = (mode == Modes::Volume_OnepoleC_Lan ? float[PtsSize] (-0.f, -1.f, -2.f, -3.5f) : float[PtsSize] (0));
+
+            float update (float parameter, float control)
+            {
+                if (parameter < MinManualParameter)
+                {
+                    if const (mode == Modes::Volume_OnepoleC_Lan)
+                        return Pts.readLinearInterpolated (min (control * 0.1f, 3.f));
+                }
+                else
+                    return parameter; 
+            }
+        }
+
+        processor Processor (int mode = Modes::Volume_OnepoleC_Lan)
+        {
+            output event float out;
+
+            input event float parameterIn [[name: "Volume", min: M (mode)::MinParameter, max: M(mode)::MaxParameter, init: M(mode)::iParameter, step: M(mode)::Step, unit: "dB"]];
+            input event float controlIn;
+
+            event parameterIn (float v) { parameter = v; recalc = true; }
+            event controlIn (float v) { control = v; recalc = true; }
+
+            float parameter = M(mode)::iParameter;
+            float control;
+            bool recalc = true;
+
+            void run() 
+            { 
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        out << M(mode)::update (parameter, control);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    /** Maps float event(s) to smoothed output SampleType stream(s); heavily modified version of soul::gain::SmoothedGainParameter
+
+        Modes:
+        - Linear: Maps unsmoothed (in0) to smoothed (out0)
+        - Decibel: Maps unsmoothed dB scale (in0) to smoothed linear scale (out0)
+        - MixPan: Maps unsmoothed mix and pan (in0, in1) to smoothed gains for mixing two SampleType streams via ApplyGains (out0, out1)
+        - G_Onepole: Maps unsmoothed cutoff in Hz (in0) to smoothed Onepole cutoff gain (out0) 
+
+        Note:
+        - initial parameter is a float[] that defines the initial value of the parameter(s) corresponding to each of the float event(s)
+        - 'slewRateSeconds' is NOT the same as in soul::gain::SmoothedGainParameter; it is the max change in linear gain per second
+        (e.g., if slewRateSeconds 0.5 and gain changes by 1, then it will take 2 seconds to reach a gain of 1)  
+        - This Processor may be modified in the future to include other one-to-one, one-to-two, two-to-one, or two-to-two event-stream mapping Modes
+    */    
+    namespace SmoothedParameter
+    {
+        namespace Modes
+        {
+            let Linear = 0;
+            let Decibel = 1;
+            let MixPan = 2;
+            let G_Onepole = 3;
+            let NumModes = 4;
+        }
+
+        namespace M (int mode = Modes::Linear)
+        {
+            static_assert ((mode > -1) && (mode < Modes::NumModes), "SmoothedParameter::M [[Parameter Processors]]");
+
+            let NumIn = (mode == Modes::MixPan ? 2 : 1);
+            let NumOut = (mode == Modes::MixPan ? 2 : 1);
+            
+            struct Coeffs
+            {
+                SampleType[NumOut] target;
+                SampleType[NumOut] increment;
+            }
+
+            struct State
+            {
+                SampleType[NumOut] current;
+                int remainingRampSamples;
+            }
+
+            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta, float64 fs)
+            {
+                if const (mode == Modes::Linear)
+                    c.target.at(0) = SampleType (parameter.at(0));
+                else if const (mode == Modes::Decibel)
+                    c.target.at(0) = vdBtoGain (SampleType (parameter.at(0)));
+                else if const (mode == Modes::MixPan)
+                    c.target = vmixPanToGains (parameter.at(0), parameter.at(1));
+                else if const (mode == Modes::G_Onepole)
+                    c.target.at(0) = vcutoffToG_Onepole (parameter.at(0), fs);
+
+                if const (mode == Modes::Linear || mode == Modes::Decibel || mode == Modes::G_Onepole)
+                    s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
+                else if const (mode == Modes::MixPan)
+                {
+                    let r0 = int (vmaxr (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta));
+                    let r1 = int (vmaxr (vabs (c.target.at(1) - s.current.at(1)) * divMaxDelta));
+                    s.remainingRampSamples = max (1, max (r0, r1));
+                }
+
+                for (int i = 0; i < NumOut; ++i)
+                    c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
+            }
+
+            void updateUnsmoothed (Coeffs& c, float[] parameter, State& s, float64 fs)
+            {
+                if const (mode == Modes::Linear)
+                    s.current.at(0) = SampleType (parameter.at(0));
+                else if const (mode == Modes::Decibel)
+                    s.current.at(0) = vdBtoGain (SampleType (parameter.at(0)));
+                else if const (mode == Modes::MixPan)
+                    s.current = vmixPanToGains (parameter.at(0), parameter.at(1));
+                else if const (mode == Modes::G_Onepole)
+                    s.current.at(0) = vcutoffToG_Onepole (parameter.at(0), fs); 
+
+                s.remainingRampSamples = 0;
+            }
+
+            SampleType[NumOut] process (State& s, const Coeffs& c)
+            {
+                if (s.remainingRampSamples != 0)
+                {
+                    if (--(s.remainingRampSamples) == 0)
+                    {
+                        for (int i = 0; i < s.current.size; ++i)
+                            s.current.at(i) = c.target.at(i);
+                    }
+                    else
+                    {
+                        for (int i = 0; i < s.current.size; ++i)
+                            s.current.at(i) += c.increment.at(i);
+                    }
+                }
+
+                return s.current;
+            }
+        }
+
+        processor Processor (float[] iParameter, int mode = Modes::Linear, int oversampling = 1, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
+        {
+            output stream SampleType out0, out1;
+
+            input event float in0, in1;
+
+            event in0 (float v) { parameter.at(0) = v; recalc = true; }
+            event in1 (float v) { parameter.at(1) = v; recalc = true; }
+
+            float[2] parameter;
+            bool recalc = false;
+
+            static_assert (iParameter.size <= parameter.size, "SmoothedParameter::Processor [[Parameter Processors]]");
+            static_assert (oversampling > 0, "SmoothedParameter::Processor [[ParameterProcessors]]");
+
+            void init()
+            {
+                for (int i = 0; i < iParameter.size; ++i)
+                    parameter.at(i) = iParameter.at(i);
+            }
+
+            void run()
+            {   
+                M(mode)::State s;
+                M(mode)::Coeffs c;
+
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
+                let fs = processor.frequency * float64 (oversampling);
+    
+                M(mode)::updateUnsmoothed (c, parameter, s, fs);
+            
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        M(mode)::update (c, parameter, s, divMaxDelta, fs);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        let y = M(mode)::process (s, c);
+
+                        out0 << y.at(0);
+
+                        if const (M(mode)::NumOut > 1)
+                            out1 << y.at(1);
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+/*==============================================================================
 Vectorized Helper Functions                                             12/13/21
 ==============================================================================*/
 
-    /** vCTF with additional color settings to shape the knee 
+    /** Compressor Transfer Function (CTF) with additional color settings to shape the knee 
     
         Notes:
         - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color
@@ -1738,23 +1747,6 @@ Vectorized Helper Functions                                             12/13/21
         let y = vdBtoGain (ydB) / x;
 
         return vifgt (y, ZERO, x, NOISE_FLOOR);
-    }
-
-    /** Classical compressor transfer function (CTF) with ratio control for envelope values below threshold (ratio1) 
-    
-        Notes:
-        - The recommended range for ratio0 and ratio1 is [0.5, inf]
-        - See https://www.dropbox.com/s/cjq4t08u6pqkaas/ADC17FiftyShadesDistortion.zip?dl=0&file_subpath=%2FCode%2FDynamicsCompressor.cpp
-    */
-    SampleType vCTF (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1)
-    {
-        let divRatio1m1 = ONE/ratio0 - ONE;
-        let divRatio2m1 = ONE/ratio1 - ONE;
-        let thrlin = vdBtoGain (threshold);
-
-        let y = vifgt (vpow (x * (ONE/thrlin), divRatio1m1), vpow (x * (ONE/thrlin), divRatio2m1), x, thrlin);
-
-        return vifgt (y, ZERO, x, NOISE_FLOOR); //avoid very high gain from ratio1 < 1
     }
 
     /** 'BBD' mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
@@ -2012,115 +2004,6 @@ Constants                                                               12/25/21
 
 namespace VA::Experimental
 {
-    
-
-            /** A modified classical compressor sidechain
-        
-            3 sidechain blocks:
-            - Detector: ideal rectifier
-            - Envelope Filter: nonlinear ballistics filter based on Lan
-            - Compressor Transfer Function: hard-knee with color  
-        */
-        // namespace DynamicsProcessor_Lan_Color
-        // {
-        //     graph Processor (float initialThreshold,
-        //                     float initialRatio,
-        //                     float initialColorHeight,
-        //                     float initialColorWidth,
-        //                     float initialAttack,
-        //                     float initialRelease,
-        //                     float initialNonlinearity)
-        //     {
-        //         input stream SampleType in;
-        //         output stream SampleType out;
-            
-        //         input
-        //         {
-        //             ballisticsFilter.attackIn;
-        //             ballisticsFilter.releaseIn;
-        //             stereoLink.stereoLinkIn;
-        //             ctf.thresholdIn;
-        //             ctf.ratioIn;
-        //             ctf.colorHeight;
-        //             ctf.colorWidth;
-        //         }
-
-        //         let
-        //         {
-        //             detector = Abs::Processor;
-        //             ballisticsFilter = BallisticsFilter_Lan::Processor (initialAttack, initialRelease);
-        //             stereoLink = StereoLink::Processor;
-        //             ctf = CTF_Color::Processor (initialThreshold, initialRatio, initialColorHeight, initialColorWidth);
-        //         }
-            
-        //         connection
-        //         {
-        //             in -> detector.in;
-        //             detector.out -> ballistics.in;
-        //             ballistics.out -> stereoLinkIn;
-        //             stereoLink.out -> ctf.in;
-        //             ctf.out -> out;
-        //         }
-        //     }
-        // }
-
-        /** A modified downward compressor/ upward expander 
-        
-            3 sidechain blocks:
-            - Detector: ideal rectifier
-            - Envelope Filter: nonlinear ballistics filter based on Lan
-            - Compressor Transfer Function: hard-knee 
-        */
-        // namespace DynamicsProcessor_Lan
-        // {
-        //     graph Processor (float initialAttack,
-        //                     float initialAttackNonlinearity,
-        //                     float initialRelease,
-        //                     float initialReleaseNonlinearity,
-        //                     float initialStereoLink,
-        //                     float initialThreshold,
-        //                     float initialRatio0,
-        //                     float initialRatio1)
-        //     {
-        //         input stream SampleType in;
-        //         output stream SampleType out;
-            
-        //         input
-        //         {
-        //             ballisticsFilter_Lan.attackIn;
-        //             ballisticsFilter_Lan.attackNonlinearityIn;
-        //             ballisticsFilter_Lan.releaseIn;
-        //             ballisticsFilter_Lan.releaseNonlinearityIn;
-        //             stereoLink.stereoLinkIn;
-        //             ctf.thresholdIn;
-        //             ctf.ratio1In;
-        //             ctf.ratio1In;
-        //         }
-
-        //         let
-        //         {
-        //             abs_ = Abs::Processor;
-        //             ballisticsFilter_Lan = BallisticsFilter_Lan::Processor (initialAttack, initialAttackNonlinearity, initialRelease, initialReleaseNonlinearity);
-        //             stereoLink = StereoLink::Processor (initialStereoLink);
-        //             ctf = CTF::Processor (initialThreshold, initialRatio0, initialRatio1);
-        //             multiplier = Multiplier::Processor;
-        //         }
-            
-        //         connection
-        //         {
-        //             in -> abs_.in, multiplier.in1;
-
-        //             abs_.out -> ballisticsFilter_Lan.in;
-        //             ballisticsFilter_Lan.out -> stereoLink.in;
-        //             stereoLink.out -> ctf.in;
-        //             ctf.out -> multiplier.in2;
-
-        //             multiplier -> out;
-        //         }
-        //     }
-        // }
-
-
     // /** Onepole modified for state variable saturation
 
     //     Notes:
@@ -2149,16 +2032,16 @@ namespace VA::Experimental
     //         return SampleType[2] (lpf, hpf);
     //     }
 
-    //     processor Processor (float initialDrive)
+    //     processor Processor (float iDrive)
     //     {
     //         input stream SampleType in;
     //         output stream SampleType lowpassOut, highpassOut;
 
-    //         input event float driveIn [[ name: "Drive", min: 0, max: 20, init: initialDrive, text: "dB" ]];
+    //         input event float driveIn [[ name: "Drive", min: 0, max: 20, init: iDrive, text: "dB" ]];
 
     //         event driveIn (float v) { drive = v; recalc = true; }
 
-    //         float drive = dBtoGain (initialDrive);
+    //         float drive = dBtoGain (iDrive);
     //         bool recalc = true;
 
     //         void run()

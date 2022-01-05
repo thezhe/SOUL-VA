@@ -80,24 +80,41 @@ namespace main
             va2.nonlinearityIn va2_5;
             va2.mixIn va2_6;
             va2.panIn va2_7;
+
+            va3.stereoLinkIn va3_0;
+            va3.attackIn va3_1;
+            va3.attackNonlinearityIn va3_2;
+            va3.releaseIn va3_3;
+            va3.releaseNonlinearityIn va3_4;
+            va3.thresholdIn va3_5;
+            va3.ratio0In va3_6;
+            va3.ratio1In va3_7;
+            va3.heightIn va3_8;
+            va3.widthIn va3_9;
+            va3.makeupVolumeIn va3_10;
+            va3.mixIn va3_11;
+            va3.panIn va3_12;
         }
 
         let
         { 
+            up = FloatToSampleType::Processor;
+            down = SampleTypeToFloat::Processor;
+
             //all 'Processors' from VA::HighLevel
             va0 = va::Dummy::Processor;
             va1 = va::OnepoleC_Lan::Processor;
             va2 = va::ChorusLadderLpfS::Processor;
-
-            up = FloatToSampleType::Processor;
-            down = SampleTypeToFloat::Processor;
+            va3 = va::CompColorLan::Processor;
         }
 
         connection
         {       
+            //all 'Processors' from VA::HighLevel connected in series
             in -> up -> va0 -> va1.in;
             va1.out -> va2.in;
-            va2.out -> down -> out;
+            va2.out -> va3.in;
+            va3.out -> down -> out;
         }
     }
 }
