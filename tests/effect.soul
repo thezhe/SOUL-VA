@@ -57,16 +57,15 @@ namespace main
 
         input
         {
-            effect.stereoLinkIn;
-            effect.attackIn;
-            effect.attackNonlinearityIn;
-            effect.releaseIn;
-            effect.thresholdIn;
-            effect.ratio0In;
-            effect.ratio1In;
-            effect.heightIn;
-            effect.widthIn;
-            effect.makeupVolumeIn;
+            effect.depthIn;
+            effect.rateIn;
+            effect.delayIn;
+
+            effect.nonlinearityIn;
+            effect.resonanceIn;
+            effect.cutoffIn;
+
+            effect.makeupVolumeIn; 
             effect.mixIn;
             effect.panIn;
         }
@@ -74,7 +73,7 @@ namespace main
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::CompColorLan::Processor;
+            effect = VA::HighLevel::ChorusLadderLpfS::Processor(0, 0, 0, 4.5f, 1, 20000, 0, 100, 0);
 
             //comment out for stereo
             up = FloatToSampleType::Processor;

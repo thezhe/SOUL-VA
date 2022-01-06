@@ -78,8 +78,9 @@ namespace main
             va2.cutoffIn va2_3;
             va2.resonanceIn va2_4;
             va2.nonlinearityIn va2_5;
-            va2.mixIn va2_6;
-            va2.panIn va2_7;
+            va2.makeupVolumeIn va2_6;
+            va2.mixIn va2_7;
+            va2.panIn va2_8;
 
             va3.stereoLinkIn va3_0;
             va3.attackIn va3_1;
