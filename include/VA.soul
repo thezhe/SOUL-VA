@@ -39,6 +39,7 @@
     - add mixpan/dc blocker to all high level and add to snippet
     - add variable 2nd order hpf up to butterworth for comp
     - 2, 4, 8, 16 ratio text
+    - volume last after mixpan
 
     Future Tasks:
     - small dx approximation for hysteretic L
@@ -150,9 +151,9 @@ VA::HighLevel Processors                                                01/05/21
                             float iNonlinearity = 4.5f,
                             float iResonance = 0.15f,
                             float iCutoffHz = 16000,
-                            float iMakeupVolume_dB = 0,
                             float iMixPercent = 50,
-                            float iPan = -1.f)
+                            float iPan = -1.f,
+                            float iMakeupVolume_dB = 0)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -167,9 +168,9 @@ VA::HighLevel Processors                                                01/05/21
                     ladderLpfS.resonanceIn;
                     ladderLpfS.cutoffIn;
 
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -6, max: 3, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
+                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -6, max: 6, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                 }
         
                 let
@@ -182,8 +183,8 @@ VA::HighLevel Processors                                                01/05/21
 
                     ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
 
-                    smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
+                    smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
                 }
         
                 connection
@@ -193,10 +194,10 @@ VA::HighLevel Processors                                                01/05/21
                     in -> dcBlockerIn -> delayLine.in, smoothedMixPan.in0;
                     
                     delayLine.out -> ladderLpfS.in;
-                    ladderLpfS.out -> smoothedVolume.in;
-                    smoothedVolume.out -> smoothedMixPan.in1;
+                    ladderLpfS.out -> smoothedMixPan.in1;
                     
-                    smoothedMixPan.out -> dcBlockerOut -> out;
+                    smoothedMixPan.out -> smoothedVolume.in;
+                    smoothedVolume.out -> dcBlockerOut -> out;
                 }
             }
         }
