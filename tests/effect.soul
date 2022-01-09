@@ -67,13 +67,13 @@ namespace main
 
             effect.mixIn;
             effect.panIn;
-            effect.makeupVolumeIn; 
+            effect.makeupVolumeIn;
         }
 
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::ChorusLadderLpfS::Processor;
+            effect = VA::HighLevel::ChorusLadderLpfS::Processor (0, 0, 0, 20, 0.25f, 16000, 100, 0, 0);
 
             //comment out for stereo
             up = FloatToSampleType::Processor;

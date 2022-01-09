@@ -38,10 +38,11 @@
     - CompColorLan
     - add mixpan/dc blocker to all high level and add to snippet
     - add variable 2nd order hpf up to butterworth for comp
-    - 2, 4, 8, 16 ratio text
     - volume last after mixpan
 
     Future Tasks:
+    - add butterworth constants
+    - reorganize constants to Processor scopes
     - small dx approximation for hysteretic L
     - TheBass abs before stereo link and rectified lan
     - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
@@ -76,9 +77,11 @@ VA::HighLevel Processors                                                01/05/21
                             float iRatio1 = 1.5f,
                             float iHeight_dB = 6,
                             float iWidth_dB = 3,
-                            float iMakeupVolume_dB = 0,
+                            float iHpfCutoffHz = 5,
+                            float iHpfQuality = 1,
                             float iMixPercent = 100,
-                            float iPan = 0)
+                            float iPan = 0,
+                            float iMakeupVolume_dB = 0)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -98,6 +101,9 @@ VA::HighLevel Processors                                                01/05/21
                     ctfColor.heightIn;
                     ctfColor.widthIn;
 
+                    svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                    svf.qualityIn [[ name: "Q", min: 0.01, max: 0.707106781, init: iHpfQuality]]; //max Q is butterworth
+
                     smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
@@ -105,13 +111,22 @@ VA::HighLevel Processors                                                01/05/21
         
                 let
                 {
+                    //main Processors
                     pAbs = Abs::Processor;
 
-                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
+                    svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
+
                     ballisticsFilterLan = BallisticsFilterLan::Processor (iAttackMs, iAttackNonlinearity, iReleaseMs, iReleaseNonlinearity);
                     ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iHeight_dB, iWidth_dB);
 
                     applyGain = ApplyGain::Processor;
+
+
+                    //boilerplate Processors
+                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+
+                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
 
                     smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
@@ -119,21 +134,20 @@ VA::HighLevel Processors                                                01/05/21
         
                 connection
                 {
-                    in -> pAbs -> stereoLink.in;
+                    in -> dcBlockerIn -> smoothedMixPan.in0, svf.in, applyGain.in;
+                    
+                    svf.highpassOut -> pAbs -> stereoLink.in;
                     stereoLink.out -> ballisticsFilterLan.in;
                     ballisticsFilterLan.out -> ctfColor.in;
                     ctfColor.out -> applyGain.b;
 
-                    in -> applyGain.in, smoothedMixPan.in0;
-
-                    applyGain.out -> smoothedVolume.in;
-                    smoothedVolume.out -> smoothedMixPan.in1;
-
-                    smoothedMixPan.out -> out;
+                    applyGain.out -> smoothedMixPan.in1;
+                    smoothedMixPan.out -> smoothedVolume.in;
+                    smoothedVolume.out -> dcBlockerOut -> out;
                 }
             }
         }
-        
+
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
 
             a.k.a 'TheChorus'
@@ -330,8 +344,8 @@ Filter Processors                                                       01/05/21
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 10000, max: 20000, init: iCutoff, unit: "Hz", step: 1 ]];
-                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 1, init: iResonance, step: 0.01f ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 1000, max: 16000, init: iCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 0.25f, init: iResonance, step: 0.01f ]];
                 internal.nonlinearityIn;
             }
     
@@ -359,7 +373,7 @@ Filter Processors                                                       01/05/21
             {
                 SampleType g; //G for onepole stages
                 SampleType k; //resonance
-                BBD_ADAA::Coeffs ca;
+                SampleType N; //nonlinearity
             }
 
             void updatePerSample (Coeffs& c, SampleType G_Onepole, SampleType k)
@@ -374,17 +388,12 @@ Filter Processors                                                       01/05/21
 
                 void update (Coeffs& c, float nonlinearity, State& s, float64 fs)
                 {
-                    let nonlinearityScaled = float (44100.0 / fs) * nonlinearity;
-
-                    BBD_ADAA::update (c.ca, nonlinearityScaled);
-                    BBD_ADAA::reset (s.sa0);
-                    BBD_ADAA::reset (s.sa1);
+                    c.N = float (44100 * oversampling / fs) * nonlinearity * float (c.g[0]) * (1.f + float (c.k[0])); //nonlinearity scaled according to fs and other params
                 }
 
                 struct State
                 {
                     SampleType[order] s;
-                    BBD_ADAA::State sa0, sa1;
                 }
 
                 SampleType process (State& s, SampleType x, const Coeffs& c)
@@ -410,10 +419,10 @@ Filter Processors                                                       01/05/21
                            y = v  + s.s.at(i);
                            s.s.at(i) = v + y;
                         }
-                        else 
+                        else //2 stage saturation, bounded clipper
                         {
-                            y = BBD_ADAA::process (s.sa0, v + s.s.at(i), c.ca); //saturate y and s, more stable than 1 stage
-                            s.s.at(i) = BBD_ADAA::process (s.sa1, v + y, c.ca);
+                            y = vsigmoidCD(vBBD(v + s.s.at(i), c.N));
+                            s.s.at(i) = vsigmoidCD(vBBD(v + y, c.N));
                         }     
                     }
                     
@@ -428,7 +437,7 @@ Filter Processors                                                       01/05/21
 
                 input stream SampleType G_OnepoleIn, kIn;
 
-                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 4.5, init: iNonlinearity, step: 0.1]];
+                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 20, init: iNonlinearity, step: 0.1]];
 
                 event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -984,7 +993,7 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
             input event float ratio0In [[ name: "Downwards Ratio", min: 1.f, max: 20.f, init: iRatio0, step: 1 ]];
             input event float ratio1In [[ name: "Updwards Ratio", min: 1.f, max: 1.5f, init: iRatio1, step: 0.01f ]];
             input event float heightIn [[ name: "Height", min: -6.f, max: 6.f, init: iHeight, unit: "dB", step: 0.01f ]];
-            input event float widthIn [[ name: "Width", min: 0.1f, max: 6.f, init: iWidth, unit: "dB", step: 0.01f ]];
+            input event float widthIn [[ name: "Width", min: 1.f, max: 6.f, init: iWidth, unit: "dB", step: 0.01f ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
