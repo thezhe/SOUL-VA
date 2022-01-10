@@ -35,12 +35,14 @@
 /** Task List
 
     Current Tasks:
+    - TheChorus saturation rework and stereo width
+
+    Future Tasks:
+    - volume last after mixpan
     - CompColorLan
     - add mixpan/dc blocker to all high level and add to snippet
     - add variable 2nd order hpf up to butterworth for comp
-    - volume last after mixpan
-
-    Future Tasks:
+    - camelCase Processors, redo naming for consistency with effect names
     - add butterworth constants
     - reorganize constants to Processor scopes
     - small dx approximation for hysteretic L
@@ -48,8 +50,8 @@
     - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
     - add updateSample to snippets
     - Add more static_assert checks
-    - convert Omega endpoints to cutoff endpoints for consistency
-    - Ladder compile time order
+    - convert Omega endpoints to cutoff endpoints for consistency (may not need)
+    - Ladder compile time order !=4 or 8
 */
 
 namespace VA 
@@ -64,109 +66,25 @@ VA::HighLevel Processors                                                01/09/22
     */
     namespace HighLevel
     {   
-        /** Compressor with a colored CTF and nonlinear ballistics */
-        namespace CompColorLan
-        {
-            graph Processor(float iStereoLinkPercent = 0,
-                            float iAttackMs = 1,
-                            float iAttackNonlinearity = 100,
-                            float iReleaseMs = 300, 
-                            float iReleaseNonlinearity = 0,
-                            float iThreshold_dB = -20,
-                            float iRatio0 = 10,
-                            float iRatio1 = 1.5f,
-                            float iHeight_dB = 6,
-                            float iWidth_dB = 3,
-                            float iHpfCutoffHz = 5,
-                            float iHpfQuality = 1,
-                            float iMixPercent = 100,
-                            float iPan = 0,
-                            float iMakeupVolume_dB = 0)
-            {
-                input stream SampleType in;
-                output stream SampleType out;
-        
-                input
-                {
-                    stereoLink.stereoLinkIn;
-
-                    ballisticsFilterLan.attackIn;
-                    ballisticsFilterLan.attackNonlinearityIn;
-                    ballisticsFilterLan.releaseIn;
-                    ballisticsFilterLan.releaseNonlinearityIn;
-
-                    ctfColor.thresholdIn;
-                    ctfColor.ratio0In;
-                    ctfColor.ratio1In;
-                    ctfColor.heightIn;
-                    ctfColor.widthIn;
-
-                    svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
-                    svf.qualityIn [[ name: "Q", min: 0.01, max: 0.707106781, init: iHpfQuality]]; //max Q is butterworth
-
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
-                    smoothedMixPan.mixIn;
-                    smoothedMixPan.panIn;
-                }
-        
-                let
-                {
-                    //main Processors
-                    pAbs = Abs::Processor;
-
-                    svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
-
-                    ballisticsFilterLan = BallisticsFilterLan::Processor (iAttackMs, iAttackNonlinearity, iReleaseMs, iReleaseNonlinearity);
-                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iHeight_dB, iWidth_dB);
-
-                    applyGain = ApplyGain::Processor;
-
-
-                    //boilerplate Processors
-                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-
-                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
-
-                    smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
-                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
-                }
-        
-                connection
-                {
-                    in -> dcBlockerIn -> smoothedMixPan.in0, svf.in, applyGain.in;
-                    
-                    svf.highpassOut -> pAbs -> stereoLink.in;
-                    stereoLink.out -> ballisticsFilterLan.in;
-                    ballisticsFilterLan.out -> ctfColor.in;
-                    ctfColor.out -> applyGain.b;
-
-                    applyGain.out -> smoothedMixPan.in1;
-                    smoothedMixPan.out -> smoothedVolume.in;
-                    smoothedVolume.out -> dcBlockerOut -> out;
-                }
-            }
-        }
-
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
-
-            a.k.a 'TheChorus'
         
             Notes:
             - 'delayIn' is not artifact free under modulation
             - Use case: Chorus, slow flange, doubler
             - Loosely based on Boss CE2 Chorus Pedal (lfo is trangle signal)
         */
-        namespace ChorusLadderLpfS
+        namespace TheChorus
         {
             graph Processor (float iDepthPercent = 50,
                             float iRateHz = 1.5f,
-                            float iDelayMs = 27,
-                            float iNonlinearity = 4.5f,
-                            float iResonance = 0.15f,
-                            float iCutoffHz = 16000,
-                            float iMixPercent = 50,
-                            float iPan = -1.f,
+                            float iWidthDeg = 180,
+                            int iMode = Lfo::Modes::Triangle,
+                            float iDelayMs = 3,
+                            float iNonlinearity = 1,
+                            float iResonance = 0.25f,
+                            float iCutoffHz = 1000,
+                            float iMixPercent = 100,
+                            float iPan = 0,
                             float iMakeupVolume_dB = 0)
             {
                 input stream SampleType in;
@@ -176,7 +94,8 @@ VA::HighLevel Processors                                                01/09/22
                 { 
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: iDepthPercent, unit: "%", step: 1 ]];
                     lfo.rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1 ]];
-                    lfo.phaseOffsetIn;
+                    lfo.widthIn;
+                    lfo.modeIn;
 
                     delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 ]];
 
@@ -186,7 +105,7 @@ VA::HighLevel Processors                                                01/09/22
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -6, max: 6, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                 }
         
                 let
@@ -194,7 +113,7 @@ VA::HighLevel Processors                                                01/09/22
                     dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
                     dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
 
-                    lfo = Lfo::Processor;
+                    lfo = Lfo::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode);
                     delayLine = DelayLine::Processor (iDelayMs, 35, 4);
 
                     ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
@@ -411,12 +330,12 @@ Filter Processors                                                       01/09/22
                     //input to first lowpass ('u')
                     var y = (x - c.k * S) / (ONE + c.k * G);
 
-                    //'order' lowpasses in series 
+                    //'order' lowpasses in series
                     for (int i = 0; i < order; ++i)
                     {
                         let v = (y - s.s.at(i)) * c.g;
                         
-                        y = vsigmoidCD(vBBD(v  + s.s.at(i), c.N));
+                        y = vsigmoidCD(vBBD(v  + s.s.at(i), c.N)); // "state saturation"
                         s.s.at(i) = v + y;
                     }
                     
@@ -670,7 +589,7 @@ Filter Processors                                                       01/09/22
 
         void updatePerSample (Coeffs& c, SampleType Omega, float64 fs)
         {
-            c.G = vcutoffToG_OnepoleA (Omega, fs);
+            c.G = vOmegaToG_Onepole (Omega, fs);
         }
 
         SampleType[2] process (State& s, SampleType x, const Coeffs& c)
@@ -705,60 +624,6 @@ Filter Processors                                                       01/09/22
 
                     lowpassOut << y.at(0);
                     highpassOut << y.at(1);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    /** Variable order DC blocker using soul::filters::dc_blocker */
-    namespace DC_BlockerN
-    {   
-        namespace M (int order)
-        {
-            struct Coeffs
-            {
-                filt::dc_blocker::Coeffs[order] coeffs;
-            }
-
-            void update (Coeffs& c, float64 SampleRate, float64 freqHz)
-            {
-                for (int i = 0; i < order; ++i)
-                    filt::dc_blocker::update (c.coeffs.at(i), SampleRate, freqHz);
-            }
-
-            struct State
-            {
-                filt::dc_blocker::State[order] state;
-            }
-
-            SampleType process (State& s, SampleType x, Coeffs& c)
-            {
-                var y = filt::dc_blocker::process (s.state.at(0), x, c.coeffs.at(0));
-
-                for (int i = 1; i < order; ++i)
-                    y = filt::dc_blocker::process (s.state.at(i), y, c.coeffs.at(i));
-
-                return y;
-            }
-        }
-    
-        processor Processor (int order = 1, float64 frequency = DC_BLOCKER_CUTOFF_HZ)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            void run()
-            {   
-                M(order)::State s;
-                M(order)::Coeffs c;
-    
-                M(order)::update (c, processor.frequency, frequency);
-
-                loop
-                {
-                    out << M(order)::process (s, in, c);
 
                     advance();
                 }
@@ -1105,7 +970,7 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
         - If sampling rate is 44.1kHz, use 2x oversampling
         - Parameters are not suitable for modulation
     */
-    namespace BBD_ADAA
+    namespace BBD_ADAA //DEPRECATED
     {   
         struct Coeffs
         {
@@ -1510,16 +1375,23 @@ Parameter Processors                                                    01/09/22
     /** Modified version of soul::oscillators::lfo 
     
         Notes:
-        - Stereo output with ability to shift phase of the right channel
+        - Stereo output with ability to shift phase of the left channel ('widthIn')
         - Unipolar only
         - No beat sync or random lfos
     */
     namespace Lfo
     {   
+        namespace Modes
+        {
+            let Triangle = 0;
+            let Sine = 1;
+            let NumModes = 2;
+        }
+
         graph Processor (float iDepth = 50,
-                        float iRate = 1,
-                        float iPhaseOffset = 0,
-                        float iMode = 0)
+                        float iRate = 1.5,
+                        float iWidth = 0,
+                        int iMode = Modes::Triangle)
         {
             output stream SampleType out;
     
@@ -1527,7 +1399,7 @@ Parameter Processors                                                    01/09/22
             {
                 smoothedParameter0.in0 depthIn [[ name: "Depth", min: 0, max: 100, init: iDepth, unit: "%", step: 1 ]];
                 internal.rateIn;
-                internal.phaseOffsetIn;
+                internal.widthIn;
                 internal.modeIn;
             }
     
@@ -1535,7 +1407,7 @@ Parameter Processors                                                    01/09/22
             {
                 smoothedParameter0 = SmoothedParameter::Processor (float[] (iDepth), SmoothedParameter::Modes::Percent);
                 
-                internal = Internal::Processor (iRate, iPhaseOffset, iMode);
+                internal = Internal::Processor (iRate, iWidth, iMode);
             }
     
             connection
@@ -1548,13 +1420,6 @@ Parameter Processors                                                    01/09/22
 
         namespace Internal
         {
-
-            namespace Modes
-            {
-                let Triangle = 0;
-                let Sine = 1;
-                let NumModes = 2;
-            }
 
             struct Coeffs
             {
@@ -1574,11 +1439,13 @@ Parameter Processors                                                    01/09/22
                 c.phaseIncrement;
             }
 
-            void update (Coeffs& c, float phaseOffset, float mode, State& s)
+            void update (Coeffs& c, float width, float mode, State& s)
             {
-                s.phase[0] -= float64 (phaseOffset * (1.f / 360));
+                s.phase[0] += float64 (width * (1.f / 360));
                 while (s.phase[0] < 0.0)
                     s.phase[0] += 1.0;
+                while (s.phase[0] >= 1.0)
+                    s.phase[0] -= 1.0;
 
                 c.mode = int (floor (mode));
             }
@@ -1603,7 +1470,7 @@ Parameter Processors                                                    01/09/22
             }
 
             processor Processor (float iRate = 1.5f,
-                                 float iPhaseOffset = 0,
+                                 float iWidth = 0,
                                  int iMode = Modes::Triangle)
             {
                 output stream SampleType out;
@@ -1613,17 +1480,17 @@ Parameter Processors                                                    01/09/22
                 input event
                 {
                     float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
-                    float phaseOffsetIn [[ name: "Phase Offset", min: 0, max: 180, init: iPhaseOffset, unit: "°", step: 1 ]];
+                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 ]];
                     float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Triangle|Sine"]];
                 }
 
                 event rateIn (float v) { phaseIncrement = SampleType (v * processor.period); }
                 SampleType phaseIncrement;
 
-                event phaseOffsetIn (float v) { phaseOffset = v; recalc = true; }
+                event widthIn (float v) { width = v; recalc = true; }
                 event modeIn (float v) { mode = v; recalc = true; }
 
-                float phaseOffset = iPhaseOffset;
+                float width = iWidth;
                 float mode = float (iMode);
                 bool recalc = true;
 
@@ -1645,7 +1512,7 @@ Parameter Processors                                                    01/09/22
                         {
                             recalc = false;
 
-                            c.update (phaseOffset, mode, s);
+                            c.update (width, mode, s);
                         }
 
                         loop (updateIntervalSamples)
@@ -1901,16 +1768,8 @@ Parameter Processors                                                    01/09/22
     }
 
 /*==============================================================================
-Vectorized Helper Functions                                             01/09/22
+Vectorized Helper Functions                                             01/10/22
 ==============================================================================*/
-
-    SampleType vreadLinearInterpolated (SampleType[] buf, SampleType idx)
-    {
-        let l = buf.readLinearInterpolated (idx[0]);
-        let r = buf.readLinearInterpolated (idx[1]);
-
-        return l * CHANNEL_ZERO_MASK + r * CHANNEL_ONE_MASK;
-    }
 
     /** Compressor Transfer Function (CTF) with additional color settings to shape the knee 
     
@@ -1934,7 +1793,7 @@ Vectorized Helper Functions                                             01/09/22
     
         Notes:
         - Use for low order, monotonically decreasing harmonics
-        - Needs makeup gain
+        - Needs makeup gain at high settings, NOT bounded
         - Harmonics boosted compared to the original version according to the linear gain b 
     */
     SampleType vBBD (SampleType x, SampleType b)
@@ -1951,7 +1810,7 @@ Vectorized Helper Functions                                             01/09/22
         - use for state saturation with odd order harmonics
         - needs makeup gain
     */
-    SampleType vsigmoidCD_S (SampleType x, SampleType b)
+    SampleType vsigmoidCD_S (SampleType x, SampleType b) 
     {
         return vsigmoidCD (b * x) * (ONE / b); 
     }
@@ -2000,7 +1859,7 @@ Vectorized Helper Functions                                             01/09/22
     
         Use case: convert SampleType stream parameters, 2x oversampling
     */
-    SampleType vcutoffToG_OnepoleA (SampleType x, float64 fs)
+    SampleType vOmegaToG_Onepole (SampleType x, float64 fs)
     {
         let Tdiv2 = SampleType (1.0 / (2.0 * fs));
 
@@ -2188,75 +2047,89 @@ Constants                                                               01/09/22
 
 namespace VA::Experimental
 {
-    // /** Onepole modified for state variable saturation
-
-    //     Notes:
-    //     - 2x oversampling recommended
-    // */
-    // namespace OnepoleS
-    // {   
-    //     struct Coeffs
-    //     {
-    //         SampleType b;
-    //     }
-
-    //     void update (Coeffs& c, float drive)
-    //     {
-    //         c.b = soul::dBtoGain (drive);
-    //     }
-
-    //     SampleType[2] process (Onepole::State& s, SampleType x, const Coeffs& c)
-    //     {
-    //         let v = (x - s.s);
-    //         let lpf = v + s.s;
-    //         let hpf = x - lpf;
-
-    //         s.s = SampleType (0.25) * vsigmoidCD (c.b * (v + lpf));
-
-    //         return SampleType[2] (lpf, hpf);
-    //     }
-
-    //     processor Processor (float iDrive)
+/*     // Compressor with a colored CTF and nonlinear ballistics 
+    // namespace CompColorLan
+    // {
+    //     graph Processor(float iStereoLinkPercent = 0,
+    //                     float iAttackMs = 1,
+    //                     float iAttackNonlinearity = 100,
+    //                     float iReleaseMs = 300, 
+    //                     float iReleaseNonlinearity = 0,
+    //                     float iThreshold_dB = -20,
+    //                     float iRatio0 = 10,
+    //                     float iRatio1 = 1.5f,
+    //                     float iHeight_dB = 6,
+    //                     float iWidth_dB = 3,
+    //                     float iHpfCutoffHz = 5,
+    //                     float iHpfQuality = 1,
+    //                     float iMixPercent = 100,
+    //                     float iPan = 0,
+    //                     float iMakeupVolume_dB = 0)
     //     {
     //         input stream SampleType in;
-    //         output stream SampleType lowpassOut, highpassOut;
+    //         output stream SampleType out;
 
-    //         input event float driveIn [[ name: "Drive", min: 0, max: 20, init: iDrive, text: "dB" ]];
+    //         input
+    //         {
+    //             stereoLink.stereoLinkIn;
 
-    //         event driveIn (float v) { drive = v; recalc = true; }
+    //             ballisticsFilterLan.attackIn;
+    //             ballisticsFilterLan.attackNonlinearityIn;
+    //             ballisticsFilterLan.releaseIn;
+    //             ballisticsFilterLan.releaseNonlinearityIn;
 
-    //         float drive = dBtoGain (iDrive);
-    //         bool recalc = true;
+    //             ctfColor.thresholdIn;
+    //             ctfColor.ratio0In;
+    //             ctfColor.ratio1In;
+    //             ctfColor.heightIn;
+    //             ctfColor.widthIn;
 
-    //         void run()
-    //         {   
-    //             Onepole::State s;
-    //             Coeffs c;
+    //             svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+    //             svf.qualityIn [[ name: "Q", min: 0.01, max: 0.707106781, init: iHpfQuality]]; //max Q is butterworth
 
-    //             let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    //             smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+    //             smoothedMixPan.mixIn;
+    //             smoothedMixPan.panIn;
+    //         }
 
-    //             loop
-    //             {
-    //                 if (recalc)
-    //                 {
-    //                     recalc = false;
+    //         let
+    //         {
+    //             //main Processors
+    //             pAbs = Abs::Processor;
 
-    //                     c.update (drive);
-    //                 }
+    //             svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
 
-    //                 loop (updateIntervalSamples)
-    //                 {
-    //                     let y = s.process (in, c);
+    //             ballisticsFilterLan = BallisticsFilterLan::Processor (iAttackMs, iAttackNonlinearity, iReleaseMs, iReleaseNonlinearity);
+    //             ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iHeight_dB, iWidth_dB);
 
-    //                     lowpassOut << y[0];
-    //                     highpassOut << y[1];
+    //             applyGain = ApplyGain::Processor;
 
-    //                     advance();
-    //                 }
-    //             }
+
+    //             //boilerplate Processors
+    //             dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+    //             dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+
+    //             stereoLink = StereoLink::Processor (iStereoLinkPercent);
+
+    //             smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
+    //             smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
+    //         }
+
+    //         connection
+    //         {
+    //             in -> dcBlockerIn -> smoothedMixPan.in0, svf.in, applyGain.in;
+                
+    //             svf.highpassOut -> pAbs -> stereoLink.in;
+    //             stereoLink.out -> ballisticsFilterLan.in;
+    //             ballisticsFilterLan.out -> ctfColor.in;
+    //             ctfColor.out -> applyGain.b;
+
+    //             applyGain.out -> smoothedMixPan.in1;
+    //             smoothedMixPan.out -> smoothedVolume.in;
+    //             smoothedVolume.out -> dcBlockerOut -> out;
     //         }
     //     }
-    // }
+// }*/
 
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
     

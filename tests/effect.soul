@@ -60,21 +60,20 @@ namespace main
             effect.depthIn;
             effect.rateIn;
             effect.delayIn;
-            effect.phaseOffsetIn;
-
+            
             effect.nonlinearityIn;
             effect.resonanceIn;
             effect.cutoffIn;
 
             effect.mixIn;
-            effect.panIn;
+            effect.widthIn;
             effect.makeupVolumeIn;
         }
 
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::ChorusLadderLpfS::Processor (0, 0, 0, 1, 0, 16000, 100, 0, 0);
+            effect = VA::HighLevel::TheChorus::Processor;
 
             //comment out for stereo
             up = FloatToSampleType::Processor;
