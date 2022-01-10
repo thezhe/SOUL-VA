@@ -55,7 +55,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/05/21
+VA::HighLevel Processors                                                01/09/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -175,7 +175,9 @@ VA::HighLevel Processors                                                01/05/21
                 input
                 { 
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: iDepthPercent, unit: "%", step: 1 ]];
-                    lfo.rateHzIn rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1 ]];
+                    lfo.rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1 ]];
+                    lfo.phaseOffsetIn;
+
                     delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 ]];
 
                     ladderLpfS.nonlinearityIn;
@@ -192,7 +194,7 @@ VA::HighLevel Processors                                                01/05/21
                     dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
                     dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
 
-                    lfo = osc::lfo::Processor;
+                    lfo = Lfo::Processor;
                     delayLine = DelayLine::Processor (iDelayMs, 35, 4);
 
                     ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
@@ -322,7 +324,7 @@ VA::HighLevel Processors                                                01/05/21
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       01/05/21
+Filter Processors                                                       01/09/22
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -351,7 +353,7 @@ Filter Processors                                                       01/05/21
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (iCutoff), SmoothedParameter::Modes::G_Onepole, 2);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iCutoff), SmoothedParameter::Modes::G_Onepole, oversampling);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (iResonance), SmoothedParameter::Modes::Linear);
                 
                 internal = Internal::Processor (iNonlinearity) * oversampling;
@@ -388,7 +390,7 @@ Filter Processors                                                       01/05/21
 
                 void update (Coeffs& c, float nonlinearity, State& s, float64 fs)
                 {
-                    c.N = float (44100 * oversampling / fs) * nonlinearity * float (c.g[0]) * (1.f + float (c.k[0])); //nonlinearity scaled according to fs and other params
+                    c.N = float (44100 * oversampling / fs) * nonlinearity * 2 * (1.f + float (c.k[0])); //nonlinearity scaled according to fs and other params
                 }
 
                 struct State
@@ -407,6 +409,7 @@ Filter Processors                                                       01/05/21
                     }
 
                     //input to first lowpass ('u')
+                    //var y = (x - c.k * S) / (ONE + c.k * G);
                     var y = (x - c.k * S) / (ONE + c.k * G);
 
                     //'order' lowpasses in series 
@@ -414,16 +417,8 @@ Filter Processors                                                       01/05/21
                     {
                         let v = (y - s.s.at(i)) * c.g;
                         
-                        if (i != 3) //the last lpf has 'state saturation'
-                        {
-                           y = v  + s.s.at(i);
-                           s.s.at(i) = v + y;
-                        }
-                        else //2 stage saturation, bounded clipper
-                        {
-                            y = vsigmoidCD(vBBD(v + s.s.at(i), c.N));
-                            s.s.at(i) = vsigmoidCD(vBBD(v + y, c.N));
-                        }     
+                        y = v + s.s.at(i);
+                        s.s.at(i) = vsigmoidCD ( vBBD (v + y, c.N) );
                     }
                     
                     return y * (ONE + c.k); //normalize
@@ -790,20 +785,23 @@ Filter Processors                                                       01/05/21
                 SampleType[maxBufferSize] buf;
             }
 
-            void update (State& s, float delayMs, float fs)
+            void update (State& s, float delayMs, float64 fs)
             {
                 let fsDiv1k = fs / 1000.f;
 
                 s.readPos = wrap<maxBufferSize> (s.writePos - int (fsDiv1k * delayMs));
             }
 
-            SampleType process (State& s, SampleType x, float lfo, float fs)
+            SampleType process (State& s, SampleType x, SampleType lfo, float64 fs)
             {
-                let maxDepthSamples = maxDepthMs * fs / 1000.f;
+                let maxDepthSamples = float64 (maxDepthMs * fs / 1000.0);
 
                 s.buf.at (s.writePos) = x;
 
-                let y = s.buf.readLinearInterpolated (float (s.readPos) - maxDepthSamples * lfo);
+                let l = s.buf.readLinearInterpolated (float64 (s.readPos) - maxDepthSamples * lfo[0]);
+                let r = s.buf.readLinearInterpolated (float64 (s.readPos) - maxDepthSamples * lfo[1]);
+                
+                let y = l * CHANNEL_ZERO_MASK + r * CHANNEL_ONE_MASK;
 
                 ++s.readPos;
                 ++s.writePos;
@@ -815,8 +813,9 @@ Filter Processors                                                       01/05/21
         processor Processor (float iDelayMs = 3, float maxDelayMs = 20, float maxDepthMs = 4)
         {
             input stream SampleType in;
-            input stream float lfoIn; //max amplitude should be <= 1
             output stream SampleType out;
+
+            input stream SampleType lfoIn; //unipolar, <= 1
 
             input event float delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1 ]];
 
@@ -825,7 +824,7 @@ Filter Processors                                                       01/05/21
             float delayMs = iDelayMs;
             bool recalc = true;
 
-            static_assert (iDelayMs <= maxDelayMs, "DelayLine::Processor [[Filter Processors]]'");
+            static_assert (iDelayMs <= maxDelayMs, "DelayLine::Processor [[Filter Processors]]");
 
             namespace m = M (maxDelayMs, maxDepthMs);
 
@@ -833,7 +832,6 @@ Filter Processors                                                       01/05/21
             {  
                 m::State s;
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-                let fs = float (processor.frequency);
 
                 loop
                 {
@@ -841,12 +839,12 @@ Filter Processors                                                       01/05/21
                     {
                         recalc = false;
     
-                        m::update (s, delayMs, fs);
+                        m::update (s, delayMs, processor.frequency);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        out << m::process (s, in, lfoIn, fs);
+                        out << m::process (s, in, lfoIn, processor.frequency);
 
                         advance();
                     }
@@ -1507,8 +1505,163 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
     }
 
 /*==============================================================================
-Parameter Processors                                                    01/05/21
+Parameter Processors                                                    01/09/22
 ==============================================================================*/
+
+    /** Modified version of soul::oscillators::lfo 
+    
+        Notes:
+        - Stereo output with ability to shift phase of the right channel
+        - Unipolar only
+        - No beat sync or random lfos
+    */
+    namespace Lfo
+    {   
+        graph Processor (float iDepth = 50,
+                        float iRate = 1,
+                        float iPhaseOffset = 0,
+                        float iMode = 0)
+        {
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedParameter0.in0 depthIn [[ name: "Depth", min: 0, max: 100, init: iDepth, unit: "%", step: 1 ]];
+                internal.rateIn;
+                internal.phaseOffsetIn;
+                internal.modeIn;
+            }
+    
+            let
+            {
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iDepth), SmoothedParameter::Modes::Percent);
+                
+                internal = Internal::Processor (iRate, iPhaseOffset, iMode);
+            }
+    
+            connection
+            {
+                smoothedParameter0.out0 -> internal.depthIn;
+
+                internal.out -> out;
+            }
+        }
+
+        namespace Internal
+        {
+
+            namespace Modes
+            {
+                let Triangle = 0;
+                let Sine = 1;
+                let NumModes = 2;
+            }
+
+            struct Coeffs
+            {
+                SampleType depth;
+                SampleType phaseIncrement;
+                int mode;
+            }
+
+            struct State
+            {
+                SampleType phase;
+            }
+
+            void updatePerSample (Coeffs& c, SampleType depth, SampleType phaseIncrement)
+            {
+                c.depth = depth;
+                c.phaseIncrement;
+            }
+
+            void update (Coeffs& c, float phaseOffset, float mode, State& s)
+            {
+                s.phase[0] -= float64 (phaseOffset * (1.f / 360));
+                while (s.phase[0] < 0.0)
+                    s.phase[0] += 1.0;
+
+                c.mode = int (floor (mode));
+            }
+
+            SampleType process (State s, const Coeffs& c)
+            {
+                var y = ZERO;
+
+                if (c.mode == Modes::Triangle)      
+                    y = ONE - vabs((s.phase * TWO) - ONE );
+                else if (c.mode == Modes::Sine)          
+                    y = (sin (s.phase * SampleType (twoPi)) + ONE) * HALF;
+
+                s.phase += c.phaseIncrement;
+
+                while (s.phase[0] >= 1.0)
+                    s.phase[0] -= 1.0;
+                while (s.phase[1] >= 1.0)
+                    s.phase[1] -= 1.0;
+            
+                return y * c.depth;
+            }
+
+            processor Processor (float iRate = 1.5f,
+                                 float iPhaseOffset = 0,
+                                 int iMode = Modes::Triangle)
+            {
+                output stream SampleType out;
+                
+                input stream SampleType depthIn;
+
+                input event
+                {
+                    float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
+                    float phaseOffsetIn [[ name: "Phase Offset", min: 0, max: 180, init: iPhaseOffset, unit: "°", step: 1 ]];
+                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Triangle|Sine"]];
+                }
+
+                event rateIn (float v) { phaseIncrement = SampleType (v * processor.period); }
+                SampleType phaseIncrement;
+
+                event phaseOffsetIn (float v) { phaseOffset = v; recalc = true; }
+                event modeIn (float v) { mode = v; recalc = true; }
+
+                float phaseOffset = iPhaseOffset;
+                float mode = float (iMode);
+                bool recalc = true;
+
+                void init()
+                {
+                    phaseIncrement = SampleType (iRate * processor.period);
+                }
+
+                void run()
+                {
+                    State s;
+                    Coeffs c;
+
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+        
+                    loop
+                    {
+                        if (recalc)
+                        {
+                            recalc = false;
+
+                            c.update (phaseOffset, mode, s);
+                        }
+
+                        loop (updateIntervalSamples)
+                        {           
+                            c.updatePerSample (depthIn, phaseIncrement);
+
+                            out << process (s, c);
+
+                            advance();
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /** Automatic/manual parameters
 
@@ -1608,7 +1761,8 @@ Parameter Processors                                                    01/05/21
             let Decibel = 1;
             let MixPan = 2;
             let G_Onepole = 3;
-            let NumModes = 4;
+            let Percent = 4;
+            let NumModes = 5;
         }
 
         namespace M (int mode = Modes::Linear)
@@ -1640,8 +1794,10 @@ Parameter Processors                                                    01/05/21
                     c.target = vmixPanToGains (parameter.at(0), parameter.at(1));
                 else if const (mode == Modes::G_Onepole)
                     c.target.at(0) = vcutoffToG_Onepole (parameter.at(0), fs);
+                else if const (mode == Modes::Percent)
+                    c.target.at(0) = SampleType (parameter.at(0) * 0.01);
 
-                if const (mode == Modes::Linear || mode == Modes::Decibel || mode == Modes::G_Onepole)
+                if const (mode != Modes::MixPan)
                     s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
                 else if const (mode == Modes::MixPan)
                 {
@@ -1746,8 +1902,16 @@ Parameter Processors                                                    01/05/21
     }
 
 /*==============================================================================
-Vectorized Helper Functions                                             12/13/21
+Vectorized Helper Functions                                             01/09/22
 ==============================================================================*/
+
+    SampleType vreadLinearInterpolated (SampleType[] buf, SampleType idx)
+    {
+        let l = buf.readLinearInterpolated (idx[0]);
+        let r = buf.readLinearInterpolated (idx[1]);
+
+        return l * CHANNEL_ZERO_MASK + r * CHANNEL_ONE_MASK;
+    }
 
     /** Compressor Transfer Function (CTF) with additional color settings to shape the knee 
     
@@ -1982,7 +2146,7 @@ Vectorized Intrinsic Functions                                          12/12/21
     }
 
 /*==============================================================================
-Constants                                                               12/25/21
+Constants                                                               01/09/22
 ==============================================================================*/
     
     //soul::filters
@@ -2002,6 +2166,8 @@ Constants                                                               12/25/21
     let ADAA_TOL = SampleType (0.0000001);
     let NOISE_FLOOR = SampleType (0.00001);
     let NOISE_FLOOR_DB = SampleType (-100.0);
+    let CHANNEL_ZERO_MASK = SampleType (1, 0);
+    let CHANNEL_ONE_MASK = SampleType (0, 1);
     
     //const float
     let SLEW_RATE_SECONDS_GAIN = 100.f;
