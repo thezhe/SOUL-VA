@@ -386,11 +386,11 @@ Filter Processors                                                       01/09/22
 
             namespace M (int order)
             {
-                static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
+                //static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
 
                 void update (Coeffs& c, float nonlinearity, State& s, float64 fs)
                 {
-                    c.N = float (44100 * oversampling / fs) * nonlinearity * 2 * (1.f + float (c.k[0])); //nonlinearity scaled according to fs and other params
+                    c.N = float (88200 / fs) * nonlinearity * (1.f + float (c.k[0])); //nonlinearity scaled according to fs and other params
                 }
 
                 struct State
@@ -409,7 +409,6 @@ Filter Processors                                                       01/09/22
                     }
 
                     //input to first lowpass ('u')
-                    //var y = (x - c.k * S) / (ONE + c.k * G);
                     var y = (x - c.k * S) / (ONE + c.k * G);
 
                     //'order' lowpasses in series 
@@ -417,15 +416,15 @@ Filter Processors                                                       01/09/22
                     {
                         let v = (y - s.s.at(i)) * c.g;
                         
-                        y = v + s.s.at(i);
-                        s.s.at(i) = vsigmoidCD ( vBBD (v + y, c.N) );
+                        y = vsigmoidCD(vBBD(v  + s.s.at(i), c.N));
+                        s.s.at(i) = v + y;
                     }
                     
                     return y * (ONE + c.k); //normalize
                 }
             }
         
-            processor Processor (float iNonlinearity = 0, int order = 4)
+            processor Processor (float iNonlinearity = 0, int order = 8)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -439,7 +438,7 @@ Filter Processors                                                       01/09/22
                 float nonlinearity = iNonlinearity;
                 bool recalc = true;
 
-                static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
+               // static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
         
                 void run()
                 {   
