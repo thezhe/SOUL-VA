@@ -2008,7 +2008,7 @@ Constants                                                               01/09/22
     
     //soul::filters
     using SampleType = float64<2>; //also used internally as 'CoeffType'
-    let updateInterval = 1024;
+    let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
 
     //soul::oscillators
