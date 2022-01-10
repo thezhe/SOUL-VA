@@ -343,14 +343,14 @@ Filter Processors                                                       01/09/22
                 }
             }
         
-            processor Processor (float iNonlinearity = 0, int order = 8)
+            processor Processor (float iNonlinearity = 1, int order = 8)
             {
                 input stream SampleType in;
                 output stream SampleType out;
 
                 input stream SampleType G_OnepoleIn, kIn;
 
-                input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 20, init: iNonlinearity, step: 0.1]];
+                input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 1, init: iNonlinearity, step: 0.01]];
 
                 event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1433,14 +1433,17 @@ Parameter Processors                                                    01/09/22
                 SampleType phase;
             }
 
-            void updatePerSample (Coeffs& c, SampleType depth, SampleType phaseIncrement)
+            void updatePerSample (Coeffs& c, SampleType depth)
             {
                 c.depth = depth;
-                c.phaseIncrement;
             }
 
-            void update (Coeffs& c, float width, float mode, State& s)
+            void update (Coeffs& c, float rate, float width, float mode, State& s, float64 fs)
             {
+                let T = 1.0 / fs;
+
+                c.phaseIncrement = SampleType (rate * T);
+                
                 s.phase[0] += float64 (width * (1.f / 360));
                 while (s.phase[0] < 0.0)
                     s.phase[0] += 1.0;
@@ -1450,7 +1453,7 @@ Parameter Processors                                                    01/09/22
                 c.mode = int (floor (mode));
             }
 
-            SampleType process (State s, const Coeffs& c)
+            SampleType process (State& s, const Coeffs& c)
             {
                 var y = ZERO;
 
@@ -1479,25 +1482,20 @@ Parameter Processors                                                    01/09/22
 
                 input event
                 {
-                    float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
-                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 ]];
-                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Triangle|Sine"]];
+                    float rateIn [[ name: "Rate (Unsmoothed)", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
+                    float widthIn [[ name: "Width (Unsmoothed)", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 ]];
+                    float modeIn [[ name: "Mode (Unsmoothed)", min: 0, max: 1, init: iMode, text: "Triangle|Sine"]];
                 }
 
-                event rateIn (float v) { phaseIncrement = SampleType (v * processor.period); }
-                SampleType phaseIncrement;
-
+                event rateIn (float v) { rate = v; recalc = true; }
                 event widthIn (float v) { width = v; recalc = true; }
                 event modeIn (float v) { mode = v; recalc = true; }
 
+                float rate = iRate;
                 float width = iWidth;
                 float mode = float (iMode);
-                bool recalc = true;
 
-                void init()
-                {
-                    phaseIncrement = SampleType (iRate * processor.period);
-                }
+                bool recalc = true;
 
                 void run()
                 {
@@ -1512,12 +1510,12 @@ Parameter Processors                                                    01/09/22
                         {
                             recalc = false;
 
-                            c.update (width, mode, s);
+                            c.update (rate, width, mode, s, processor.frequency);
                         }
 
                         loop (updateIntervalSamples)
-                        {           
-                            c.updatePerSample (depthIn, phaseIncrement);
+                        {          
+                            c.updatePerSample (depthIn);
 
                             out << process (s, c);
 
@@ -2032,6 +2030,8 @@ Constants                                                               01/09/22
     let DC_BLOCKER_CUTOFF_HZ = 1;
 
     //const int
+    let CHANNEL_LEFT = 0;
+    let CHANNEL_RIGHT = 1;
     let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
     let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
     let MAX_CUTOFF_HZ = 20000;
