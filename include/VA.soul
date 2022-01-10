@@ -38,6 +38,7 @@
     - TheChorus saturation rework and stereo width
 
     Future Tasks:
+    - redo graphHighLevel snippet
     - volume last after mixpan
     - CompColorLan
     - add mixpan/dc blocker to all high level and add to snippet
