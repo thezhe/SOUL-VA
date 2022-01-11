@@ -34,10 +34,8 @@
 
 /** Task List
 
-    Current Tasks:
-    - TheChorus saturation rework and stereo width
-
     Future Tasks:
+    - TheChorus checks
     - redo graphHighLevel snippet
     - volume last after mixpan
     - CompColorLan
@@ -76,15 +74,15 @@ VA::HighLevel Processors                                                01/09/22
         */
         namespace TheChorus
         {
-            graph Processor (float iDepthPercent = 50,
+            graph Processor (float iDepthPercent = 75,
                             float iRateHz = 1.5f,
                             float iWidthDeg = 180,
                             int iMode = Lfo::Modes::Triangle,
                             float iDelayMs = 3,
                             float iNonlinearity = 1,
                             float iResonance = 0.25f,
-                            float iCutoffHz = 1000,
-                            float iMixPercent = 100,
+                            float iCutoffHz = 2000,
+                            float iMixPercent = 50,
                             float iPan = 0,
                             float iMakeupVolume_dB = 0)
             {
@@ -111,13 +109,15 @@ VA::HighLevel Processors                                                01/09/22
         
                 let
                 {
-                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-
+                    //main effect
                     lfo = Lfo::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode);
                     delayLine = DelayLine::Processor (iDelayMs, 35, 4);
 
                     ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
+
+                    //boilerplate
+                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
 
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
                     smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
