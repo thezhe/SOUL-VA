@@ -260,14 +260,14 @@ Filter Processors                                                       01/09/22
     {       
         let oversampling = 2;
 
-        graph Processor (float iCutoff = 10000, float iResonance = 1, float iNonlinearity = 0)
+        graph Processor (float iCutoff = 10000, float iResonance = 0.25f, float iNonlinearity = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 1000, max: 16000, init: iCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 1000, max: 20000, init: iCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 0.25f, init: iResonance, step: 0.01f ]];
                 internal.nonlinearityIn;
             }
