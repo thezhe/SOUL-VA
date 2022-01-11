@@ -26,7 +26,7 @@
         *The internal 'CoeffType' is float64<2>
         *Coefficient 'updateInterval' is every 1024 samples at 44.1kHz 
         or scaled as needed (i.e. every 2048 samples at 88.2kHz)
-    - Parameters not suitable for modulation up through 20Hz include '(Unsmoothed)' in their annotations
+    - Parameters not suitable for modulation up through 20Hz are commented as such
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
     - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are supported
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
@@ -35,6 +35,7 @@
 /** Task List
 
     Future Tasks:
+    - Unsmoothed group
     - TheChorus checks
     - redo graphHighLevel snippet
     - volume last after mixpan
@@ -74,8 +75,8 @@ VA::HighLevel Processors                                                01/09/22
         */
         namespace TheChorus
         {
-            graph Processor (float iDepthPercent = 75,
-                            float iRateHz = 1.5f,
+            graph Processor (float iDepthPercent = 50,
+                            float iRateHz = 2.f,
                             float iWidthDeg = 180,
                             int iMode = Lfo::Modes::Triangle,
                             float iDelayMs = 3,
@@ -93,10 +94,10 @@ VA::HighLevel Processors                                                01/09/22
                 { 
                     lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: iDepthPercent, unit: "%", step: 1 ]];
                     lfo.rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1 ]];
-                    lfo.widthIn;
-                    lfo.modeIn;
+                    lfo.widthIn; //UNSMOOTHED
+                    lfo.modeIn; //UNSMOOTHED
 
-                    delayLine.delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 ]];
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 ]]; //UNSMOOTHED
 
                     ladderLpfS.nonlinearityIn;
                     ladderLpfS.resonanceIn;
@@ -104,7 +105,7 @@ VA::HighLevel Processors                                                01/09/22
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                 }
         
                 let
@@ -155,7 +156,7 @@ VA::HighLevel Processors                                                01/09/22
         
                 input
                 {
-                    event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: iNonlinearity, step: 1]];
+                    event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1]]; //UNSMOOTHED
                     stereoLink.stereoLinkIn;
                     autoSmoothedVolume.parameterIn volumeIn;
                     //smoothedMixPan.mixIn;
@@ -351,7 +352,7 @@ Filter Processors                                                       01/09/22
 
                 input stream SampleType G_OnepoleIn, kIn;
 
-                input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 1, init: iNonlinearity, step: 0.01]];
+                input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 1, init: iNonlinearity, step: 0.01]];
 
                 event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -682,7 +683,7 @@ Filter Processors                                                       01/09/22
 
             input stream SampleType lfoIn; //unipolar, <= 1
 
-            input event float delayIn [[ name: "Delay (Unsmoothed)", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1 ]];
+            input event float delayIn [[ name: "Delay", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1 ]]; //UNSMOOTHED
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
@@ -1082,7 +1083,7 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 3.5, init: iNonlinearity, step: 0.1]];
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 3.5, init: iNonlinearity, step: 0.1]]; //UNSMOOTHED
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1211,7 +1212,7 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlinearity (Unsmoothed)", min: 0, max: 350, init: iNonlinearity, step: 1]];
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1]]; //UNSMOOTHED
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1274,7 +1275,7 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlinearity", min: 0, max: 275, init: iNonlinearity, step: 1 ]];
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 275, init: iNonlinearity, step: 1 ]];
             input event float tauIn [[ name: "Tau", min: 0, max: 500, init: iTau, step: 1 ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
@@ -1484,8 +1485,8 @@ Parameter Processors                                                    01/09/22
                 input event
                 {
                     float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
-                    float widthIn [[ name: "Width (Unsmoothed)", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 ]];
-                    float modeIn [[ name: "Mode (Unsmoothed)", min: 0, max: 1, init: iMode, text: "Triangle|Sine"]];
+                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 ]]; //UNSMOOTHED
+                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Triangle|Sine"]]; //UNSMOOTHED
                 }
 
                 event rateIn (float v) { rate = v; recalc = true; }
