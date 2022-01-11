@@ -1445,7 +1445,7 @@ Parameter Processors                                                    01/09/22
 
                 c.phaseIncrement = SampleType (rate * T);
                 
-                s.phase[0] += float64 (width * (1.f / 360));
+                s.phase[0] = s.phase[1] + float64 (width * (1.f / 360));
                 while (s.phase[0] < 0.0)
                     s.phase[0] += 1.0;
                 while (s.phase[0] >= 1.0)
