@@ -1486,7 +1486,7 @@ Parameter Processors                                                    01/09/22
                 {
                     float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
                     float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 ]]; //UNSMOOTHED
-                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Triangle|Sine"]]; //UNSMOOTHED
+                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine"]]; //UNSMOOTHED
                 }
 
                 event rateIn (float v) { rate = v; recalc = true; }
