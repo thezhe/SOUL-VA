@@ -80,7 +80,7 @@ VA::HighLevel Processors                                                01/09/22
                             float iWidthDeg = 180,
                             int iMode = Lfo::Modes::Triangle,
                             float iDelayMs = 3,
-                            float iNonlinearity = 1,
+                            float iNonlinearity = 0.5f,
                             float iResonance = 1,
                             float iCutoffHz = 2000,
                             float iMixPercent = 50,
@@ -267,8 +267,8 @@ Filter Processors                                                       01/09/22
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 1000, max: 18000, init: iCutoff, unit: "Hz", step: 1 ]];
-                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 0.25f, init: iResonance, step: 0.01f ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 3000, max: 18000, init: iCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 2, init: iResonance, step: 0.01f ]];
                 internal.nonlinearityIn;
             }
     
@@ -337,7 +337,7 @@ Filter Processors                                                       01/09/22
                     {
                         let v = (y - s.s.at(i)) * c.g;
                         
-                        y = vsigmoidCD(vBBD(v  + s.s.at(i), c.N)); // "state saturation"
+                        y = vBBD(v  + s.s.at(i), c.N); // "state saturation"
                         s.s.at(i) = v + y;
                     }
                     
@@ -345,7 +345,7 @@ Filter Processors                                                       01/09/22
                 }
             }
         
-            processor Processor (float iNonlinearity = 1, int order = 2)
+            processor Processor (float iNonlinearity = 1, int order = 4)
             {
                 input stream SampleType in;
                 output stream SampleType out;
