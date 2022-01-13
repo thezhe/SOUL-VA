@@ -81,7 +81,7 @@ VA::HighLevel Processors                                                01/09/22
                             int iMode = Lfo::Modes::Triangle,
                             float iDelayMs = 3,
                             float iNonlinearity = 1,
-                            float iResonance = 0.25f,
+                            float iResonance = 1,
                             float iCutoffHz = 2000,
                             float iMixPercent = 50,
                             float iPan = 0,
@@ -267,7 +267,7 @@ Filter Processors                                                       01/09/22
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 1000, max: 20000, init: iCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 1000, max: 18000, init: iCutoff, unit: "Hz", step: 1 ]];
                 smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 0.25f, init: iResonance, step: 0.01f ]];
                 internal.nonlinearityIn;
             }
@@ -345,7 +345,7 @@ Filter Processors                                                       01/09/22
                 }
             }
         
-            processor Processor (float iNonlinearity = 1, int order = 8)
+            processor Processor (float iNonlinearity = 1, int order = 2)
             {
                 input stream SampleType in;
                 output stream SampleType out;
