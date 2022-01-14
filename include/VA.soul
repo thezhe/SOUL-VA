@@ -24,9 +24,9 @@
     - No user-defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
-        *Coefficient 'updateInterval' is every 1024 samples at 44.1kHz 
-        or scaled as needed (i.e. every 2048 samples at 88.2kHz)
-    - Parameters not suitable for modulation up through 20Hz are commented as such
+        *Coefficient 'updateInterval' is every 256 samples at 44.1kHz 
+        or scaled as needed (i.e. every 512 samples at 88.2kHz)
+    - Parameters not suitable for modulation up through 20Hz are part of the 'unsmoothed' parameter group
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
     - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are supported
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
@@ -35,11 +35,9 @@
 /** Task List
 
     Future Tasks:
-    - Unsmoothed group
     - TheChorus checks
     - redo graphHighLevel snippet
     - volume last after mixpan
-    - CompColorLan
     - add mixpan/dc blocker to all high level and add to snippet
     - add variable 2nd order hpf up to butterworth for comp
     - camelCase Processors, redo naming for consistency with effect names
@@ -49,9 +47,7 @@
     - TheBass abs before stereo link and rectified lan
     - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
     - add updateSample to snippets
-    - Add more static_assert checks
     - convert Omega endpoints to cutoff endpoints for consistency (may not need)
-    - Ladder compile time order !=4 or 8
 */
 
 namespace VA 
@@ -66,6 +62,90 @@ VA::HighLevel Processors                                                01/09/22
     */
     namespace HighLevel
     {   
+        // Compressor with a colored CTF and nonlinear ballistics 
+        namespace CompColorLan
+        {
+            graph Processor(float iStereoLinkPercent = 0,
+                            float iAttackMs = 1,
+                            float iAttackNonlinearity = 100,
+                            float iReleaseMs = 300, 
+                            float iReleaseNonlinearity = 0,
+                            float iThreshold_dB = -20,
+                            float iRatio0 = 10,
+                            float iRatio1 = 1.5f,
+                            float iHeight_dB = 6,
+                            float iWidth_dB = 3,
+                            float iHpfCutoffHz = 5,
+                            float iHpfQuality = 1,
+                            float iMixPercent = 100,
+                            float iPan = 0,
+                            float iMakeupVolume_dB = 0)
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+
+                input
+                {
+                    stereoLink.stereoLinkIn;
+
+                    ballisticsFilterLan.attackIn;
+                    ballisticsFilterLan.attackNonlinearityIn;
+                    ballisticsFilterLan.releaseIn;
+                    ballisticsFilterLan.releaseNonlinearityIn;
+
+                    ctfColor.thresholdIn;
+                    ctfColor.ratio0In;
+                    ctfColor.ratio1In;
+                    ctfColor.heightIn;
+                    ctfColor.widthIn;
+
+                    svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                    svf.qualityIn [[ name: "Q", min: 0.01, max: 0.707106781, init: iHpfQuality]]; //max Q is butterworth
+
+                    smoothedMixPan.mixIn;
+                    smoothedMixPan.panIn;
+                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                }
+
+                let
+                {
+                    //main Processors
+                    pAbs = Abs::Processor;
+
+                    svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
+
+                    ballisticsFilterLan = BallisticsFilterLan::Processor (iAttackMs, iAttackNonlinearity, iReleaseMs, iReleaseNonlinearity);
+                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iHeight_dB, iWidth_dB);
+
+                    applyGain = ApplyGain::Processor;
+
+
+                    //boilerplate Processors
+                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+
+                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
+
+                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
+                    smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
+                }
+
+                connection
+                {
+                    in -> dcBlockerIn -> smoothedMixPan.in0, svf.in, applyGain.in;
+                    
+                    svf.highpassOut -> pAbs -> stereoLink.in;
+                    stereoLink.out -> ballisticsFilterLan.in;
+                    ballisticsFilterLan.out -> ctfColor.in;
+                    ctfColor.out -> applyGain.b;
+
+                    applyGain.out -> smoothedMixPan.in1;
+                    smoothedMixPan.out -> smoothedVolume.in;
+                    smoothedVolume.out -> dcBlockerOut -> out;
+                }
+            }
+        }
+
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
         
             Notes:
@@ -82,7 +162,7 @@ VA::HighLevel Processors                                                01/09/22
                             float iDelayMs = 3,
                             float iNonlinearity = 0.5f,
                             float iResonance = 1,
-                            float iCutoffHz = 2000,
+                            float iCutoffHz = 3000,
                             float iMixPercent = 50,
                             float iPan = 0,
                             float iMakeupVolume_dB = 0)
@@ -97,7 +177,7 @@ VA::HighLevel Processors                                                01/09/22
                     lfo.widthIn; //UNSMOOTHED
                     lfo.modeIn; //UNSMOOTHED
 
-                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 ]]; //UNSMOOTHED
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, group: "unsmoothed" ]];
 
                     ladderLpfS.nonlinearityIn;
                     ladderLpfS.resonanceIn;
@@ -156,7 +236,7 @@ VA::HighLevel Processors                                                01/09/22
         
                 input
                 {
-                    event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1]]; //UNSMOOTHED
+                    event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, group: "Unsmoothed"]];
                     stereoLink.stereoLinkIn;
                     autoSmoothedVolume.parameterIn volumeIn;
                     //smoothedMixPan.mixIn;
@@ -307,7 +387,7 @@ Filter Processors                                                       01/09/22
 
             namespace M (int order)
             {
-                //static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
+                static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
 
                 void update (Coeffs& c, float nonlinearity, State& s, float64 fs)
                 {
@@ -359,7 +439,7 @@ Filter Processors                                                       01/09/22
                 float nonlinearity = iNonlinearity;
                 bool recalc = true;
 
-               // static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
+                static_assert (order == 4, "LadderLpfS::Processor [[Filter Processors]] Other filter orders not yet implemented.");
         
                 void run()
                 {   
@@ -683,7 +763,7 @@ Filter Processors                                                       01/09/22
 
             input stream SampleType lfoIn; //unipolar, <= 1
 
-            input event float delayIn [[ name: "Delay", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1 ]]; //UNSMOOTHED
+            input event float delayIn [[ name: "Delay", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1, group: "Unsmoothed" ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
@@ -1083,7 +1163,7 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 3.5, init: iNonlinearity, step: 0.1]]; //UNSMOOTHED
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 3.5, init: iNonlinearity, step: 0.1, group: "Unsmoothed"]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1212,7 +1292,7 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1]]; //UNSMOOTHED
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, group: "unsmoothed" ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1485,8 +1565,8 @@ Parameter Processors                                                    01/09/22
                 input event
                 {
                     float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
-                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 ]]; //UNSMOOTHED
-                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine"]]; //UNSMOOTHED
+                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1, group: "unsmoothed" ]];
+                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine", group: "unsmoothed" ]];
                 }
 
                 event rateIn (float v) { rate = v; recalc = true; }
@@ -2049,90 +2129,6 @@ Constants                                                               01/09/22
 
 namespace VA::Experimental
 {
-/*     // Compressor with a colored CTF and nonlinear ballistics 
-    // namespace CompColorLan
-    // {
-    //     graph Processor(float iStereoLinkPercent = 0,
-    //                     float iAttackMs = 1,
-    //                     float iAttackNonlinearity = 100,
-    //                     float iReleaseMs = 300, 
-    //                     float iReleaseNonlinearity = 0,
-    //                     float iThreshold_dB = -20,
-    //                     float iRatio0 = 10,
-    //                     float iRatio1 = 1.5f,
-    //                     float iHeight_dB = 6,
-    //                     float iWidth_dB = 3,
-    //                     float iHpfCutoffHz = 5,
-    //                     float iHpfQuality = 1,
-    //                     float iMixPercent = 100,
-    //                     float iPan = 0,
-    //                     float iMakeupVolume_dB = 0)
-    //     {
-    //         input stream SampleType in;
-    //         output stream SampleType out;
-
-    //         input
-    //         {
-    //             stereoLink.stereoLinkIn;
-
-    //             ballisticsFilterLan.attackIn;
-    //             ballisticsFilterLan.attackNonlinearityIn;
-    //             ballisticsFilterLan.releaseIn;
-    //             ballisticsFilterLan.releaseNonlinearityIn;
-
-    //             ctfColor.thresholdIn;
-    //             ctfColor.ratio0In;
-    //             ctfColor.ratio1In;
-    //             ctfColor.heightIn;
-    //             ctfColor.widthIn;
-
-    //             svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
-    //             svf.qualityIn [[ name: "Q", min: 0.01, max: 0.707106781, init: iHpfQuality]]; //max Q is butterworth
-
-    //             smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
-    //             smoothedMixPan.mixIn;
-    //             smoothedMixPan.panIn;
-    //         }
-
-    //         let
-    //         {
-    //             //main Processors
-    //             pAbs = Abs::Processor;
-
-    //             svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
-
-    //             ballisticsFilterLan = BallisticsFilterLan::Processor (iAttackMs, iAttackNonlinearity, iReleaseMs, iReleaseNonlinearity);
-    //             ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iHeight_dB, iWidth_dB);
-
-    //             applyGain = ApplyGain::Processor;
-
-
-    //             //boilerplate Processors
-    //             dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-    //             dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-
-    //             stereoLink = StereoLink::Processor (iStereoLinkPercent);
-
-    //             smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
-    //             smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
-    //         }
-
-    //         connection
-    //         {
-    //             in -> dcBlockerIn -> smoothedMixPan.in0, svf.in, applyGain.in;
-                
-    //             svf.highpassOut -> pAbs -> stereoLink.in;
-    //             stereoLink.out -> ballisticsFilterLan.in;
-    //             ballisticsFilterLan.out -> ctfColor.in;
-    //             ctfColor.out -> applyGain.b;
-
-    //             applyGain.out -> smoothedMixPan.in1;
-    //             smoothedMixPan.out -> smoothedVolume.in;
-    //             smoothedVolume.out -> dcBlockerOut -> out;
-    //         }
-    //     }
-// }*/
-
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
     
         2x oversampling recommended

@@ -68,6 +68,10 @@ function testEffect(Fs)
   [effectInfo, ~, ~] = stat('effect.soul');
   [effectPatchInfo, ~, ~] = stat('effect.soulpatch');
 
+  if (vaInfo.mtime ~= vaTime || effectInfo.mtime ~= effectTime || effectPatchInfo.mtime ~= effectPatchTime || testEffectInfo.mtime ~= testEffectTime || ~isfolder('TestTrackOutputs'))
+    genTestTrackOutputs();
+  endif
+
   if (vaInfo.mtime ~= vaTime || effectInfo.mtime ~= effectTime || effectPatchInfo.mtime ~= effectPatchTime || testEffectInfo.mtime ~= testEffectTime || ~isfolder('outputs') || Fs ~= frequency)
     vaTime = vaInfo.mtime;
     effectTime = effectInfo.mtime;
@@ -76,7 +80,7 @@ function testEffect(Fs)
     frequency = Fs;
 
     genOutputs();
-  end
+  endif
 
   %plot results using '/inputs' and '/outputs'
   plotIO();
@@ -105,30 +109,40 @@ function testEffect(Fs)
   function genOutputs()
     %%  Generate 'outputs/' by passing 'inputs/' thru 'effect.soulpatch'
 
-    mkdir('outputs');
+    mkdir ('outputs');
 
     printf('===========================================================================\n');
-    printf('                                SOUL logs                                  \n');
+    printf('Generating ''outputs/''\n');
     printf('===========================================================================\n');
-    renderSoul('outputs/Pulse.wav', 'inputs/Pulse.wav');
-    renderSoul('outputs/dBRamp.wav', 'inputs/dBRamp.wav');
-    renderSoul('outputs/SinRamp.wav', 'inputs/SinRamp.wav');
-    renderSoul('outputs/Impulse.wav', 'inputs/Impulse.wav');
-    renderSoul('outputs/SinSweep.wav', 'inputs/SinSweep.wav');
-    renderSoul('outputs/Bsin.wav', 'inputs/BSin.wav');
-    renderSoul('outputs/Sin1k.wav', 'inputs/Sin1k.wav');
-    renderSoul('outputs/ZerosSin1k.wav', 'inputs/ZerosSin1k.wav');
 
-    function renderSoul(target_file, source_audio_file)
-      system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(Fs) ' --bitdepth=24 effect.soulpatch']); 
-    endfunction
+    in = glob('inputs/*.wav');
+    for i=1:numel(in)
+      [~, name, ~] = fileparts (in{i});
+      renderSoul (['outputs/', name, '.wav'], in{i})
+    endfor
+  endfunction
+
+  function genTestTrackOutputs()
+    %%  Generate 'TestTrackOutputs/' by passing 'TestTrackInputs/' thru 'effect.soulpatch'
+
+    mkdir ('TestTrackOutputs');
+
+    printf('===========================================================================\n');
+    printf('Generating ''TestTrackOutputs/''\n');
+    printf('===========================================================================\n');
+
+    in = glob('TestTrackInputs/*.wav');
+    for i=1:numel(in)
+      [~, name, ~] = fileparts (in{i});
+      renderSoul (['TestTrackOutputs/', name, '.wav'], in{i})
+    endfor
   endfunction
   
   function plotIO()
     %%  Plot results using '/inputs' and '/outputs'
 
     printf('===========================================================================\n');
-    printf('                             testEffect.m logs                               \n');
+    printf('testEffect.m logs\n');
     printf('===========================================================================\n');
 
     grid off
@@ -147,6 +161,11 @@ function testEffect(Fs)
     isStable('outputs/BSin.wav');
     isStable('outputs/Sin1k.wav');
     isStable('outputs/ZerosSin1k.wav');
+
+    TTout = glob('TestTrackOutputs/*.wav');
+    for i=1:numel(TTout)
+      isStable (TTout{i})
+    endfor
     
     gainDiff ('outputs/SinSweep.wav'); 
     
@@ -488,6 +507,10 @@ function testEffect(Fs)
 
 %%==============================================================================
 %% Utility
+  function renderSoul(target_file, source_audio_file, fs)
+    system(['soul render --output=' target_file ' --input=' source_audio_file ' --rate=' num2str(audioinfo(source_audio_file).SampleRate) ' --bitdepth=24 effect.soulpatch']); 
+  endfunction
+
   function y = gainTodB(x)
     y = 20.*log10(x);
     y(y<-100) = -100;
