@@ -34,12 +34,13 @@
 
 /** Task List
 
+    Current Tasks:
+    - TheComp
+
     Future Tasks:
-    - TheChorus checks
     - redo graphHighLevel snippet
     - volume last after mixpan
     - add mixpan/dc blocker to all high level and add to snippet
-
     - small dx approximation for hysteretic L
     - TheBass abs before stereo link and rectified lan
     - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
