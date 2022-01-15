@@ -39,21 +39,17 @@
     - redo graphHighLevel snippet
     - volume last after mixpan
     - add mixpan/dc blocker to all high level and add to snippet
-    - add variable 2nd order hpf up to butterworth for comp
-    - camelCase Processors, redo naming for consistency with effect names
-    - add butterworth constants
-    - reorganize constants to Processor scopes
+
     - small dx approximation for hysteretic L
     - TheBass abs before stereo link and rectified lan
     - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
-    - add updateSample to snippets
-    - convert Omega endpoints to cutoff endpoints for consistency (may not need)
+    - add updateSample and oversample constant to VA::processor
 */
 
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/09/22
+VA::HighLevel Processors                                                01/14/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -63,13 +59,13 @@ VA::HighLevel Processors                                                01/09/22
     namespace HighLevel
     {   
         // Compressor with a colored CTF and nonlinear ballistics 
-        namespace CompColorLan
+        namespace TheComp
         {
-            graph Processor(float iStereoLinkPercent = 0,
-                            float iAttackMs = 1,
+            graph Processor(float iAttackMs = 1,
                             float iAttackNonlinearity = 100,
                             float iReleaseMs = 300, 
                             float iReleaseNonlinearity = 0,
+                            float iStereoLinkPercent = 0,
                             float iThreshold_dB = -20,
                             float iRatio0 = 10,
                             float iRatio1 = 1.5f,
@@ -100,7 +96,7 @@ VA::HighLevel Processors                                                01/09/22
                     ctfColor.widthIn;
 
                     svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
-                    svf.qualityIn [[ name: "Q", min: 0.01, max: 0.707106781, init: iHpfQuality]]; //max Q is butterworth
+                    svf.qualityIn [[ name: "Q", min: 0.01, max: DIV_SQRT_TWO, init: iHpfQuality]]; //max Q is butterworth
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
@@ -227,7 +223,7 @@ VA::HighLevel Processors                                                01/09/22
             
             'nonlinearityIn' can modulate using low lfo frequencies, but this isn't recommended
         */
-        namespace OnepoleC_Lan
+        namespace TheBass
         {
             graph Processor (float iNonlinearity = 250, float iStereoLinkPercent = 100)
             {
@@ -309,7 +305,7 @@ VA::HighLevel Processors                                                01/09/22
         
             Use case: Debugging
         */
-        namespace Dummy
+        namespace TheDummy
         {
             graph Processor()
             {
@@ -895,7 +891,7 @@ Mix Processors                                                          12/14/21
     }
 
 /*==============================================================================
-Vectorized Instrinsic/Helper Processors                                 01/05/22
+Vectorized Instrinsic/Helper Processors                                 01/14/22
 ==============================================================================*/
 
     /** vCTF_Color wrapper */
@@ -1037,159 +1033,6 @@ Vectorized Instrinsic/Helper Processors                                 01/05/22
                     loop (updateIntervalSamples)
                     {
                         out << process (in, c);
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
-    /** Bucket Brigade Device Waveshaper
-    
-        Notes:
-        - dynamic ADAA specifically optimized for 'LadderLpfS'
-        - If sampling rate is 44.1kHz, use 2x oversampling
-        - Parameters are not suitable for modulation
-    */
-    namespace BBD_ADAA //DEPRECATED
-    {   
-        struct Coeffs
-        {
-            SampleType N;
-        }
-    
-        void update (Coeffs& c, float nonlinearity)
-        {
-            c.N = nonlinearity;
-        }    
-    
-        SampleType f (SampleType x, const Coeffs& c)
-        {
-            return vBBD(x, c.N);
-        }
-    
-        SampleType F1 (SampleType x, const Coeffs& c)
-        {
-            let c1 = c.N * SampleType (1.0/8.0);
-            let c2 = c.N * SampleType (1.0/16.0);
-            
-            return HALF * vpow(x, 2) - c1 * SampleType(1.0 / 3.0) * vpow (x, 3) - c2 * SampleType (1.0 / 4.0) * vpow (x, 4);
-        }
-    
-        SampleType F2 (SampleType x, const Coeffs& c)
-        {
-            let c1 = c.N * SampleType (1.0/8.0);
-            let c2 = c.N * SampleType (1.0/16.0);
-            
-            return SampleType (1.0 / 6.0) * vpow (x, 3) - c1 * SampleType(1.0 / 12.0) * vpow (x, 4) - c2 * SampleType (1.0 / 20.0) * vpow (x, 5);
-        }
-    
-        struct State
-        {
-            SampleType x_2;
-            SampleType x_1;
-            SampleType F2_1;
-            SampleType F1_1;
-        }
-        
-        void reset (State& s)
-        {
-            s.x_2 = ZERO;
-            s.x_1 = ZERO;
-            s.F2_1 = ZERO;
-            s.F1_1 = ZERO;
-        }
-    
-        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
-        {
-            //Find F1_0
-            let x_0mx_1 = x - s.x_1;
-            let F2_0 = F2 (x, c);
-    
-            let F1_0 = viflt (F1 (HALF * (x + s.x_1), c), 
-                (F2_0 - s.F2_1) / x_0mx_1,
-                vabs (x_0mx_1), ADAA_TOL);
-    
-            //Find f_0
-            let x_0mx_2 = x - s.x_2;
-    
-            let xBar = HALF * (x + s.x_2);
-            let delta = xBar - s.x_1;
-    
-            let f_0 = viflt (
-                viflt (
-                    f (HALF * (xBar + s.x_1), c),
-                    (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),
-                    vabs (delta), ADAA_TOL
-                ),
-                (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
-                vabs (x_0mx_2), ADAA_TOL
-            );
-    
-            //update s
-            s.x_2 = s.x_1;
-            s.x_1 = x;
-            s.F2_1 = F2_0;
-            s.F1_1 = F1_0;
-    
-            return f_0;
-        }
-    
-        SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)
-        {
-            //Find f_0
-            let x_0mx_1 = x - s.x_1;
-            let F1_0 = F1 (x, c);
-    
-            let f_0 = viflt (f (HALF * (x + s.x_1), c), 
-                (F1_0 - s.F1_1) / x_0mx_1,
-                vabs (x_0mx_1), ADAA_TOL);
-    
-            //update s
-            s.x_1 = x;
-            s.F1_1 = F1_0;
-    
-            return f_0;
-        }
-    
-        SampleType process (State& s, SampleType x, const Coeffs& c)
-        {
-               return s.processADAA1 (x, c);
-        }
-    
-        processor Processor(float iNonlinearity = 0)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 3.5, init: iNonlinearity, step: 0.1, group: "Unsmoothed"]];
-
-            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
-            
-            float nonlinearity = iNonlinearity;
-            bool recalc = true;
-    
-            void run()
-            {
-                State s;
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (nonlinearity);
-                        s.reset();
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << s.process (in, c);
     
                         advance();
                     }
@@ -1866,7 +1709,7 @@ Vectorized Helper Functions                                             01/10/22
         let color = height / (ONE + vpow (xdBmthr * (ONE/width), 2));
         let ydB = vifgt (threshold + xdBmthr * (ONE/ratio0) + color, threshold + xdBmthr * (ONE/ratio1) + color, xdB, threshold);
 
-        return vmin (vdBtoGain (ydB) / x, COMP_MAX_GAIN);
+        return vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
     }
 
     /** 'BBD' mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
@@ -2084,40 +1927,38 @@ Vectorized Intrinsic Functions                                          12/12/21
     }
 
 /*==============================================================================
-Constants                                                               01/09/22
+Constants                                                               01/14/22
 ==============================================================================*/
     
     //soul::filters
     using SampleType = float64<2>; //also used internally as 'CoeffType'
     let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
-
-    //soul::oscillators
-    namespace osc = soul::oscillators;
     
     //const SampleType
     let ZERO = SampleType (0.0);
     let HALF = SampleType (0.5);
     let ONE = SampleType (1.0);
     let TWO = SampleType (2.0);
-    let COMP_MAX_GAIN = SampleType (1.9);
+    
+    let MAX_EFFECT_GAIN = SampleType (1.9);
+
     let ADAA_TOL = SampleType (0.0000001);
+
     let NOISE_FLOOR = SampleType (0.00001);
     let NOISE_FLOOR_DB = SampleType (-100.0);
+
     let CHANNEL_ZERO_MASK = SampleType (1, 0);
     let CHANNEL_ONE_MASK = SampleType (0, 1);
     
     //const float
     let SLEW_RATE_SECONDS_GAIN = 100.f;
     let DC_BLOCKER_CUTOFF_HZ = 1;
+    let DIV_SQRT_TWO = 1.f / sqrt (2.f);
 
     //const int
-    let CHANNEL_LEFT = 0;
-    let CHANNEL_RIGHT = 1;
     let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
     let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
-    let MAX_CUTOFF_HZ = 20000;
-    let MIN_CUTOFF_HZ = 20;
 
 } //namespace VA
 
