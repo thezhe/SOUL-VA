@@ -38,13 +38,8 @@
     - TheComp
 
     Future Tasks:
-    - redo graphHighLevel snippet
-    - volume last after mixpan
-    - add mixpan/dc blocker to all high level and add to snippet
-    - small dx approximation for hysteretic L
-    - TheBass abs before stereo link and rectified lan
-    - add state reset in adaa snippets (not part of update call for flexibility but add to if recalc)
-    - add updateSample and oversample constant to VA::processor
+    - TheBass boilerplate, abs before stereo link and rectified lan
+    - small dx approximation for hysteretic L  
 */
 
 namespace VA 
@@ -58,8 +53,11 @@ VA::HighLevel Processors                                                01/14/22
         ALL effects can behave nonlinearly and add their own 'virtual analog warmth' 
     */
     namespace HighLevel
-    {   
-        // Compressor with a colored CTF and nonlinear ballistics 
+    {  
+        /** Compressor with a colored CTF and nonlinear ballistics 
+
+            Use case: limiter, compressor, transient emphasis 
+        */
         namespace TheComp
         {
             graph Processor(float iAttackMs = 1,
@@ -97,17 +95,19 @@ VA::HighLevel Processors                                                01/14/22
                     ctfColor.widthIn;
 
                     svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
-                    svf.qualityIn [[ name: "Q", min: 0.01, max: DIV_SQRT_TWO, init: iHpfQuality]]; //max Q is butterworth
+                    svf.qualityIn [[ name: "Q", min: 0.01, max: FLOAT_DIV_SQRT_TWO, init: iHpfQuality]]; //max Q is butterworth
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup Volume", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                 }
 
                 let
                 {
                     //main Processors
-                    pAbs = Abs::Processor;
+                    pAbs = Abs::Processor;                    
+
+                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
 
                     svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
 
@@ -116,12 +116,9 @@ VA::HighLevel Processors                                                01/14/22
 
                     applyGain = ApplyGain::Processor;
 
-
                     //boilerplate Processors
-                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-
-                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
+                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
 
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
                     smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
@@ -146,9 +143,8 @@ VA::HighLevel Processors                                                01/14/22
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
         
             Notes:
-            - 'delayIn' is not artifact free under modulation
-            - Use case: Chorus, slow flange, doubler
-            - Loosely based on Boss CE2 Chorus Pedal (lfo is trangle signal)
+            - Use case: chorus, slow flange, doubler, stereo widener
+            - Loosely based on Boss CE-3 Chorus Pedal
         */
         namespace TheChorus
         {
@@ -194,8 +190,8 @@ VA::HighLevel Processors                                                01/14/22
                     ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
 
                     //boilerplate
-                    dcBlockerIn = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut = filt::dc_blocker::Processor (DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
 
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
                     smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
@@ -218,11 +214,7 @@ VA::HighLevel Processors                                                01/14/22
 
         /** 'OnepoleC' in all pass mode modulated by 'LanADAA' 
 
-            a.k.a. 'TheBass'
-        
-            Use case: Boost and sustain low frequencies
-            
-            'nonlinearityIn' can modulate using low lfo frequencies, but this isn't recommended
+            Use case: boost and sustain low frequencies
         */
         namespace TheBass
         {
@@ -242,13 +234,15 @@ VA::HighLevel Processors                                                01/14/22
         
                 let
                 {
-                    dcBlockerIn = filt::dc_blocker::Processor (0.1);
+                    
 
                     stereoLink = StereoLink::Processor (iStereoLinkPercent);
 
                     internal = Internal::Processor (iNonlinearity) * 2;
                     onepoleMixer = OnepoleMixer::Processor (OnepoleMixer::Modes::APF);
 
+                    //boilerplate Processors
+                    dcBlockerIn = filt::dc_blocker::Processor (0.1);
                     autoSmoothedVolume = AutoSmoothedVolume::Processor (AutoParameter::Modes::Volume_OnepoleC_Lan);
                    // smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
                 }
@@ -304,7 +298,7 @@ VA::HighLevel Processors                                                01/14/22
 
         /** A dummy processor that doesn't modify streams
         
-            Use case: Debugging
+            Use case: debugging
         */
         namespace TheDummy
         {
@@ -324,6 +318,7 @@ VA::HighLevel Processors                                                01/14/22
 /*==============================================================================
 Filter Processors                                                       01/09/22
 ==============================================================================*/
+
 
     /** Ladder Low Pass Filter with variable order and saturating state 
     
@@ -471,10 +466,10 @@ Filter Processors                                                       01/09/22
     /** 'OnepoleC' with differing cutoff depending on rising/falling output relative to stored output (feedback) */
     namespace BallisticsFilterLan
     {
-        graph Processor (float iAttack = 1,
-                        float iAttackNonlinearity = 0,
-                        float iRelease = 100,
-                        float iReleaseNonlinearity = 0)
+        graph Processor (float iAttack,
+                        float iAttackNonlinearity,
+                        float iRelease,
+                        float iReleaseNonlinearity)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -495,9 +490,8 @@ Filter Processors                                                       01/09/22
     
             connection
             {
-                in -> onepoleC.in;
+                in -> branchingCutoffLan.x, onepoleC.in;
 
-                in -> branchingCutoffLan.x;
                 onepoleC.lowpassOut -> [1] -> branchingCutoffLan.y;
                 branchingCutoffLan.Omega -> onepoleC.Omega;
 
@@ -509,19 +503,19 @@ Filter Processors                                                       01/09/22
         {
             struct Coeffs 
             {
-                Lan::Coeffs attack;
-                Lan::Coeffs release;
+                LanStep::Coeffs attack;
+                LanStep::Coeffs release;
             }
 
             void update (Coeffs& c, float attack, float attackNonlinearity, float release, float releaseNonlinearity) 
             {
-                Lan::update (c.attack, attack, attackNonlinearity);
-                Lan::update (c.release, release, releaseNonlinearity);
+                LanStep::update (c.attack, attack, attackNonlinearity);
+                LanStep::update (c.release, release, releaseNonlinearity);
             }
 
             SampleType process (SampleType x, SampleType y, const Coeffs& c) 
             {
-                return vifgt (Lan::process (x, c.attack), Lan::process(x, c.release), x, y);  
+                return viflt (LanStep::process (x, c.release), LanStep::process (x, c.attack), x, y);  
             }
 
             processor Processor(float iAttack,
@@ -534,10 +528,10 @@ Filter Processors                                                       01/09/22
         
                 input event
                 { 
-                    float attackIn [[ name: "Attack", min: 1, max: 100, init: iAttack, unit: "ms", step: 1 ]];
-                    float attackNonlinearityIn [[ name: "Attack Nonlinearity", min: 0, max: 20, init: iAttackNonlinearity, step: 1 ]];
-                    float releaseIn [[ name: "Release", min: 20, max: 5000, init: iRelease, unit: "ms", step: 1 ]];
-                    float releaseNonlinearityIn [[ name: "Release Nonlinearity", min: 0, max: 20, init: iReleaseNonlinearity, step: 1]];
+                    float attackIn [[ name: "Attack", min: 1, max: 100, init: iAttack, unit: "ms", step: 0.1 ]];
+                    float attackNonlinearityIn [[ name: "Attack Nonlin", min: 0, max: 20, init: iAttackNonlinearity, step: 1 ]];
+                    float releaseIn [[ name: "Release", min: 20, max: 2000, init: iRelease, unit: "ms", step: 1 ]];
+                    float releaseNonlinearityIn [[ name: "Release Nonlin", min: 0, max: 20, init: iReleaseNonlinearity, step: 1]];
                 }
 
                 event attackIn (float v) { attack = v; recalc = true; }
@@ -718,9 +712,9 @@ Filter Processors                                                       01/09/22
     {   
         namespace M (float maxDelayMs, float maxDepthMs)
         {
-            static_assert ((maxDelayMs + maxDepthMs) < float (MAX_BUFFER_SIZE_MS), "DelayLine::M [[Filter Processors]]");
+            static_assert ((maxDelayMs + maxDepthMs) < float (INT_MAX_BUFFER_SIZE_MS), "DelayLine::M [[Filter Processors]]");
             
-            let maxBufferSize = int (((maxDelayMs + maxDepthMs) / float (MAX_BUFFER_SIZE_MS)) * float (MAX_BUFFER_SIZE));
+            let maxBufferSize = int (((maxDelayMs + maxDepthMs) / float (INT_MAX_BUFFER_SIZE_MS)) * float (INT_MAX_BUFFER_SIZE));
 
             struct State 
             {
@@ -931,10 +925,10 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             output stream SampleType out;
     
             input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f ]];
-            input event float ratio0In [[ name: "Downwards Ratio", min: 1.f, max: 20.f, init: iRatio0, step: 1 ]];
-            input event float ratio1In [[ name: "Updwards Ratio", min: 1.f, max: 1.5f, init: iRatio1, step: 0.01f ]];
+            input event float ratio0In [[ name: "Ratio Down", min: 1.f, max: 20.f, init: iRatio0, step: 1 ]];
+            input event float ratio1In [[ name: "Ratio Up", min: 1.f, max: 1.5f, init: iRatio1, step: 0.01f ]];
             input event float heightIn [[ name: "Height", min: -6.f, max: 6.f, init: iHeight, unit: "dB", step: 0.01f ]];
-            input event float widthIn [[ name: "Width", min: 1.f, max: 6.f, init: iWidth, unit: "dB", step: 0.01f ]];
+            input event float widthIn [[ name: "Width", min: 2.f, max: 6.f, init: iWidth, unit: "dB", step: 0.01f ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
@@ -1171,11 +1165,8 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
 
-    /** 'vLan' Processor wrapper
-    
-        Optimized for use with step-reponse filter effects
-    */
-    namespace Lan
+    /** 'vLan' optimized for use with step-reponse effects */
+    namespace LanStep
     {   
         struct Coeffs
         {
@@ -1194,13 +1185,13 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             return c.bias + vLan (x, c.N);
         }
     
-        processor Processor (float iNonlinearity = 0, float iTau = 20)
+        processor Processor (float iTau = 20, float iNonlinearity = 0)
         {
             input stream SampleType in;
             output stream SampleType Omega;
 
             input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 275, init: iNonlinearity, step: 1 ]];
-            input event float tauIn [[ name: "Tau", min: 0, max: 500, init: iTau, step: 1 ]];
+            input event float tauIn [[ name: "Tau", min: 0, max: 500, init: iTau, step: 1, unit: "ms" ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             event tauIn (float v) { tau = v; recalc = true; }
@@ -1634,7 +1625,7 @@ Parameter Processors                                                    01/09/22
             }
         }
 
-        processor Processor (float[] iParameter, int mode = Modes::Linear, int oversampling = 1, float slewRateSeconds = SLEW_RATE_SECONDS_GAIN)
+        processor Processor (float[] iParameter, int mode = Modes::Linear, int oversampling = 1, float slewRateSeconds = FLOAT_SLEW_RATE_SECONDS_GAIN)
         {
             output stream SampleType out0, out1;
 
@@ -1692,7 +1683,7 @@ Parameter Processors                                                    01/09/22
     }
 
 /*==============================================================================
-Vectorized Helper Functions                                             01/10/22
+Vectorized Helper Functions                                             01/15/22
 ==============================================================================*/
 
     /** Compressor Transfer Function (CTF) with additional color settings to shape the knee 
@@ -1708,7 +1699,7 @@ Vectorized Helper Functions                                             01/10/22
         let xdBmthr = xdB - threshold;
 
         let color = height / (ONE + vpow (xdBmthr * (ONE/width), 2));
-        let ydB = vifgt (threshold + xdBmthr * (ONE/ratio0) + color, threshold + xdBmthr * (ONE/ratio1) + color, xdB, threshold);
+        let ydB = viflt (threshold + xdBmthr * (ONE/ratio1) + color, threshold + xdBmthr * (ONE/ratio0) + color, xdB, threshold);
 
         return vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
     }
@@ -1854,7 +1845,7 @@ Vectorized Helper Functions                                             01/10/22
     }
 
 /*==============================================================================
-Vectorized Intrinsic Functions                                          12/12/21
+Vectorized Intrinsic Functions                                          12/15/21
 ==============================================================================*/
 
     SampleType vabs (SampleType x)
@@ -1882,11 +1873,6 @@ Vectorized Intrinsic Functions                                          12/12/21
     SampleType.elementType vminr (SampleType x)
     {
         return min (x[0], x[1]);
-    }
-
-    SampleType vclamp (SampleType x, SampleType lo, SampleType hi)
-    {
-        return SampleType (clamp (x[0], lo[0], hi[0]), clamp (x[1], lo[1], hi[1]));
     }
 
     /** 'pow' for int and SampleType exponents 
@@ -1920,19 +1906,18 @@ Vectorized Intrinsic Functions                                          12/12/21
     {
         return SampleType (a[0] < b[0] ? trueStatement [0] : falseStatement [0], a[1] < b[1] ? trueStatement [1] : falseStatement [1]);
     }
-    
-    /** a > b ? trueStatement : falseStatement */
-    SampleType vifgt (SampleType trueStatement, SampleType falseStatement, SampleType a, SampleType b)
-    {
-        return SampleType (a[0] > b[0] ? trueStatement [0] : falseStatement [0], a[1] > b[1] ? trueStatement [1] : falseStatement [1]);
-    }
 
 /*==============================================================================
 Constants                                                               01/14/22
 ==============================================================================*/
     
+    //const float
+    let FLOAT_DC_BLOCKER_CUTOFF_HZ = 1.f;
+    let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f);
+    let FLOAT_SLEW_RATE_SECONDS_GAIN = 100.f;
+
     //soul::filters
-    using SampleType = float64<2>; //also used internally as 'CoeffType'
+    using SampleType = float64<2>;
     let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
     
@@ -1944,30 +1929,20 @@ Constants                                                               01/14/22
     
     let MAX_EFFECT_GAIN = SampleType (1.9);
 
-    let ADAA_TOL = SampleType (0.0000001);
-
     let NOISE_FLOOR = SampleType (0.00001);
     let NOISE_FLOOR_DB = SampleType (-100.0);
 
-    let CHANNEL_ZERO_MASK = SampleType (1, 0);
-    let CHANNEL_ONE_MASK = SampleType (0, 1);
+    let CHANNEL_ZERO_MASK = SampleType (1.0, 0.0);
+    let CHANNEL_ONE_MASK = SampleType (0.0, 1.0);
     
-    //const float
-    let SLEW_RATE_SECONDS_GAIN = 100.f;
-    let DC_BLOCKER_CUTOFF_HZ = 1;
-    let DIV_SQRT_TWO = 1.f / sqrt (2.f);
+    let ADAA_TOL = SampleType (0.0000001);
 
     //const int
-    let MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
-    let MAX_BUFFER_SIZE_MS = 225; //MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
+    let INT_MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
+    let INT_MAX_BUFFER_SIZE_MS = 225; //INT_MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
 
 } //namespace VA
 
-
-/** Task List
-
-    - OnepoleS constant c.G value and use soul::dBtoGain for primitives 
-*/
 
 namespace VA::Experimental
 {
@@ -1975,7 +1950,7 @@ namespace VA::Experimental
     
         2x oversampling recommended
     */  
-    namespace SVF
+    namespace SvfCR
     {
         struct Coeffs
         {
