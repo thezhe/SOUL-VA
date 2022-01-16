@@ -99,6 +99,8 @@ namespace main
             va3.mixIn va3_12;
             va3.panIn va3_13;
             va3.makeupVolumeIn va3_14;
+
+
         }
 
         let
@@ -111,6 +113,7 @@ namespace main
             va1 = va::TheBass::Processor;
             va2 = va::TheChorus::Processor;
             va3 = va::TheComp::Processor;
+            va4 = va::TheSplit::Processor;
         }
 
         connection
@@ -119,7 +122,8 @@ namespace main
             in -> up -> va0 -> va1.in;
             va1.out -> va2.in;
             va2.out -> va3.in;
-            va3.out -> down -> out;
+            va3.out -> va4.in;
+            va4.out0, va4.out1 -> down -> out;
         }
     }
 }

@@ -35,9 +35,11 @@
 /** Task List
 
     Current Tasks:
-    - TheComp
+    - TheSplit (A/S)
 
     Future Tasks:
+    - TheComp
+    - mid side processing to TheBass and/or TheComp?
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
 */
@@ -45,7 +47,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/14/22
+VA::HighLevel Processors                                                01/15/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -54,24 +56,93 @@ VA::HighLevel Processors                                                01/14/22
     */
     namespace HighLevel
     {  
+        /** Signal splitter
+        
+            Use case: Crossover (frequency), Center/Side (spatial), or Attack/Sustain (time)
+        */
+        namespace TheSplit
+        {
+            namespace Modes
+            {
+                let Crossover = 0;
+                let CenterSide = 1;
+                let AttackSustain = 2;
+                let NumModes = 3;
+            }
+
+            graph Processor(float iFrequencyHz = 1000,
+                            float iCenterSidePercent = 50,
+                            float iTimeMs = 50,
+                            int iMode = Modes::CenterSide)
+            {
+                input stream SampleType in;
+                output stream SampleType out0, out1;
+        
+                input
+                {
+                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, unit: "Hz", step: 1]];
+                    stereoToCenterSide.centerSideIn;
+                    /*stereoToAttackRelease.timeIn;*/
+
+                    event float modeIn [[ name: "Mode", min: 0, max: 2, init: iMode, text: "Cross|C/S|A/S", group: "unsmoothed" ]];
+                }
+        
+                let
+                {
+                    //non-boilerplate Processors
+                    stereoToCenterSide = StereoToCenterSide::Processor (iCenterSidePercent);
+                    pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
+                    /*stereoToAttackRelease = StereoToAttackRelease::Processor (iTimeMs);*/
+
+                    mux3To1_0 = Mux3To1::Processor (iMode);
+                    mux3To1_1 = Mux3To1::Processor (iMode);
+
+                    //boilerplate Processors
+                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                }
+        
+                connection
+                {
+                    modeIn -> mux3To1_0.idxIn, mux3To1_1.idxIn;
+
+                    in -> pCrossover.in, stereoToCenterSide.in;
+
+                    pCrossover.lowOut -> mux3To1_0.in0;
+                    pCrossover.highOut -> mux3To1_1.in0;
+
+                    stereoToCenterSide.centerOut -> mux3To1_0.in1;
+                    stereoToCenterSide.sideOut -> mux3To1_1.in1;
+
+                    /*
+                    stereoToAttackRelease.attackOut -> mux3To1_0.in2;
+                    stereoToAttackRelease.releaseOut -> mux3To1_1.in2;
+                    */
+                    
+                    mux3To1_0.out -> out0;
+                    mux3To1_1.out -> out1;
+                }
+            }
+        }
+
         /** Compressor with a colored CTF and nonlinear ballistics 
 
             Use case: limiter, compressor, transient emphasis 
         */
         namespace TheComp
         {
-            graph Processor(float iAttackMs = 1,
-                            float iAttackNonlinearity = 100,
-                            float iReleaseMs = 300, 
-                            float iReleaseNonlinearity = 0,
+            graph Processor(float iAttackMs = 10,
+                            float iAttackNonlinearity = 20,
+                            float iReleaseMs = 2000, 
+                            float iReleaseNonlinearity = 10,
                             float iStereoLinkPercent = 0,
-                            float iThreshold_dB = -20,
-                            float iRatio0 = 10,
+                            float iThreshold_dB = -40,
+                            float iRatio0 = 20,
                             float iRatio1 = 1.5f,
                             float iHeight_dB = 6,
-                            float iWidth_dB = 3,
-                            float iHpfCutoffHz = 5,
-                            float iHpfQuality = 1,
+                            float iWidth_dB = 6,
+                            float iHpfCutoffHz = 1,
+                            float iHpfQuality = FLOAT_DIV_SQRT_TWO,
                             float iMixPercent = 100,
                             float iPan = 0,
                             float iMakeupVolume_dB = 0)
@@ -81,12 +152,12 @@ VA::HighLevel Processors                                                01/14/22
 
                 input
                 {
-                    stereoLink.stereoLinkIn;
-
                     ballisticsFilterLan.attackIn;
                     ballisticsFilterLan.attackNonlinearityIn;
                     ballisticsFilterLan.releaseIn;
                     ballisticsFilterLan.releaseNonlinearityIn;
+
+                    stereoLink.stereoLinkIn;
 
                     ctfColor.thresholdIn;
                     ctfColor.ratio0In;
@@ -136,6 +207,19 @@ VA::HighLevel Processors                                                01/14/22
                     applyGain.out -> smoothedMixPan.in1;
                     smoothedMixPan.out -> smoothedVolume.in;
                     smoothedVolume.out -> dcBlockerOut -> out;
+
+                    /** debug without dcBlockers and svf
+                        in -> smoothedMixPan.in0, svf.in, applyGain.in;
+                        
+                        in -> pAbs -> stereoLink.in;
+                        stereoLink.out -> ballisticsFilterLan.in;
+                        ballisticsFilterLan.out -> ctfColor.in;
+                        ctfColor.out -> applyGain.b;
+
+                        applyGain.out -> smoothedMixPan.in1;
+                        smoothedMixPan.out -> smoothedVolume.in;
+                        smoothedVolume.out -> out;
+                    */
                 }
             }
         }
@@ -889,7 +973,7 @@ Mix Processors                                                          12/14/21
 Vectorized Instrinsic/Helper Processors                                 01/14/22
 ==============================================================================*/
 
-    /** vCTF_Color wrapper */
+    /** 'vCTF_Color' wrapper */
     namespace CTF_Color
     {
         struct Coeffs 
@@ -924,7 +1008,7 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -60.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f ]];
+            input event float thresholdIn [[ name: "Threshold", min: -40.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f ]];
             input event float ratio0In [[ name: "Ratio Down", min: 1.f, max: 20.f, init: iRatio0, step: 1 ]];
             input event float ratio1In [[ name: "Ratio Up", min: 1.f, max: 1.5f, init: iRatio1, step: 0.01f ]];
             input event float heightIn [[ name: "Height", min: -6.f, max: 6.f, init: iHeight, unit: "dB", step: 0.01f ]];
@@ -968,6 +1052,70 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             }
         }
     }
+
+    /** 'vstereoToCenterSide' wrapper */
+    namespace StereoToCenterSide
+    {   
+        struct Coeffs
+        {
+            float centerSide;
+        }
+    
+        // void updatePerSample (Coeffs& c, Include 'event' or 'stream' parameters as 'float' or 'SampleType' arguments)
+        // {
+        //     Map 'event' or 'stream' parameters to 'Coeffs' members
+        // }
+    
+        void update (Coeffs& c, float centerSide)
+        {
+            c.centerSide = centerSide;
+        }
+    
+        SampleType[2] process (SampleType x, const Coeffs& c)
+        {
+            return vstereoToCenterSide (x, c.centerSide);
+        }
+    
+        processor Processor (float iCenterSide = 50)
+        {
+            input stream SampleType in;
+            output stream SampleType centerOut, sideOut;
+    
+            input event float centerSideIn [[ name: "C/S", min: 0, max: 100, init: iCenterSide, unit: "%", step: 1 ]];
+            event centerSideIn (float v) { centerSide = v; recalc = true; }
+            
+            float centerSide = iCenterSide;
+            bool recalc = true;
+    
+            void run()
+            {   
+                Coeffs c;
+    
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (centerSide);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        let y =  process (in, c);
+    
+                        centerOut << y[0];
+                        sideOut << y[1];
+
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+    
 
     /** Average a SampleType stream with a copy that has swapped channels */
     namespace StereoLink
@@ -1284,6 +1432,82 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             }
         }
     }
+
+    namespace Sum
+    {
+        processor Processor()
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << in0 + in1;
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    /** Output 1 of 3 signals */
+    namespace Mux3To1
+    {   
+        struct Coeffs
+        {
+            int idx;
+        }
+    
+        void update (Coeffs& c, float idx)
+        {
+            c.idx = int (floor (idx));
+        }
+    
+        SampleType process (SampleType[3] x, const Coeffs& c)
+        {
+            return x.at(c.idx);
+        }
+    
+        processor Processor (int iIdx = 1)
+        {
+            input stream SampleType in0, in1, in2;
+            output stream SampleType out;
+    
+            input event float idxIn [[ name: "idx", min: 0, max: 2, init: iIdx, step: 1, group: "unsmoothed" ]];
+    
+            event idxIn (float v) { idx = v; recalc = true; }
+    
+            float idx = float (iIdx);
+            bool recalc = true;
+    
+            void run()
+            {   
+                Coeffs c;
+    
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (idx);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << process (SampleType[3] (in0, in1, in2), c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+    
 
 /*==============================================================================
 Parameter Processors                                                    01/09/22
@@ -1797,6 +2021,43 @@ Vectorized Helper Functions                                             01/15/22
         let dB = vmax (NOISE_FLOOR_DB, x);
 
         return vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0));
+    }
+
+    SampleType vstereoLink (SampleType x, float percent)
+    {
+        let b = vmixToGains (percent * 0.5f);
+        let x1 = SampleType (x[1] , x[0]);
+
+        return b.at(0) * x + b.at(1) * x1;
+    }
+    
+    /** Convert a stereo sample to center and side samples 
+    
+        Notes:
+        - Center signal is stereo-linked 
+        - Side is the difference between x and x with flipped channels
+        - This is NOT a mid/side 
+    */
+    SampleType[2] vstereoToCenterSide (SampleType x, float percent)
+    {
+        let b = vmixToGains (percent * 0.5f);
+        let x0 = HALF * x;
+        let x1 = SampleType (x0[1] , x0[0]);
+
+        let c = b.at(0) * x0 + b.at(1) * x1;
+        let s = b.at(0) * x0 - b.at(1) * x1;
+
+        return SampleType[2] (c, s);
+    }
+
+    SampleType vstereoToMidSide (SampleType x)
+    {
+        return SampleType (0.5 * x.sum(), 0.5 * (x[0] - x[1]));
+    }
+
+    SampleType vMidSideToStereo (SampleType x)
+    {
+        return SampleType (x.sum(), x[0] - x[1]);
     }
 
     /** Convert a mix and a pan to a SampleType[2] gain array
