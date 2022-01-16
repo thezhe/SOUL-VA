@@ -35,7 +35,7 @@
 /** Task List
 
     Current Tasks:
-    - TheSplit (A/S)
+    - TheSplit (A/S, DET), rename stereoTo... to splitter
 
     Future Tasks:
     - TheComp
@@ -82,7 +82,8 @@ VA::HighLevel Processors                                                01/15/22
                 {
                     pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, unit: "Hz", step: 1]];
                     stereoToCenterSide.centerSideIn;
-                    /*stereoToAttackRelease.timeIn;*/
+                    stereoToAttackRelease.fastTauIn;
+                    stereoToAttackRelease.slowTauIn;
 
                     event float modeIn [[ name: "Mode", min: 0, max: 2, init: iMode, text: "Cross|C/S|A/S", group: "unsmoothed" ]];
                 }
@@ -92,21 +93,22 @@ VA::HighLevel Processors                                                01/15/22
                     //non-boilerplate Processors
                     stereoToCenterSide = StereoToCenterSide::Processor (iCenterSidePercent);
                     pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
-                    /*stereoToAttackRelease = StereoToAttackRelease::Processor (iTimeMs);*/
+                    stereoToAttackRelease = StereoToAttackRelease::Processor;
 
                     mux3To1_0 = Mux3To1::Processor (iMode);
                     mux3To1_1 = Mux3To1::Processor (iMode);
 
                     //boilerplate Processors
                     dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
                 }
         
                 connection
                 {
                     modeIn -> mux3To1_0.idxIn, mux3To1_1.idxIn;
 
-                    in -> pCrossover.in, stereoToCenterSide.in;
+                    in -> dcBlockerIn -> pCrossover.in, stereoToCenterSide.in, stereoToAttackRelease.in;
 
                     pCrossover.lowOut -> mux3To1_0.in0;
                     pCrossover.highOut -> mux3To1_1.in0;
@@ -114,13 +116,11 @@ VA::HighLevel Processors                                                01/15/22
                     stereoToCenterSide.centerOut -> mux3To1_0.in1;
                     stereoToCenterSide.sideOut -> mux3To1_1.in1;
 
-                    /*
                     stereoToAttackRelease.attackOut -> mux3To1_0.in2;
                     stereoToAttackRelease.releaseOut -> mux3To1_1.in2;
-                    */
                     
-                    mux3To1_0.out -> out0;
-                    mux3To1_1.out -> out1;
+                    mux3To1_0.out -> dcBlockerOut0 -> out0;
+                    mux3To1_1.out -> dcBlockerOut1 -> out1;
                 }
             }
         }
@@ -402,7 +402,6 @@ VA::HighLevel Processors                                                01/15/22
 /*==============================================================================
 Filter Processors                                                       01/09/22
 ==============================================================================*/
-
 
     /** Ladder Low Pass Filter with variable order and saturating state 
     
@@ -723,6 +722,90 @@ Filter Processors                                                       01/09/22
                         advance();
                     }
                 }
+            }
+        }
+    }
+
+    /** Split a stereo stream into attack and release streams */
+    namespace StereoToAttackRelease
+    {
+        graph Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType attackOut, releaseOut;
+    
+            input
+            {
+                det.fastTauIn;
+                det.slowTauIn;
+            }
+    
+            let
+            {
+                det = DET::Processor;
+
+                constant = Constant::Processor (1);
+                difference = Difference::Processor;
+
+                applyGain0 = ApplyGain::Processor;
+                applyGain1 = ApplyGain::Processor;
+            }
+    
+            connection
+            {
+                in -> det.in, applyGain0.in, applyGain1.in;
+
+                det.out -> difference.in1, applyGain0.b;
+                constant.out -> difference.in0;
+                difference.out -> applyGain1.b;
+
+                applyGain0.out -> attackOut;
+                applyGain1.out -> releaseOut;
+            }
+        }
+    }
+    
+
+    /** Description */
+    namespace DET
+    {
+        graph Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedParameter0.in0 fastTauIn [[ name: "Fast", min: 1, max: 100, init: 10, step: 0.1, unit: "ms" ]];
+                smoothedParameter1.in0 slowTauIn [[ name: "Slow", min: 2, max: 200, init: 100, step: 0.1, unit: "ms" ]];
+            }
+    
+            let
+            {
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (1), SmoothedParameter::Modes::TauToOmegaOnepole, 1, FLOAT_SLEW_RATE_SECONDS_OMEGA);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (2), SmoothedParameter::Modes::TauToOmegaOnepole, 1, FLOAT_SLEW_RATE_SECONDS_OMEGA);
+
+                pAbs = Abs::Processor;
+
+                onepole0 = OnepoleC::Processor;
+                onepole1 = OnepoleC::Processor;
+
+                difference = Difference::Processor;
+
+                pMax = Max::Processor;
+            }
+    
+            connection
+            {
+                smoothedParameter0.out0 -> onepole0.Omega;
+                smoothedParameter1.out0 -> onepole1.Omega;
+
+                in -> pAbs -> onepole0.in, onepole1.in;
+
+                onepole0.lowpassOut -> difference.in0;
+                onepole1.lowpassOut -> difference.in1;
+
+                difference.out -> pMax -> out;
             }
         }
     }
@@ -1116,7 +1199,6 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
     
-
     /** Average a SampleType stream with a copy that has swapped channels */
     namespace StereoLink
     {   
@@ -1374,6 +1456,31 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
 
+    /** 'vmax' */
+    namespace Max
+    {   
+        processor Processor (float iB = 0)
+        {
+            input stream SampleType a;
+            output stream SampleType out;
+
+            let b = SampleType (iB);
+
+            void run()
+            {   
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    out << vmax (a, b);
+
+                    advance();
+
+                }
+            }
+        }
+    }
+    
     namespace Abs
     {
         processor Processor()
@@ -1452,6 +1559,45 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
 
+    namespace Constant
+    {
+        processor Processor(float iConstant = 0)
+        {
+            output stream SampleType out;
+
+            let constant = SampleType (iConstant);
+
+            void run()
+            {
+                loop
+                {
+                    out << constant;
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace Difference
+    {
+        processor Processor()
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << in0 - in1;
+
+                    advance();
+                }
+            }
+        }
+    }
+
     /** Output 1 of 3 signals */
     namespace Mux3To1
     {   
@@ -1508,7 +1654,6 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
     
-
 /*==============================================================================
 Parameter Processors                                                    01/09/22
 ==============================================================================*/
@@ -1767,7 +1912,8 @@ Parameter Processors                                                    01/09/22
             let MixPan = 2;
             let G_Onepole = 3;
             let Percent = 4;
-            let NumModes = 5;
+            let TauToOmegaOnepole = 5;
+            let NumModes = 6;
         }
 
         namespace M (int mode = Modes::Linear)
@@ -1801,6 +1947,8 @@ Parameter Processors                                                    01/09/22
                     c.target.at(0) = vcutoffToG_Onepole (parameter.at(0), fs);
                 else if const (mode == Modes::Percent)
                     c.target.at(0) = SampleType (parameter.at(0) * 0.01);
+                else if const (mode == Modes::TauToOmegaOnepole)
+                    c.target.at(0) = SampleType (1.0 / (parameter.at(0) * 0.001));
 
                 if const (mode != Modes::MixPan)
                     s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
@@ -1825,6 +1973,8 @@ Parameter Processors                                                    01/09/22
                     s.current = vmixPanToGains (parameter.at(0), parameter.at(1));
                 else if const (mode == Modes::G_Onepole)
                     s.current.at(0) = vcutoffToG_Onepole (parameter.at(0), fs); 
+                else if const (mode == Modes::TauToOmegaOnepole)
+                    c.target.at(0) = SampleType (1.0 / (parameter.at(0) * 0.001));
 
                 s.remainingRampSamples = 0;
             }
@@ -2176,6 +2326,7 @@ Constants                                                               01/14/22
     let FLOAT_DC_BLOCKER_CUTOFF_HZ = 1.f;
     let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f);
     let FLOAT_SLEW_RATE_SECONDS_GAIN = 100.f;
+    let FLOAT_SLEW_RATE_SECONDS_OMEGA = float (twoPi) * 20000.f; 
 
     //soul::filters
     using SampleType = float64<2>;

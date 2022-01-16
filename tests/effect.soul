@@ -88,6 +88,10 @@ namespace main
                 // effect.mixIn;
                 // effect.panIn;
                 // effect.makeupVolumeIn;
+
+                effect.modeIn;
+                effect.fastTauIn;
+                effect.slowTauIn;
         }
 
         let
