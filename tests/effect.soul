@@ -69,35 +69,29 @@ namespace main
             // effect.widthIn;
             // effect.makeupVolumeIn;
 
-                // effect.attackIn;
-                // effect.attackNonlinearityIn;
-                // effect.releaseIn;
-                // effect.releaseNonlinearityIn;
+            effect.attackIn;
+            effect.releaseIn;
 
-                // effect.stereoLinkIn;
+            effect.stereoLinkIn;
 
-                // effect.thresholdIn;
-                // effect.ratio0In;
-                // effect.ratio1In;
-                // effect.heightIn;
-                // effect.widthIn;
+            effect.thresholdIn;
+            effect.ratio0In;
+            effect.ratio1In;
+            effect.heightIn;
+            effect.widthIn;
 
-                // effect.cutoffIn;
-                // effect.qualityIn;
+            effect.cutoffIn;
+            effect.qualityIn;
 
-                // effect.mixIn;
-                // effect.panIn;
-                // effect.makeupVolumeIn;
-
-                effect.modeIn;
-                effect.fastTauIn;
-                effect.slowTauIn;
+            effect.mixIn;
+            effect.panIn;
+            effect.makeupVolumeIn;
         }
 
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::TheSplit::Processor;
+            effect = VA::HighLevel::TheExpressor::Processor(4, 4, 0, -50, 20, 0.1f);
 
             //comment out for stereo
             up = FloatToSampleType::Processor;
@@ -107,7 +101,7 @@ namespace main
         connection
         {       
             in -> up -> effect.in; //comment out 'up' and 'down' for stereo
-            effect.out1 -> down -> out;
+            effect.out -> down -> out;
         }
     }
 }
