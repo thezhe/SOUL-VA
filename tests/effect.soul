@@ -91,7 +91,7 @@ namespace main
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::TheExpressor::Processor(4, 4, 0, -50, 20, 0.1f);
+            effect = VA::HighLevel::TheExpressor::Processor;
 
             //comment out for stereo
             up = FloatToSampleType::Processor;
