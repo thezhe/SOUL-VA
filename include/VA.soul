@@ -35,10 +35,10 @@
 /** Task List
 
     Current Tasks:
-    - TheComp, rename annotations
-    - IsolateAttackRelease add endpoints and boost option via compounding 1-det.out
+    - TheExpressor, rename annotations
 
     Future Tasks:
+    - IsolateAttackRelease add endpoints and boost option via compounding 1-det.out
     - TheSplit (A/S), rename stereoTo... to splitter, centerSides
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
@@ -56,86 +56,6 @@ VA::HighLevel Processors                                                01/17/22
     */
     namespace HighLevel
     {  
-        /** Signal splitter
-        
-            Use case: Crossover (frequency), Center/Sides (spatial), Attack/Sustain (time), Loud/Soft (amplitude)
-        */
-        namespace TheSplit
-        {
-            namespace Modes
-            {
-                let Crossover = 0;
-                let CenterSides = 1;
-                let AttackSustain = 2;
-                let LoudSoft = 3;
-                let NumModes = 4;
-            }
-
-            graph Processor(float iCrossoverHz = 1000,
-                            float iCenterSidesPercent = 100, 
-                            float iAttackSustainMs = 30,
-                            float iLoudSoftdB = -25,
-                            int iMode = Modes::AttackSustain)
-            {
-                input stream SampleType in;
-                output stream SampleType out0, out1;
-        
-                input
-                {
-                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
-
-                    splitCenterSides.centerSidesIn;
-
-                    splitAttackSustain.timeIn;
-                    splitAttackSustain.boostIn;
-
-                    splitLoudSoft.thresholdIn;
-                    splitLoudSoft.sensitivityIn;
-
-                    event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Crossover|Center/Sides|Attack/Sustain|Loud/Soft", group: "Unsmoothed" ]];
-                }
-        
-                let
-                {
-                    //non-boilerplate Processors
-                    pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
-                    splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
-                    splitAttackSustain = SplitAttackSustain::Processor;
-                    splitLoudSoft = SplitLoudSoft::Processor;
-
-                    mux4To1_0 = Mux4To1::Processor (iMode);
-                    mux4To1_1 = Mux4To1::Processor (iMode);
-
-                    //boilerplate Processors
-                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                }
-        
-                connection
-                {
-                    modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
-
-                    in -> dcBlockerIn -> pCrossover.in, splitCenterSides.in, splitAttackSustain.in, splitLoudSoft.in;
-
-                    pCrossover.highOut -> mux4To1_0.in0;
-                    pCrossover.lowOut -> mux4To1_1.in0;
-
-                    splitCenterSides.centerOut -> mux4To1_0.in1;
-                    splitCenterSides.sidesOut -> mux4To1_1.in1;
-
-                    splitAttackSustain.attackOut -> mux4To1_0.in2;
-                    splitAttackSustain.sustainOut -> mux4To1_1.in2;
-
-                    splitLoudSoft.loudOut -> mux4To1_0.in3;
-                    splitLoudSoft.softOut -> mux4To1_1.in3;
-
-                    mux4To1_0.out -> dcBlockerOut0 -> out0;
-                    mux4To1_1.out -> dcBlockerOut1 -> out1;
-                }
-            }
-        }
-
         /** Upwards/Downwards Ex(pander)/(com)pressor with a colored knee
 
             Notes:
@@ -144,14 +64,13 @@ VA::HighLevel Processors                                                01/17/22
         */
         namespace TheExpressor
         {
-            graph Processor(float iAttackMs = 4,
-                            float iReleaseMs = 4, 
+            graph Processor(float iAttackMs = 0.5f,
+                            float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
-                            float iThreshold_dB = -40,
+                            float iThreshold_dB = -50,
                             float iRatio0 = 8,
                             float iRatio1 = 1.5f,
-                            float iHeight_dB = 6,
-                            float iWidth_dB = 6,
+                            float iColor_dB = 6,
                             float iHpfCutoffHz = 1,
                             float iHpfQuality = FLOAT_DIV_SQRT_TWO,
                             float iMixPercent = 100,
@@ -171,28 +90,27 @@ VA::HighLevel Processors                                                01/17/22
                     ctfColor.thresholdIn;
                     ctfColor.ratio0In;
                     ctfColor.ratio1In;
-                    ctfColor.heightIn;
-                    ctfColor.widthIn;
+                    event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB" ]];
 
                     svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
                     svf.qualityIn [[ name: "Q", min: 0.01f, max: FLOAT_DIV_SQRT_TWO, init: iHpfQuality, step: 0.01f]]; //max Q is butterworth
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -6, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -6, max: 50, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                 }
 
                 let
                 {
                     //main Processors
-                    pAbs = Abs::Processor;                    
+                    absADAA = AbsADAA::Processor;      
 
                     stereoLink = StereoLink::Processor (iStereoLinkPercent);
 
                     svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
 
                     ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
-                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iHeight_dB, iWidth_dB);
+                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iColor_dB, iColor_dB);
 
                     applyGain = ApplyGain::Processor;
 
@@ -206,27 +124,21 @@ VA::HighLevel Processors                                                01/17/22
 
                 connection
                 {
+
+                    //input events
+                    colorIn -> ctfColor.heightIn;
+                    colorIn -> ctfColor.widthIn;
+
                     in -> dcBlockerIn -> smoothedMixPan.in0, svf.in, applyGain.in;
                     
-                    svf.highpassOut -> pAbs -> stereoLink.in;
+                    svf.highpassOut -> absADAA -> stereoLink.in;
                     stereoLink.out -> ballisticsFilter.in;
                     ballisticsFilter.out -> ctfColor.in;
                     ctfColor.out -> applyGain.b;
 
                     applyGain.out -> smoothedMixPan.in1;
                     smoothedMixPan.out -> smoothedVolume.in;
-                    smoothedVolume.out -> dcBlockerOut -> out;
-
-                    /**debug without dcBlockers and svf
-                        in -> applyGain.in;
-                    
-                        in -> pAbs -> stereoLink.in;
-                        stereoLink.out -> ballisticsFilter.in;
-                        ballisticsFilter.out -> ctfColor.in;
-                        ctfColor.out -> applyGain.b;
-
-                        applyGain.out -> out;*/
-                    
+                    smoothedVolume.out -> dcBlockerOut -> out;                    
                 }
             }
         }
@@ -830,8 +742,8 @@ Filter Processors                                                       01/17/22
         
                 input event
                 { 
-                    float attackIn [[ name: "Attack", min: 4, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
-                    float releaseIn [[ name: "Release", min: 4, max: 1000, init: iRelease, unit: "ms", step: 0.1 ]];
+                    float attackIn [[ name: "Attack", min: 0.1f, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
+                    float releaseIn [[ name: "Release", min: 30, max: 3000, init: iRelease, unit: "ms", step: 1 ]];
                 }
 
                 event attackIn (float v) { attack = v; recalc = true; }
@@ -1087,7 +999,7 @@ Filter Processors                                                       01/17/22
     }
     
 /*==============================================================================
-Vectorized Instrinsic/Helper Processors                                 01/17/22
+Vectorized Instrinsic/Helper Processors                                 01/18/22
 ==============================================================================*/
 
     /** Boost an envelope
@@ -1221,11 +1133,11 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -40.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
+            input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
             input event float ratio0In [[ name: "Ratio Down", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio1In [[ name: "Ratio Up", min: 0.1f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Unsmoothed" ]];
-            input event float heightIn [[ name: "Height", min: -6.f, max: 6.f, init: iHeight, unit: "dB", step: 0.01f ]];
-            input event float widthIn [[ name: "Width", min: 2.f, max: 6.f, init: iWidth, unit: "dB", step: 0.01f ]];
+            input event float ratio1In [[ name: "Ratio Up", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Unsmoothed" ]];
+            input event float heightIn [[ name: "Height", min: -24.f, max: 24.f, init: iHeight, unit: "dB", step: 0.01f ]];
+            input event float widthIn [[ name: "Width", min: 3.f, max: 24.f, init: iWidth, unit: "dB", step: 0.01f ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
@@ -1266,7 +1178,7 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
         }
     }
 
-    /** vCTF wrapper */
+    /** 'vCTF' wrapper */
     namespace CTF
     {
         struct Coeffs 
@@ -1293,7 +1205,7 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
+            input event float thresholdIn [[ name: "Threshold", min: -40.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
             input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: initialRatio0, step: 0.1f, group: "Unsmoothed" ]];
             input event float ratio1In [[ name: "Ratio 1", min: 0.1f, max: 1.5f, init: initialRatio1, step: 0.1f, group: "Unsmoothed" ]];
 
@@ -1332,26 +1244,22 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
         }
     }
     
-    /** Average a stream with a swapped-channel copy */
+    /** 'vstereoLink' wrapper */
     namespace StereoLink
     {   
         struct Coeffs
         {
-            SampleType[2] b;
             float stereoLink;
         }
     
         void update (Coeffs& c, float stereoLink)
         {
-            c.b = vmixToGains (stereoLink * 0.5f);
             c.stereoLink = stereoLink;
         }
     
         SampleType process (SampleType x, const Coeffs& c)
         {
-            let x1 = SampleType (x[1] , x[0]);
-
-            return c.b.at(0) * x + c.b.at(1) * x1;
+            return vstereoLink (x, c.stereoLink);
         }
     
         processor Processor (float iStereoLink = 0)
@@ -1392,7 +1300,7 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
         }
     }
 
-    /** 'vLan' with ADAA and a linear angular cutoff of 2pi
+    /** 'vLan' wrapper with ADAA and a linear angular cutoff of 2pi
     
         Notes:
         - Optimized for use with OnepoleC or modulating frequency domain filters
@@ -1521,7 +1429,7 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
         }
     }
 
-    /** 'vmax' */
+    /** 'vmax' wrapper */
     namespace Max
     {   
         processor Processor()
@@ -1541,6 +1449,128 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
         }
     }
     
+    /** 'vabs' wrapper with ADAA
+    
+        Notes:
+        - dynamic ADAA specifically optimized for signal rectification (see 'TheExpressor')
+        - If sampling rate is 44.1kHz, use 2x oversampling
+        - Parameters are not suitable for modulation
+    */
+    namespace AbsADAA
+    {   
+        struct Coeffs
+        {
+
+        }
+    
+        SampleType f (SampleType x, const Coeffs& c)
+        {
+            return vabs (x);
+        }
+    
+        SampleType F1 (SampleType x, const Coeffs& c)
+        {
+            return vsgn(x) * HALF * vpow (x, 2);
+        }
+    
+        SampleType F2 (SampleType x, const Coeffs& c)
+        {
+            return vsgn (x) * SampleType (1.0 / 6.0) * vpow (x, 3);
+        }
+    
+        struct State
+        {
+            SampleType x_2;
+            SampleType x_1;
+            SampleType F2_1;
+            SampleType F1_1;
+        }
+    
+        void reset (State& s)
+        {
+            s.x_2 = ZERO;
+            s.x_1 = ZERO;
+            s.F2_1 = ZERO;
+            s.F1_1 = ZERO;
+        }
+    
+        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
+        {
+            //Find F1_0
+            let x_0mx_1 = x - s.x_1;
+            let F2_0 = F2 (x, c);
+    
+            let F1_0 = viflt (F1 (HALF * (x + s.x_1), c), 
+                (F2_0 - s.F2_1) / x_0mx_1,
+                vabs (x_0mx_1), ADAA_TOL);
+    
+            //Find f_0
+            let x_0mx_2 = x - s.x_2;
+    
+            let xBar = HALF * (x + s.x_2);
+            let delta = xBar - s.x_1;
+    
+            let f_0 = viflt (
+                viflt (
+                    f (HALF * (xBar + s.x_1), c),
+                    (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),
+                    vabs (delta), ADAA_TOL
+                ),
+                (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
+                vabs (x_0mx_2), ADAA_TOL
+            );
+    
+            //update s
+            s.x_2 = s.x_1;
+            s.x_1 = x;
+            s.F2_1 = F2_0;
+            s.F1_1 = F1_0;
+    
+            return f_0;
+        }
+    
+        SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)
+        {
+            //Find f_0
+            let x_0mx_1 = x - s.x_1;
+            let F1_0 = F1 (x, c);
+    
+            let f_0 = viflt (f (HALF * (x + s.x_1), c), 
+                (F1_0 - s.F1_1) / x_0mx_1,
+                vabs (x_0mx_1), ADAA_TOL);
+    
+            //update s
+            s.x_1 = x;
+            s.F1_1 = F1_0;
+    
+            return f_0;
+        }
+    
+        SampleType process (State& s, SampleType x, const Coeffs& c)
+        {
+            return s.processADAA2 (x, c);
+        }
+    
+        processor Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            void run()
+            {
+                State s;
+                Coeffs c;
+    
+                loop
+                {
+                    out << s.process (in, c);
+
+                    advance();
+                }
+            }
+        }
+    }
+    
     namespace Abs
     {
         processor Processor()
@@ -1553,6 +1583,27 @@ Vectorized Instrinsic/Helper Processors                                 01/17/22
                 loop
                 {
                     out << vabs (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace AbsCD
+    {
+        processor Processor(float iB = 10)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+
+            SampleType b = SampleType (iB);
+
+            void run()
+            {
+                loop
+                {
+                    out << vabsCD (in, b);
 
                     advance();
                 }
@@ -2252,7 +2303,9 @@ Vectorized Helper Functions                                             01/15/22
         let xdB = vgainTodB (x);
         let xdBmthr = xdB - threshold;
 
-        let color = height / (ONE + vpow (xdBmthr * (ONE/width), 2));
+        let divWidth = ONE / vmax (vabs (width), SampleType (3.0));
+
+        let color = height / (ONE + vpow (xdBmthr * divWidth, 2));
         let ydB = viflt (threshold + xdBmthr * (ONE/ratio1) + color, threshold + xdBmthr * (ONE/ratio0) + color, xdB, threshold);
 
         return vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
@@ -2310,6 +2363,17 @@ Vectorized Helper Functions                                             01/15/22
     SampleType vsigmoidCD (SampleType x)
     {
         return x / sqrt (x * x + ONE);
+    }
+
+    /** Continuously differentiable algebraic approximation for absolute value
+    
+        Note:
+        - as b -> inf, (vabsCD - vabs) -> 0
+        - See: https://math.stackexchange.com/questions/728094/approximate-x-with-a-smooth-function
+    */
+    SampleType vabsCD (SampleType x, SampleType b)
+    {
+        return vsigmoidCD (b * x) * x;
     }
 
     /** Cutoff (Omega) modulation from an anhysteretic first-order nonlinear inductor circuit
@@ -2376,25 +2440,6 @@ Vectorized Helper Functions                                             01/15/22
         let x1 = SampleType (x[1] , x[0]);
 
         return b.at(0) * x + b.at(1) * x1;
-    }
-    
-    /** Convert a stereo sample to center and side samples 
-    
-        Notes:
-        - Center signal is stereo-linked 
-        - Side is the difference between x and x with flipped channels
-        - This is NOT a mid/side 
-    */
-    SampleType[2] vstereoToCenterSide (SampleType x, float percent)
-    {
-        let b = vmixToGains (percent * 0.5f);
-        let x0 = HALF * x;
-        let x1 = SampleType (x0[1] , x0[0]);
-
-        let c = b.at(0) * x0 + b.at(1) * x1;
-        let s = b.at(0) * x0 - b.at(1) * x1;
-
-        return SampleType[2] (c, s);
     }
 
     SampleType vstereoToMidSide (SampleType x)
@@ -2553,6 +2598,86 @@ Constants                                                               01/14/22
 
 namespace VA::Experimental
 {
+        /** Signal splitter
+        
+            Use case: Crossover (frequency), Center/Sides (spatial), Attack/Sustain (time), Loud/Soft (amplitude)
+        */
+      /*  namespace TheSplit
+        {
+            namespace Modes
+            {
+                let Crossover = 0;
+                let CenterSides = 1;
+                let AttackSustain = 2;
+                let LoudSoft = 3;
+                let NumModes = 4;
+            }
+
+            graph Processor(float iCrossoverHz = 1000,
+                            float iCenterSidesPercent = 100, 
+                            float iAttackSustainMs = 30,
+                            float iLoudSoftdB = -25,
+                            int iMode = Modes::AttackSustain)
+            {
+                input stream SampleType in;
+                output stream SampleType out0, out1;
+        
+                input
+                {
+                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
+
+                    splitCenterSides.centerSidesIn;
+
+                    splitAttackSustain.timeIn;
+                    splitAttackSustain.boostIn;
+
+                    splitLoudSoft.thresholdIn;
+                    splitLoudSoft.sensitivityIn;
+
+                    event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Crossover|Center/Sides|Attack/Sustain|Loud/Soft", group: "Unsmoothed" ]];
+                }
+        
+                let
+                {
+                    //non-boilerplate Processors
+                    pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
+                    splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
+                    splitAttackSustain = SplitAttackSustain::Processor;
+                    splitLoudSoft = SplitLoudSoft::Processor;
+
+                    mux4To1_0 = Mux4To1::Processor (iMode);
+                    mux4To1_1 = Mux4To1::Processor (iMode);
+
+                    //boilerplate Processors
+                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                }
+        
+                connection
+                {
+                    modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
+
+                    in -> dcBlockerIn -> pCrossover.in, splitCenterSides.in, splitAttackSustain.in, splitLoudSoft.in;
+
+                    pCrossover.highOut -> mux4To1_0.in0;
+                    pCrossover.lowOut -> mux4To1_1.in0;
+
+                    splitCenterSides.centerOut -> mux4To1_0.in1;
+                    splitCenterSides.sidesOut -> mux4To1_1.in1;
+
+                    splitAttackSustain.attackOut -> mux4To1_0.in2;
+                    splitAttackSustain.sustainOut -> mux4To1_1.in2;
+
+                    splitLoudSoft.loudOut -> mux4To1_0.in3;
+                    splitLoudSoft.softOut -> mux4To1_1.in3;
+
+                    mux4To1_0.out -> dcBlockerOut0 -> out0;
+                    mux4To1_1.out -> dcBlockerOut1 -> out1;
+                }
+            }
+        } */
+
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
     
         2x oversampling recommended

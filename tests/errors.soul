@@ -90,20 +90,19 @@ namespace main
             va3.thresholdIn va3_3;
             va3.ratio0In va3_4;
             va3.ratio1In va3_5;
-            va3.heightIn va3_6;
-            va3.widthIn va3_7;
-            va3.cutoffIn va3_8;
-            va3.qualityIn va3_9;
-            va3.mixIn va3_10;
-            va3.panIn va3_11;
-            va3.makeupVolumeIn va3_12;
+            va3.colorIn va3_6;
+            va3.cutoffIn va3_7;
+            va3.qualityIn va3_8;
+            va3.mixIn va3_9;
+            va3.panIn va3_10;
+            va3.makeupVolumeIn va3_11;
 
-            va4.frequencyIn va4_0;
-            va4.centerSidesIn va4_1;
-            va4.timeIn va4_2;
-            va4.thresholdIn va4_3;
-            va4.sensitivityIn va4_4;
-            va4.modeIn va4_5;
+            // va4.frequencyIn va4_0;
+            // va4.centerSidesIn va4_1;
+            // va4.timeIn va4_2;
+            // va4.thresholdIn va4_3;
+            // va4.sensitivityIn va4_4;
+            // va4.modeIn va4_5;
         }
 
         let
@@ -116,7 +115,7 @@ namespace main
             va1 = va::TheBass::Processor;
             va2 = va::TheChorus::Processor;
             va3 = va::TheExpressor::Processor;
-            va4 = va::TheSplit::Processor;
+           // va4 = va::TheSplit::Processor;
         }
 
         connection
@@ -125,8 +124,8 @@ namespace main
             in -> up -> va0 -> va1.in;
             va1.out -> va2.in;
             va2.out -> va3.in;
-            va3.out -> va4.in;
-            va4.out0, va4.out1 -> down -> out;
+            va3.out -> down -> out;//va4.in;
+           // va4.out0, va4.out1 -> down -> out;
         }
     }
 }
