@@ -87,6 +87,7 @@ VA::HighLevel Processors                                                01/17/22
                     splitCenterSides.centerSidesIn;
 
                     splitAttackSustain.timeIn;
+                    splitAttackSustain.boostIn;
 
                     splitLoudSoft.thresholdIn;
                     splitLoudSoft.sensitivityIn;
@@ -623,11 +624,13 @@ Filter Processors                                                       01/17/22
             input
             {
                 transientIsolator.timeIn;
+                boostEnvelope.boostIn;
             }
     
             let
             {
                 transientIsolator = TransientIsolator::Processor;
+                boostEnvelope = BoostEnvelope::Processor;
 
                 difference = Difference::Processor;
             }
@@ -636,7 +639,8 @@ Filter Processors                                                       01/17/22
             {
                 in -> transientIsolator.in, difference.in0;
 
-                transientIsolator.out -> difference.in1, attackOut;
+                transientIsolator.out -> boostEnvelope.in;
+                boostEnvelope.out -> difference.in1, attackOut;
 
                 difference.out -> sustainOut;
             }
@@ -1083,105 +1087,52 @@ Filter Processors                                                       01/17/22
     }
     
 /*==============================================================================
-Mix Processors                                                          12/14/21
+Vectorized Instrinsic/Helper Processors                                 01/17/22
 ==============================================================================*/
+
+    /** Boost an envelope
     
-    /** Apply a volume via 'AutoParameter' and 'SmoothedVolume' */
-    namespace AutoSmoothedVolume
+        out = 1 - (1 - in)*gain
+    */
+    namespace BoostEnvelope
     {
-        graph Processor(int mode = AutoParameter::Modes::Volume_OnepoleC_Lan)
+        graph Processor(float iBoost = 0)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
-                autoParameter.parameterIn;
-                autoParameter.controlIn;
+                smoothedVolume.volumeIn boostIn;
             }
     
             let
             {
-                autoParameter = AutoParameter::Processor (mode);
-                smoothedVolume = SmoothedVolume::Processor (AutoParameter::M(mode)::iParameter);
+                constant = Constant::Processor (1);
+
+                difference0 = Difference::Processor;
+                difference1 = Difference::Processor;
+
+                smoothedVolume = SmoothedVolume::Processor (iBoost);
             }
     
             connection
             {
-                autoParameter.out -> smoothedVolume.volumeIn;
-
-                in -> smoothedVolume.in;
-                smoothedVolume.out -> out;
-            }
-        }
-    }
-
-    /** Apply mixing and panning via 'SmoothedParameter' */
-    namespace SmoothedMixPan
-    {
-        graph Processor(float iMix = 50, float iPan = 0)
-        {
-            input stream SampleType in0, in1;
-            output stream SampleType out;
-    
-            input
-            {
-                smoothedGains.in0 mixIn [[ name: "Mix", min: 0, max: 100, init: iMix, unit: "%", step: 1 ]];
-                smoothedGains.in1 panIn [[ name: "Pan", min: -1, max: 1, init: iPan, step: 0.01f ]];
-            }
-
-            let
-            {
-                smoothedGains = SmoothedParameter::Processor (float[2] (iMix, iPan), SmoothedParameter::Modes::MixPan);
-                applyGains = ApplyGains::Processor;
-            }
-    
-            connection
-            {
-                smoothedGains.out0 -> applyGains.b0;
-                smoothedGains.out1 -> applyGains.b1;
-
-                in0 -> applyGains.in0;
-                in1 -> applyGains.in1;
-
-                applyGains.out -> out;
-            }
-        }
-    }
-    
-    /** Apply a volume via 'SmoothedParameter' */
-    namespace SmoothedVolume
-    {
-        graph Processor (float iVolume = 0)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input event float volumeIn [[ name: "Volume", min: -12, max: 0, init: iVolume, step: 0.1f, unit: "dB" ]];
-    
-            let
-            {
-                smoothedGain = SmoothedParameter::Processor (float[] (iVolume), SmoothedParameter::Modes::Decibel);
-                applyGain = ApplyGain::Processor;
-            }
-    
-            connection
-            {
-                in -> applyGain.in;
+                constant.out -> difference0.in0, difference1.in0;
                 
-                volumeIn -> smoothedGain.in0;
-                smoothedGain.out0 -> applyGain.b;
+                in -> difference0.in1;
+                difference0.out -> smoothedVolume.in;
 
-                applyGain.out -> out;
+                smoothedVolume.out -> difference1.in1;
+
+                difference1.out -> out;
+
+
             }
         }
-    }
+    }   
 
-/*==============================================================================
-Vectorized Instrinsic/Helper Processors                                 01/14/22
-==============================================================================*/
-
-    /** 'vpow' wrapper */
+    /** 'vpow' wrapper for SampleType exponent*/
     namespace Pow
     {   
         struct Coeffs
@@ -1189,22 +1140,12 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             SampleType exponent;
         }
     
-        void updatePerSample (Coeffs& c, float exponent)
+        void update (Coeffs& c, float exponent)
         {
             c.exponent = exponent;
         }
     
-        void update (Coeffs& c, Include 'event' parameters as 'float' arguments)
-        {
-            Map 'event' parameters to 'Coeffs' members
-        }
-        
-        struct State
-        {
-            'SampleType' state variables
-        }
-    
-        SampleType process (State& s, SampleType x, const Coeffs& c)
+        SampleType process (SampleType x, const Coeffs& c)
         {
             return vpow (x, c.exponent);
         }
@@ -1216,19 +1157,14 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
     
             input event float exponentIn [[ name: "Exponent", min: 0, max: 4, init: initialParam, step: 1 ]];
     
-            event paramIn (float v) { param = v; recalc = true; }
+            event exponentIn (float v) { exponent = v; recalc = true; }
 
-            float param = initialParam;    
+            float exponent = iExponent;    
             bool recalc = true;
     
             void run()
             {   
-                State s;
                 Coeffs c;
-    
-                Define constants that depend on processor.period or processor.frequency
-    
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
     
                 loop
                 {
@@ -1236,14 +1172,12 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
                     {
                         recalc = false;
     
-                        c.update (Pass 'event' parameters as arguments);
+                        c.update (exponent);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        c.updatePerSample(Pass 'event' or 'stream' parameters as arguments);
-    
-                        out << s.process (in, c);
+                        out << process (in, c);
     
                         advance();
                     }
@@ -1252,7 +1186,6 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
     
-
     /** 'vCTF_Color' wrapper */
     namespace CTF_Color
     {
@@ -1706,6 +1639,31 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
 
+    namespace Variable
+    {   
+        processor Processor (float iVariable = 0)
+        {
+            output stream SampleType out;
+
+            input event float variableIn [[ name: "Variable", min: 0, max: 1, init: initialVariable, step: 0.01 ]];
+    
+            event variableIn (float v) { variable = SampleType (v); }
+    
+            SampleType variable = SampleType (iVariable);
+            bool recalc = true;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << variable;
+
+                    advance();
+                }
+            }
+        }
+    }
+    
     namespace Difference
     {
         processor Processor()
@@ -1781,6 +1739,101 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
     
+/*==============================================================================
+Mix Processors                                                          12/14/21
+==============================================================================*/
+    
+    /** Apply a volume via 'AutoParameter' and 'SmoothedVolume' */
+    namespace AutoSmoothedVolume
+    {
+        graph Processor(int mode = AutoParameter::Modes::Volume_OnepoleC_Lan)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                autoParameter.parameterIn;
+                autoParameter.controlIn;
+            }
+    
+            let
+            {
+                autoParameter = AutoParameter::Processor (mode);
+                smoothedVolume = SmoothedVolume::Processor (AutoParameter::M(mode)::iParameter);
+            }
+    
+            connection
+            {
+                autoParameter.out -> smoothedVolume.volumeIn;
+
+                in -> smoothedVolume.in;
+                smoothedVolume.out -> out;
+            }
+        }
+    }
+
+    /** Apply mixing and panning via 'SmoothedParameter' */
+    namespace SmoothedMixPan
+    {
+        graph Processor(float iMix = 50, float iPan = 0)
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedGains.in0 mixIn [[ name: "Mix", min: 0, max: 100, init: iMix, unit: "%", step: 1 ]];
+                smoothedGains.in1 panIn [[ name: "Pan", min: -1, max: 1, init: iPan, step: 0.01f ]];
+            }
+
+            let
+            {
+                smoothedGains = SmoothedParameter::Processor (float[2] (iMix, iPan), SmoothedParameter::Modes::MixPan);
+                applyGains = ApplyGains::Processor;
+            }
+    
+            connection
+            {
+                smoothedGains.out0 -> applyGains.b0;
+                smoothedGains.out1 -> applyGains.b1;
+
+                in0 -> applyGains.in0;
+                in1 -> applyGains.in1;
+
+                applyGains.out -> out;
+            }
+        }
+    }
+    
+    /** Apply a volume via 'SmoothedParameter' */
+    namespace SmoothedVolume
+    {
+        graph Processor (float iVolume = 0)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event float volumeIn [[ name: "Volume", min: -12, max: 0, init: iVolume, step: 0.1f, unit: "dB" ]];
+    
+            let
+            {
+                smoothedGain = SmoothedParameter::Processor (float[] (iVolume), SmoothedParameter::Modes::Decibel);
+                applyGain = ApplyGain::Processor;
+            }
+    
+            connection
+            {
+                in -> applyGain.in;
+                
+                volumeIn -> smoothedGain.in0;
+                smoothedGain.out0 -> applyGain.b;
+
+                applyGain.out -> out;
+            }
+        }
+    }
+
 /*==============================================================================
 Parameter Processors                                                    01/09/22
 ==============================================================================*/
