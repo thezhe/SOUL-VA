@@ -26,7 +26,7 @@
         *The internal 'CoeffType' is float64<2>
         *Coefficient 'updateInterval' is every 256 samples at 44.1kHz 
         or scaled as needed (i.e. every 512 samples at 88.2kHz)
-    - Parameters not suitable for modulation up through 20Hz are part of the 'unsmoothed' parameter group
+    - Parameters not suitable for modulation up through 20Hz are part of the "Unsmoothed" parameter group
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
     - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are supported
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
@@ -35,7 +35,8 @@
 /** Task List
 
     Current Tasks:
-    - TheComp, width set 6, rename annotations
+    - TheComp, rename annotations
+    - IsolateAttackRelease add endpoints and boost option via compounding 1-det.out
 
     Future Tasks:
     - TheSplit (A/S), rename stereoTo... to splitter, centerSides
@@ -55,6 +56,85 @@ VA::HighLevel Processors                                                01/17/22
     */
     namespace HighLevel
     {  
+        /** Signal splitter
+        
+            Use case: Crossover (frequency), Center/Sides (spatial), Attack/Sustain (time), Loud/Soft (amplitude)
+        */
+        namespace TheSplit
+        {
+            namespace Modes
+            {
+                let Crossover = 0;
+                let CenterSides = 1;
+                let AttackSustain = 2;
+                let LoudSoft = 3;
+                let NumModes = 4;
+            }
+
+            graph Processor(float iCrossoverHz = 1000,
+                            float iCenterSidesPercent = 100, 
+                            float iAttackSustainMs = 30,
+                            float iLoudSoftdB = -25,
+                            int iMode = Modes::AttackSustain)
+            {
+                input stream SampleType in;
+                output stream SampleType out0, out1;
+        
+                input
+                {
+                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
+
+                    splitCenterSides.centerSidesIn;
+
+                    splitAttackSustain.timeIn;
+
+                    splitLoudSoft.thresholdIn;
+                    splitLoudSoft.sensitivityIn;
+
+                    event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Crossover|Center/Sides|Attack/Sustain|Loud/Soft", group: "Unsmoothed" ]];
+                }
+        
+                let
+                {
+                    //non-boilerplate Processors
+                    pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
+                    splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
+                    splitAttackSustain = SplitAttackSustain::Processor;
+                    splitLoudSoft = SplitLoudSoft::Processor;
+
+                    mux4To1_0 = Mux4To1::Processor (iMode);
+                    mux4To1_1 = Mux4To1::Processor (iMode);
+
+                    //boilerplate Processors
+                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                }
+        
+                connection
+                {
+                    modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
+
+                    in -> dcBlockerIn -> pCrossover.in, splitCenterSides.in, splitAttackSustain.in, splitLoudSoft.in;
+
+                    pCrossover.highOut -> mux4To1_0.in0;
+                    pCrossover.lowOut -> mux4To1_1.in0;
+
+                    splitCenterSides.centerOut -> mux4To1_0.in1;
+                    splitCenterSides.sidesOut -> mux4To1_1.in1;
+
+                    splitAttackSustain.attackOut -> mux4To1_0.in2;
+                    splitAttackSustain.sustainOut -> mux4To1_1.in2;
+
+                    splitLoudSoft.loudOut -> mux4To1_0.in3;
+                    splitLoudSoft.softOut -> mux4To1_1.in3;
+
+                    mux4To1_0.out -> dcBlockerOut0 -> out0;
+                    mux4To1_1.out -> dcBlockerOut1 -> out1;
+                }
+            }
+        }
+
         /** Upwards/Downwards Ex(pander)/(com)pressor with a colored knee
 
             Notes:
@@ -136,18 +216,16 @@ VA::HighLevel Processors                                                01/17/22
                     smoothedMixPan.out -> smoothedVolume.in;
                     smoothedVolume.out -> dcBlockerOut -> out;
 
-                    /** debug without dcBlockers and svf
-                        in -> smoothedMixPan.in0, svf.in, applyGain.in;
-                        
+                    /**debug without dcBlockers and svf
+                        in -> applyGain.in;
+                    
                         in -> pAbs -> stereoLink.in;
-                        stereoLink.out -> ballisticsFilterLan.in;
-                        ballisticsFilterLan.out -> ctfColor.in;
+                        stereoLink.out -> ballisticsFilter.in;
+                        ballisticsFilter.out -> ctfColor.in;
                         ctfColor.out -> applyGain.b;
 
-                        applyGain.out -> smoothedMixPan.in1;
-                        smoothedMixPan.out -> smoothedVolume.in;
-                        smoothedVolume.out -> out;
-                    */
+                        applyGain.out -> out;*/
+                    
                 }
             }
         }
@@ -182,7 +260,7 @@ VA::HighLevel Processors                                                01/17/22
                     lfo.widthIn; //UNSMOOTHED
                     lfo.modeIn; //UNSMOOTHED
 
-                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, group: "unsmoothed" ]];
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, group: "Unsmoothed" ]];
 
                     ladderLpfS.nonlinearityIn;
                     ladderLpfS.resonanceIn;
@@ -328,87 +406,8 @@ VA::HighLevel Processors                                                01/17/22
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       01/09/22
+Filter Processors                                                       01/17/22
 ==============================================================================*/
-
-    /** Split a signal into high/low amplitude signals via compression */
-    namespace SplitHighLow
-    {
-        let oversampling = 1;
-    
-        graph Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType highOut, lowOut;
-    
-            input
-            {
-                expressorClassical.attackIn;
-                expressorClassical.releaseIn;
-                expressorClassical.thresholdIn;
-                expressorClassical.ratio0In;
-                expressorClassical.ratio1In;
-            }
-    
-            let
-            {
-                expressorClassical = ExpressorClassical::Processor;
-                difference = Difference::Processor;
-            }
-    
-            connection
-            {
-                in -> expressorClassical.in;
-                expressorClassical.out -> difference.in1, lowOut;
-
-                in -> difference.in0;
-                difference.out -> highOut;
-            }
-        }
-    }
-    
-    /** Classical digital downwards/updawards ex(pander)/(com)pressor */
-    namespace ExpressorClassical
-    {
-        graph Processor(float iAttack = 10,
-                        float iRelease = 20,
-                        float iThreshold = -22,
-                        float iRatio0 = 4,
-                        float iRatio1 = 1)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                ballisticsFilter.attackIn;
-                ballisticsFilter.releaseIn;
-                ctf.thresholdIn;
-                ctf.ratio0In;
-                ctf.ratio1In;
-            }
-    
-            let
-            {
-                pAbs = Abs::Processor;
-                ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
-                ctf = CTF::Processor (iThreshold, iRatio0, iRatio1);
-
-                applyGain = ApplyGain::Processor;
-            }
-    
-            connection
-            {
-                in -> applyGain.in;
-
-                in -> pAbs -> ballisticsFilter.in;
-                ballisticsFilter.out -> ctf.in;
-                ctf.out -> applyGain.b;
-
-                applyGain.out -> out;
-            }
-        }
-    }
 
     /** Ladder Low Pass Filter with variable order and saturating state 
     
@@ -553,47 +552,173 @@ Filter Processors                                                       01/09/22
         }
     }
 
-    /** Split a stereo stream into attack and release streams */
-    namespace StereoToAttackRelease
+    /** Split into center/sides using StereoLink */
+    namespace SplitCenterSides
     {
-        graph Processor()
+        graph Processor(float iCenterSides = 0)
         {
             input stream SampleType in;
-            output stream SampleType attackOut, releaseOut;
+            output stream SampleType centerOut, sidesOut;
     
             input
             {
-                det.attackIn;
-                det.releaseIn;
-                det.attackIn1;
-                det.releaseIn1;
+                stereoLink.stereoLinkIn centerSidesIn [[ name: "C/S", min: 0, max: 100, init: iCenterSides, unit: "%", step: 1 ]];
             }
     
             let
             {
-                det = DET::Processor;
-
-                constant = Constant::Processor (1);
+                stereoLink = StereoLink::Processor (iCenterSides);
                 difference = Difference::Processor;
-
-                applyGain0 = ApplyGain::Processor;
-                applyGain1 = ApplyGain::Processor;
             }
     
             connection
             {
-                in -> det.in, applyGain0.in, applyGain1.in;
+                in -> stereoLink.in, difference.in0;
+                stereoLink.out -> difference.in1, centerOut;
 
-                det.out -> difference.in1, applyGain0.b;
-                constant.out -> difference.in0;
-                difference.out -> applyGain1.b;
+                difference.out -> sidesOut;
+            }
+        }
+    }
 
-                applyGain0.out -> attackOut;
-                applyGain1.out -> releaseOut;
+    /** Split into high/low amplitude via downward compression or downward expansion */
+    namespace SplitLoudSoft
+    {
+        graph Processor(float iSensitivity = 20,
+                        float iThreshold = -20)
+        {
+            input stream SampleType in;
+            output stream SampleType loudOut, softOut;
+    
+            input
+            {
+                expressorClassical.releaseIn sensitivityIn;
+                expressorClassical.thresholdIn;
+            }
+    
+            let
+            {
+                expressorClassical = ExpressorClassical::Processor(4, iSensitivity, iThreshold, 1, 0.1f);
+                difference = Difference::Processor;
+            }
+    
+            connection
+            {
+                in -> expressorClassical.in, difference.in0;
+                expressorClassical.out -> loudOut, difference.in1;
+
+                difference.out -> softOut;
+            }
+        }
+    }
+
+    /** Split into attack/release via IsolateAttackSustain */
+    namespace SplitAttackSustain
+    {
+        graph Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType attackOut, sustainOut;
+    
+            input
+            {
+                transientIsolator.timeIn;
+            }
+    
+            let
+            {
+                transientIsolator = TransientIsolator::Processor;
+
+                difference = Difference::Processor;
+            }
+    
+            connection
+            {
+                in -> transientIsolator.in, difference.in0;
+
+                transientIsolator.out -> difference.in1, attackOut;
+
+                difference.out -> sustainOut;
             }
         }
     }
     
+    /** Classical digital downwards/updawards ex(pander)/(com)pressor */
+    namespace ExpressorClassical
+    {
+        graph Processor(float iAttack = 10,
+                        float iRelease = 20,
+                        float iThreshold = -22,
+                        float iRatio0 = 4,
+                        float iRatio1 = 1)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                ballisticsFilter.attackIn;
+                ballisticsFilter.releaseIn;
+                ctf.thresholdIn;
+                ctf.ratio0In;
+                ctf.ratio1In;
+            }
+    
+            let
+            {
+                pAbs = Abs::Processor;
+                ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
+                ctf = CTF::Processor (iThreshold, iRatio0, iRatio1);
+
+                applyGain = ApplyGain::Processor;
+            }
+    
+            connection
+            {
+                in -> applyGain.in;
+
+                in -> pAbs -> ballisticsFilter.in;
+                ballisticsFilter.out -> ctf.in;
+                ctf.out -> applyGain.b;
+
+                applyGain.out -> out;
+            }
+        }
+    }
+
+    /** Isolate the attack or sustain using DET */
+    namespace TransientIsolator
+    {
+        graph Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                det.releaseIn timeIn;
+            }
+    
+            let
+            {
+                pAbs = Abs::Processor;
+                det = DET::Processor;
+
+                applyGain = ApplyGain::Processor;
+            }
+    
+            connection
+            {
+                in -> applyGain.in;
+
+                in -> pAbs -> det.in;
+                det.out -> applyGain.b;
+
+                applyGain.out -> out;
+            }
+        }
+    }
+
     /** Differential Envelope Technology
     
         Notes:
@@ -610,144 +735,29 @@ Filter Processors                                                       01/09/22
     
             input
             {
-                ballisticsFilterLan0.attackIn;
-                ballisticsFilterLan0.attackNonlinearityIn;
-                ballisticsFilterLan0.releaseIn;
-                ballisticsFilterLan0.releaseNonlinearityIn;
+                ballisticsFilter0.attackIn;
+                ballisticsFilter0.releaseIn;
 
-                ballisticsFilterLan1.attackIn attackIn1;
-                ballisticsFilterLan1.attackNonlinearityIn attackNonlinearityIn1;
-                ballisticsFilterLan1.releaseIn releaseIn1;
-                ballisticsFilterLan1.releaseNonlinearityIn releaseNonlinearityIn1;
+                ballisticsFilter1.attackIn attackIn1;
+                ballisticsFilter1.releaseIn releaseIn1;
             }
     
             let
             {
-                pAbs = Abs::Processor;
-
-                ballisticsFilterLan0 = BallisticsFilterLan::Processor;
-                ballisticsFilterLan1 = BallisticsFilterLan::Processor;
+                ballisticsFilter0 = BallisticsFilter::Processor (4, 4);
+                ballisticsFilter1 = BallisticsFilter::Processor (4, 4);
 
                 difference = Difference::Processor;
             }
     
             connection
             {
-                in -> pAbs -> ballisticsFilterLan0.in, ballisticsFilterLan1.in;
+                in -> ballisticsFilter0.in, ballisticsFilter1.in;
 
-                ballisticsFilterLan0.out -> difference.in0;
-                ballisticsFilterLan1.out -> difference.in1;
+                ballisticsFilter0.out -> difference.in0;
+                ballisticsFilter1.out -> difference.in1;
 
                 difference.out -> out;
-            }
-        }
-    }
-
-    /** 'BallisticsFilter' with nonlinear parameters for attack and release */
-    namespace BallisticsFilterLan
-    {
-        graph Processor (float iAttack = 1,
-                        float iAttackNonlinearity = 0,
-                        float iRelease = 50,
-                        float iReleaseNonlinearity = 0)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                internal.attackIn;
-                internal.attackNonlinearityIn;
-                internal.releaseIn;
-                internal.releaseNonlinearityIn;
-            }
-    
-            let
-            {
-                internal = Internal::Processor (iAttack, iAttackNonlinearity, iRelease, iReleaseNonlinearity);
-                onepoleC = OnepoleC::Processor;
-            }
-    
-            connection
-            {
-                in -> internal.x, onepoleC.in;
-
-                onepoleC.lowpassOut -> [1] -> internal.y;
-                internal.Omega -> onepoleC.Omega;
-
-                onepoleC.lowpassOut -> out;
-            }
-        }
-
-        namespace Internal
-        {
-            struct Coeffs 
-            {
-                LanStep::Coeffs attack;
-                LanStep::Coeffs release;
-            }
-
-            void update (Coeffs& c, float attack, float attackNonlinearity, float release, float releaseNonlinearity) 
-            {
-                LanStep::update (c.attack, attack, attackNonlinearity);
-                LanStep::update (c.release, release, releaseNonlinearity);
-            }
-
-            SampleType process (SampleType x, SampleType y, const Coeffs& c) 
-            {
-                return viflt (LanStep::process (x, c.release), LanStep::process (x, c.attack), x, y);  
-            }
-
-            processor Processor(float iAttack,
-                                float iAttackNonlinearity,
-                                float iRelease,
-                                float iReleaseNonlinearity)
-            {
-                input stream SampleType x, y;
-                output stream SampleType Omega;
-        
-                input event
-                { 
-                    float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
-                    float attackNonlinearityIn [[ name: "Attack Nonlin", min: 0, max: 20, init: iAttackNonlinearity, step: 1 ]];
-                    float releaseIn [[ name: "Release", min: 5, max: 1000, init: iRelease, unit: "ms", step: 1 ]];
-                    float releaseNonlinearityIn [[ name: "Release Nonlin", min: 0, max: 20, init: iReleaseNonlinearity, step: 1]];
-                }
-
-                event attackIn (float v) { attack = v; recalc = true; }
-                event attackNonlinearityIn (float v) { attackNonlinearity = v; recalc = true; }
-                event releaseIn (float v) { release = v; recalc = true; }
-                event releaseNonlinearityIn (float v) { releaseNonlinearity = v; recalc = true; }
-
-                float attack = iAttack;
-                float attackNonlinearity = iAttackNonlinearity;
-                float release = iRelease;
-                float releaseNonlinearity = iReleaseNonlinearity;
-                bool recalc = true;
-        
-                void run()
-                {
-                    Coeffs c;
-
-                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-        
-                    loop
-                    {
-                        if (recalc)
-                        {
-                            recalc = false;
-        
-                            c.update (attack, attackNonlinearity, release, releaseNonlinearity);
-                        }
-        
-                        loop (updateIntervalSamples)
-                        {
-                            Omega << process (x, y, c);
-
-                            advance();
-                        }
-                    }
-                }
             }
         }
     }
@@ -1171,6 +1181,78 @@ Mix Processors                                                          12/14/21
 Vectorized Instrinsic/Helper Processors                                 01/14/22
 ==============================================================================*/
 
+    /** 'vpow' wrapper */
+    namespace Pow
+    {   
+        struct Coeffs
+        {
+            SampleType exponent;
+        }
+    
+        void updatePerSample (Coeffs& c, float exponent)
+        {
+            c.exponent = exponent;
+        }
+    
+        void update (Coeffs& c, Include 'event' parameters as 'float' arguments)
+        {
+            Map 'event' parameters to 'Coeffs' members
+        }
+        
+        struct State
+        {
+            'SampleType' state variables
+        }
+    
+        SampleType process (State& s, SampleType x, const Coeffs& c)
+        {
+            return vpow (x, c.exponent);
+        }
+    
+        processor Processor (float iExponent = 0)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input event float exponentIn [[ name: "Exponent", min: 0, max: 4, init: initialParam, step: 1 ]];
+    
+            event paramIn (float v) { param = v; recalc = true; }
+
+            float param = initialParam;    
+            bool recalc = true;
+    
+            void run()
+            {   
+                State s;
+                Coeffs c;
+    
+                Define constants that depend on processor.period or processor.frequency
+    
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (Pass 'event' parameters as arguments);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        c.updatePerSample(Pass 'event' or 'stream' parameters as arguments);
+    
+                        out << s.process (in, c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+    
+
     /** 'vCTF_Color' wrapper */
     namespace CTF_Color
     {
@@ -1206,9 +1288,9 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -40.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f, group: "unsmoothed" ]];
-            input event float ratio0In [[ name: "Ratio Down", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "unsmoothed" ]];
-            input event float ratio1In [[ name: "Ratio Up", min: 0.1f, max: 1.5f, init: iRatio1, step: 0.1f, group: "unsmoothed" ]];
+            input event float thresholdIn [[ name: "Threshold", min: -40.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
+            input event float ratio0In [[ name: "Ratio Down", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Unsmoothed" ]];
+            input event float ratio1In [[ name: "Ratio Up", min: 0.1f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Unsmoothed" ]];
             input event float heightIn [[ name: "Height", min: -6.f, max: 6.f, init: iHeight, unit: "dB", step: 0.01f ]];
             input event float widthIn [[ name: "Width", min: 2.f, max: 6.f, init: iWidth, unit: "dB", step: 0.01f ]];
 
@@ -1278,9 +1360,9 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f, group: "unsmoothed" ]];
-            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: initialRatio0, step: 0.1f, group: "unsmoothed" ]];
-            input event float ratio1In [[ name: "Ratio 1", min: 0.1f, max: 1.5f, init: initialRatio1, step: 0.1f, group: "unsmoothed" ]];
+            input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
+            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: initialRatio0, step: 0.1f, group: "Unsmoothed" ]];
+            input event float ratio1In [[ name: "Ratio 1", min: 0.1f, max: 1.5f, init: initialRatio1, step: 0.1f, group: "Unsmoothed" ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
@@ -1316,66 +1398,8 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             }
         }
     }
-
-    /** 'vstereoToCenterSide' wrapper */
-    namespace StereoToCenterSide
-    {   
-        struct Coeffs
-        {
-            float centerSide;
-        }
     
-        void update (Coeffs& c, float centerSide)
-        {
-            c.centerSide = centerSide;
-        }
-    
-        SampleType[2] process (SampleType x, const Coeffs& c)
-        {
-            return vstereoToCenterSide (x, c.centerSide);
-        }
-    
-        processor Processor (float iCenterSide = 50)
-        {
-            input stream SampleType in;
-            output stream SampleType centerOut, sideOut;
-    
-            input event float centerSideIn [[ name: "C/S", min: 0, max: 100, init: iCenterSide, unit: "%", step: 1 ]];
-            event centerSideIn (float v) { centerSide = v; recalc = true; }
-            
-            float centerSide = iCenterSide;
-            bool recalc = true;
-    
-            void run()
-            {   
-                Coeffs c;
-    
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (centerSide);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        let y =  process (in, c);
-    
-                        centerOut << y[0];
-                        sideOut << y[1];
-
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-    
-    /** Average a SampleType stream with a copy that has swapped channels */
+    /** Average a stream with a swapped-channel copy */
     namespace StereoLink
     {   
         struct Coeffs
@@ -1392,16 +1416,9 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
     
         SampleType process (SampleType x, const Coeffs& c)
         {
-            if (c.stereoLink == 0.f)
-                return x;
-            else if (c.stereoLink == 100.f)
-                return SampleType (x.sum()/x.size);
-            else
-            {
-                let x1 = SampleType (x[1] , x[0]);
+            let x1 = SampleType (x[1] , x[0]);
 
-                return c.b.at(0) * x + c.b.at(1) * x1;
-            }
+            return c.b.at(0) * x + c.b.at(1) * x1;
         }
     
         processor Processor (float iStereoLink = 0)
@@ -1536,7 +1553,7 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, group: "unsmoothed" ]];
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, group: "Unsmoothed" ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1571,87 +1588,21 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
         }
     }
 
-    /** 'vLan' optimized for use with step-reponse effects */
-    namespace LanStep
-    {   
-        struct Coeffs
-        {
-            SampleType N;
-            SampleType bias;
-        }
-    
-        void update (Coeffs& c, float tau, float nonlinearity)
-        {
-            c.N = SampleType (nonlinearity);
-            c.bias = SampleType (1000.0) / SampleType (tau) - ONE;
-        }    
-
-        SampleType process (SampleType x, const Coeffs& c)
-        {
-            return c.bias + vLan (x, c.N);
-        }
-    
-        processor Processor (float iTau = 20, float iNonlinearity = 0)
-        {
-            input stream SampleType in;
-            output stream SampleType Omega;
-
-            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 275, init: iNonlinearity, step: 1 ]];
-            input event float tauIn [[ name: "Tau", min: 0, max: 500, init: iTau, step: 1, unit: "ms" ]];
-
-            event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
-            event tauIn (float v) { tau = v; recalc = true; }
-
-            float tau = iTau;
-            float nonlinearity = iNonlinearity;
-            bool recalc = true;
-
-            void run()
-            {
-                Coeffs c;
-
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-
-                        c.update (tau, nonlinearity);
-                    }
-
-                    loop (updateIntervalSamples)
-                    {
-                        Omega << process (in, c);
-
-                        advance();
-                    }
-                }
-            }
-        }
-    }
-
     /** 'vmax' */
     namespace Max
     {   
-        processor Processor (float iB = 0)
+        processor Processor()
         {
-            input stream SampleType a;
+            input stream SampleType a, b;
             output stream SampleType out;
-
-            let b = SampleType (iB);
 
             void run()
             {   
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
                 loop
                 {
                     out << vmax (a, b);
 
                     advance();
-
                 }
             }
         }
@@ -1797,7 +1748,7 @@ Vectorized Instrinsic/Helper Processors                                 01/14/22
             input stream SampleType in0, in1, in2, in3;
             output stream SampleType out;
     
-            input event float idxIn [[ name: "idx", min: 0, max: 3, init: iIdx, step: 1, group: "unsmoothed" ]];
+            input event float idxIn [[ name: "idx", min: 0, max: 3, init: iIdx, step: 1, group: "Unsmoothed" ]];
     
             event idxIn (float v) { idx = v; recalc = true; }
     
@@ -1945,8 +1896,8 @@ Parameter Processors                                                    01/09/22
                 input event
                 {
                     float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
-                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1, group: "unsmoothed" ]];
-                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine", group: "unsmoothed" ]];
+                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1, group: "Unsmoothed" ]];
+                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine", group: "Unsmoothed" ]];
                 }
 
                 event rateIn (float v) { rate = v; recalc = true; }
@@ -2519,7 +2470,6 @@ Constants                                                               01/14/22
     let FLOAT_DC_BLOCKER_CUTOFF_HZ = 1.f;
     let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f);
     let FLOAT_SLEW_RATE_SECONDS_GAIN = 100.f;
-    let FLOAT_SLEW_RATE_SECONDS_OMEGA = float (twoPi) * 20000.f; 
 
     //soul::filters
     using SampleType = float64<2>;
@@ -2550,80 +2500,6 @@ Constants                                                               01/14/22
 
 namespace VA::Experimental
 {
-    // /** Signal splitter
-    
-    //     Use case: Crossover (frequency), Attack/Sustain(time), Center/Sides (spatial), High/Low (amplitude)
-    // */
-    // namespace TheSplit
-    // {
-    //     namespace Modes
-    //     {
-    //         let Crossover = 0;
-    //         let AttackSustain = 1;
-    //         let CenterSides = 2;
-    //         let HighLow = 3;
-    //         let NumModes = 4;
-    //     }
-
-    //     graph Processor(float iFrequencyHz = 1000,
-    //                     float iCenterSidePercent = 50,
-    //                     float iTimeMs = 50,
-    //                     int iMode = Modes::AttackSustain)
-    //     {
-    //         input stream SampleType in;
-    //         output stream SampleType out0, out1;
-    
-    //         input
-    //         {
-    //             //pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, unit: "Hz", step: 1]];
-                
-    //             stereoToAttackRelease.attackIn;
-    //             stereoToAttackRelease.releaseIn;
-
-    //             stereoToAttackRelease.attackIn1;
-    //             stereoToAttackRelease.releaseIn1;
-    //             //stereoToCenterSide.centerSideIn;
-
-    //             event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Crossover|Attack/Sustain|Center/Sides|High/Low", group: "unsmoothed" ]];
-    //         }
-    
-    //         let
-    //         {
-    //             //non-boilerplate Processors
-    //             stereoToCenterSide = StereoToCenterSide::Processor (iCenterSidePercent);
-    //             pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
-    //             stereoToAttackRelease = StereoToAttackRelease::Processor;
-
-    //             mux4To1_0 = Mux4To1::Processor (iMode);
-    //             mux4To1_1 = Mux4To1::Processor (iMode);
-
-    //             //boilerplate Processors
-    //             dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-    //             dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-    //             dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-    //         }
-    
-    //         connection
-    //         {
-    //             modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
-
-    //             in -> dcBlockerIn -> pCrossover.in, stereoToAttackRelease.in, stereoToCenterSide.in;
-
-    //             pCrossover.lowOut -> mux4To1_0.in0;
-    //             pCrossover.highOut -> mux4To1_1.in0;
-
-    //             stereoToAttackRelease.attackOut -> mux4To1_0.in1;
-    //             stereoToAttackRelease.releaseOut -> mux4To1_1.in1;
-
-    //             stereoToCenterSide.centerOut -> mux4To1_0.in2;
-    //             stereoToCenterSide.sideOut -> mux4To1_1.in2;
-
-    //             mux4To1_0.out -> dcBlockerOut0 -> out0;
-    //             mux4To1_1.out -> dcBlockerOut1 -> out1;
-    //         }
-    //     }
-    // }
-
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
     
         2x oversampling recommended
