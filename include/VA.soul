@@ -28,18 +28,21 @@
         or scaled as needed (i.e. every 512 samples at 88.2kHz)
     - Parameters not suitable for modulation up through 20Hz are part of the "Unsmoothed" parameter group
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
-    - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are supported
+    - Almost all algorithms use algebraic operations as possible to avoid expensive transcendentals while providing superior
+    accuracy and modulate-ability than look up tables
+    See: https://en.wikipedia.org/wiki/Algebraic_function
+    - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are officially supported
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
 */
 
 /** Task List
 
     Current Tasks:
-    - TheExpressor -- rename annotations
+    - annotation steps covers min and max?
 
     Future Tasks:
     - IsolateAttackRelease add endpoints and boost option via compounding 1-det.out
-    - TheSplit (A/S), rename stereoTo... to splitter, centerSides
+    - TheSplit (A/S), rename stereoTo... to splitter, centerSides, AbsADAA or Abs
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
 */
@@ -47,7 +50,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/17/22
+VA::HighLevel Processors                                                01/18/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -64,17 +67,15 @@ VA::HighLevel Processors                                                01/17/22
         */
         namespace TheExpressor
         {
-            graph Processor(float iAttackMs = 0.5f,
+            graph Processor(float iAttackMs = 0.1f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
                             float iThreshold_dB = -50,
                             float iRatio0 = 8,
-                            float iRatio1 = 1.5f,
-                            float iColor_dB = 6,
+                            float iRatio1 = 1,
+                            float iColor_dB = 0,
                             float iHpfCutoffHz = 1,
-                            float iHpfQuality = FLOAT_DIV_SQRT_TWO,
                             float iMixPercent = 100,
-                            float iPan = 0,
                             float iMakeupVolume_dB = 0)
             {
                 input stream SampleType in;
@@ -92,22 +93,20 @@ VA::HighLevel Processors                                                01/17/22
                     ctfColor.ratio1In;
                     event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB" ]];
 
-                    svf.frequencyIn cutoffIn [[ name: "Cutoff", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
-                    svf.qualityIn [[ name: "Q", min: 0.01f, max: FLOAT_DIV_SQRT_TWO, init: iHpfQuality, step: 0.01f]]; //max Q is butterworth
-
+                    svf.frequencyIn cutoffIn [[ name: "SC HPF", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                
                     smoothedMixPan.mixIn;
-                    smoothedMixPan.panIn;
                     smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -6, max: 50, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
                 }
 
                 let
                 {
-                    //main Processors
+                    //non-boilerplate Processors
                     absADAA = AbsADAA::Processor;      
 
                     stereoLink = StereoLink::Processor (iStereoLinkPercent);
 
-                    svf = filt::tpt::svf::Processor (iHpfCutoffHz, iHpfQuality);
+                    svf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
                     ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                     ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iColor_dB, iColor_dB);
@@ -118,7 +117,7 @@ VA::HighLevel Processors                                                01/17/22
                     dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
                     dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
 
-                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
+                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
                     smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
                 }
 
@@ -186,13 +185,13 @@ VA::HighLevel Processors                                                01/17/22
         
                 let
                 {
-                    //main effect
+                    //non-boilerplate Processors
                     lfo = Lfo::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode);
                     delayLine = DelayLine::Processor (iDelayMs, 35, 4);
 
                     ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
 
-                    //boilerplate
+                    //boilerplate Processors
                     dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
                     dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
 
@@ -269,7 +268,7 @@ VA::HighLevel Processors                                                01/17/22
 
             namespace Internal 
             {
-                graph Processor (float iNonlinearity = 0)
+                graph Processor (float iNonlinearity)
                 {
                     input stream SampleType in, Lin;
                     output stream SampleType highpassOut, lowpassOut;
@@ -319,7 +318,7 @@ VA::HighLevel Processors                                                01/17/22
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       01/17/22
+Filter Processors                                                       01/18/22
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -334,7 +333,7 @@ Filter Processors                                                       01/17/22
     {       
         let oversampling = 2;
 
-        graph Processor (float iCutoff = 10000, float iResonance = 0.25f, float iNonlinearity = 0)
+        graph Processor (float iCutoff, float iResonance, float iNonlinearity)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -419,7 +418,7 @@ Filter Processors                                                       01/17/22
                 }
             }
         
-            processor Processor (float iNonlinearity = 1, int order = 4)
+            processor Processor (float iNonlinearity, int order = 4)
             {
                 input stream SampleType in;
                 output stream SampleType out;
@@ -468,7 +467,7 @@ Filter Processors                                                       01/17/22
     /** Split into center/sides using StereoLink */
     namespace SplitCenterSides
     {
-        graph Processor(float iCenterSides = 0)
+        graph Processor(float iCenterSides)
         {
             input stream SampleType in;
             output stream SampleType centerOut, sidesOut;
@@ -497,8 +496,8 @@ Filter Processors                                                       01/17/22
     /** Split into high/low amplitude via downward compression or downward expansion */
     namespace SplitLoudSoft
     {
-        graph Processor(float iSensitivity = 20,
-                        float iThreshold = -20)
+        graph Processor(float iSensitivity,
+                        float iThreshold)
         {
             input stream SampleType in;
             output stream SampleType loudOut, softOut;
@@ -542,7 +541,7 @@ Filter Processors                                                       01/17/22
             let
             {
                 transientIsolator = TransientIsolator::Processor;
-                boostEnvelope = BoostEnvelope::Processor;
+                boostEnvelope = BoostEnvelope::Processor (0);
 
                 difference = Difference::Processor;
             }
@@ -562,11 +561,11 @@ Filter Processors                                                       01/17/22
     /** Classical digital downwards/updawards ex(pander)/(com)pressor */
     namespace ExpressorClassical
     {
-        graph Processor(float iAttack = 10,
-                        float iRelease = 20,
-                        float iThreshold = -22,
-                        float iRatio0 = 4,
-                        float iRatio1 = 1)
+        graph Processor(float iAttack,
+                        float iRelease,
+                        float iThreshold,
+                        float iRatio0,
+                        float iRatio1)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -582,7 +581,7 @@ Filter Processors                                                       01/17/22
     
             let
             {
-                pAbs = Abs::Processor;
+                absADAA = AbsADAA::Processor;
                 ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
                 ctf = CTF::Processor (iThreshold, iRatio0, iRatio1);
 
@@ -593,7 +592,7 @@ Filter Processors                                                       01/17/22
             {
                 in -> applyGain.in;
 
-                in -> pAbs -> ballisticsFilter.in;
+                in -> absADAA -> ballisticsFilter.in;
                 ballisticsFilter.out -> ctf.in;
                 ctf.out -> applyGain.b;
 
@@ -602,7 +601,7 @@ Filter Processors                                                       01/17/22
         }
     }
 
-    /** Isolate the attack or sustain using DET */
+    /** Isolate the attack or sustain using 'DET' */
     namespace TransientIsolator
     {
         graph Processor()
@@ -684,10 +683,8 @@ Filter Processors                                                       01/17/22
     */
     namespace BallisticsFilter
     {
-        graph Processor (float iAttack = 1,
-                        float iAttackNonlinearity = 0,
-                        float iRelease = 50,
-                        float iReleaseNonlinearity = 0)
+        graph Processor (float iAttack,
+                        float iRelease)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -811,7 +808,7 @@ Filter Processors                                                       01/17/22
                 return lpf - hpf;
         }
     
-        processor Processor (int iMode = Modes::HPF)
+        processor Processor (int iMode)
         {
             input stream SampleType lowpassIn, highpassIn;
             output stream SampleType out;
@@ -955,7 +952,7 @@ Filter Processors                                                       01/17/22
             }
         }
 
-        processor Processor (float iDelayMs = 3, float maxDelayMs = 20, float maxDepthMs = 4)
+        processor Processor (float iDelayMs, float maxDelayMs, float maxDepthMs = 4)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1008,7 +1005,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
     */
     namespace BoostEnvelope
     {
-        graph Processor(float iBoost = 0)
+        graph Processor(float iBoost)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1043,60 +1040,6 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             }
         }
     }   
-
-    /** 'vpow' wrapper for SampleType exponent*/
-    namespace Pow
-    {   
-        struct Coeffs
-        {
-            SampleType exponent;
-        }
-    
-        void update (Coeffs& c, float exponent)
-        {
-            c.exponent = exponent;
-        }
-    
-        SampleType process (SampleType x, const Coeffs& c)
-        {
-            return vpow (x, c.exponent);
-        }
-    
-        processor Processor (float iExponent = 0)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input event float exponentIn [[ name: "Exponent", min: 0, max: 4, init: initialParam, step: 1 ]];
-    
-            event exponentIn (float v) { exponent = v; recalc = true; }
-
-            float exponent = iExponent;    
-            bool recalc = true;
-    
-            void run()
-            {   
-                Coeffs c;
-    
-                loop
-                {
-                    if (recalc)
-                    {
-                        recalc = false;
-    
-                        c.update (exponent);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << process (in, c);
-    
-                        advance();
-                    }
-                }
-            }
-        }
-    }
     
     /** 'vCTF_Color' wrapper */
     namespace CTF_Color
@@ -1124,20 +1067,20 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             return vCTF_Color (x, c.threshold, c.ratio0, c.ratio1, c.height, c.width);
         }
 
-        processor Processor(float iThreshold = -30,
-                            float iRatio0 = 2,
-                            float iRatio1 = 2,
-                            float iHeight = 6,
-                            float iWidth = 6)
+        processor Processor(float iThreshold,
+                            float iRatio0,
+                            float iRatio1,
+                            float iHeight,
+                            float iWidth)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio0In [[ name: "Ratio Down", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio1In [[ name: "Ratio Up", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Unsmoothed" ]];
-            input event float heightIn [[ name: "Height", min: -24.f, max: 24.f, init: iHeight, unit: "dB", step: 0.01f ]];
-            input event float widthIn [[ name: "Width", min: 3.f, max: 24.f, init: iWidth, unit: "dB", step: 0.01f ]];
+            input event float ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Unsmoothed" ]];
+            input event float ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Unsmoothed" ]];
+            input event float heightIn [[ name: "Height", min: -24.f, max: 24.f, init: iHeight, unit: "dB", step: 0.1f ]];
+            input event float widthIn [[ name: "Width", min: 3.f, max: 24.f, init: iWidth, unit: "dB", step: 0.1f ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
@@ -1200,14 +1143,14 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             return vCTF (x, c.threshold, c.ratio0, c.ratio1);
         }
 
-        processor Processor (float initialThreshold = -20.f, float initialRatio0 = 2, float initialRatio1 = 2)
+        processor Processor (float initialThreshold, float initialRatio0, float initialRatio1)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -40.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio0In [[ name: "Ratio 0", min: 0.5f, max: 20.f, init: initialRatio0, step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio1In [[ name: "Ratio 1", min: 0.1f, max: 1.5f, init: initialRatio1, step: 0.1f, group: "Unsmoothed" ]];
+            input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
+            input event float ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: initialRatio0, step: 0.1f, group: "Unsmoothed" ]];
+            input event float ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: initialRatio1, step: 0.1f, group: "Unsmoothed" ]];
 
             event thresholdIn (float v) { threshold = v; recalc = true; }
             event ratio0In (float v) { ratio0 = v; recalc = true; }
@@ -1243,8 +1186,8 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             }
         }
     }
-    
-    /** 'vstereoLink' wrapper */
+
+    /** 'vStereoLink' wrapper */
     namespace StereoLink
     {   
         struct Coeffs
@@ -1259,10 +1202,10 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
     
         SampleType process (SampleType x, const Coeffs& c)
         {
-            return vstereoLink (x, c.stereoLink);
+            return vStereoLink (x, c.stereoLink);
         }
     
-        processor Processor (float iStereoLink = 0)
+        processor Processor (float iStereoLink)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1303,7 +1246,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
     /** 'vLan' wrapper with ADAA and a linear angular cutoff of 2pi
     
         Notes:
-        - Optimized for use with OnepoleC or modulating frequency domain filters
+        - Optimized for use with 'OnepoleC' or modulating frequency domain filters
         - Use with 2x oversampling
     */
     namespace LanADAA
@@ -1325,12 +1268,12 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
     
         SampleType F1 (SampleType x, const Coeffs& c)
         {
-            return vpow (x, 3) * vpow (c.N, 2) * SampleType (1.0 / 3.0) + c.N * vpow (x, 2) * vsgn (x) + x;
+            return vpow (x, 3) * vpow (c.N, 2) * SampleType (1.0 / 3.0) + c.N * vpow (x, 2) * vSgn (x) + x;
         }
     
         SampleType F2 (SampleType x, const Coeffs& c)
         {
-            return vpow (x, 2) * (HALF + c.N * SampleType (1.0 / 3.0) * x * vsgn (x) + vpow (c.N, 2) * SampleType (1.0 / 12.0) * vpow (x, 2));
+            return vpow (x, 2) * (HALF + c.N * SampleType (1.0 / 3.0) * x * vSgn (x) + vpow (c.N, 2) * SampleType (1.0 / 12.0) * vpow (x, 2));
         }
     
         struct State
@@ -1389,7 +1332,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             return s.processADAA2 (x, c);
         }
     
-        processor Processor (float iNonlinearity = 0)
+        processor Processor (float iNonlinearity)
         {
             input stream SampleType in;
             output stream SampleType Omega;
@@ -1429,38 +1372,15 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
         }
     }
 
-    /** 'vmax' wrapper */
-    namespace Max
-    {   
-        processor Processor()
-        {
-            input stream SampleType a, b;
-            output stream SampleType out;
-
-            void run()
-            {   
-                loop
-                {
-                    out << vmax (a, b);
-
-                    advance();
-                }
-            }
-        }
-    }
-    
     /** 'vabs' wrapper with ADAA
     
         Notes:
-        - dynamic ADAA specifically optimized for signal rectification (see 'TheExpressor')
-        - If sampling rate is 44.1kHz, use 2x oversampling
-        - Parameters are not suitable for modulation
+        - Dynamic ADAA specifically optimized for signal rectification (see 'TheExpressor' and 'ExpressorClassical')
     */
     namespace AbsADAA
     {   
         struct Coeffs
         {
-
         }
     
         SampleType f (SampleType x, const Coeffs& c)
@@ -1470,12 +1390,12 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
     
         SampleType F1 (SampleType x, const Coeffs& c)
         {
-            return vsgn(x) * HALF * vpow (x, 2);
+            return vSgn(x) * HALF * vpow (x, 2);
         }
     
         SampleType F2 (SampleType x, const Coeffs& c)
         {
-            return vsgn (x) * SampleType (1.0 / 6.0) * vpow (x, 3);
+            return vSgn (x) * SampleType (1.0 / 6.0) * vpow (x, 3);
         }
     
         struct State
@@ -1590,27 +1510,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
         }
     }
 
-    namespace AbsCD
-    {
-        processor Processor(float iB = 10)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            SampleType b = SampleType (iB);
-
-            void run()
-            {
-                loop
-                {
-                    out << vabsCD (in, b);
-
-                    advance();
-                }
-            }
-        }
-    }
-
+    /** out = b * in */
     namespace ApplyGain
     {
         processor Processor
@@ -1631,6 +1531,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
         }
     }
 
+    /** out = b0 * in0 + b1 * in1 */
     namespace ApplyGains
     {
         processor Processor
@@ -1645,89 +1546,6 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
                 {
                     out << b0 * in0 + b1 * in1;
     
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace Sum
-    {
-        processor Processor()
-        {
-            input stream SampleType in0, in1;
-            output stream SampleType out;
-
-            void run()
-            {
-                loop
-                {
-                    out << in0 + in1;
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace Constant
-    {
-        processor Processor(float iConstant = 0)
-        {
-            output stream SampleType out;
-
-            let constant = SampleType (iConstant);
-
-            void run()
-            {
-                loop
-                {
-                    out << constant;
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace Variable
-    {   
-        processor Processor (float iVariable = 0)
-        {
-            output stream SampleType out;
-
-            input event float variableIn [[ name: "Variable", min: 0, max: 1, init: initialVariable, step: 0.01 ]];
-    
-            event variableIn (float v) { variable = SampleType (v); }
-    
-            SampleType variable = SampleType (iVariable);
-            bool recalc = true;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << variable;
-
-                    advance();
-                }
-            }
-        }
-    }
-    
-    namespace Difference
-    {
-        processor Processor()
-        {
-            input stream SampleType in0, in1;
-            output stream SampleType out;
-
-            void run()
-            {
-                loop
-                {
-                    out << in0 - in1;
-
                     advance();
                 }
             }
@@ -1752,7 +1570,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             return x.at (c.idx);
         }
     
-        processor Processor (int iIdx = 0)
+        processor Processor (int iIdx)
         {
             input stream SampleType in0, in1, in2, in3;
             output stream SampleType out;
@@ -1789,15 +1607,117 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             }
         }
     }
+
+    namespace Max
+    {   
+        processor Processor()
+        {
+            input stream SampleType a, b;
+            output stream SampleType out;
+
+            void run()
+            {   
+                loop
+                {
+                    out << vmax (a, b);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace Sum
+    {
+        processor Processor()
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << in0 + in1;
+
+                    advance();
+                }
+            }
+        }
+    }
     
+    namespace Difference
+    {
+        processor Processor()
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+
+            void run()
+            {
+                loop
+                {
+                    out << in0 - in1;
+
+                    advance();
+                }
+            }
+        }
+    }
+    
+    namespace Constant
+    {
+        processor Processor(float iConstant)
+        {
+            output stream SampleType out;
+
+            let constant = SampleType (iConstant);
+
+            void run()
+            {
+                loop
+                {
+                    out << constant;
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace Variable
+    {   
+        processor Processor (float iVariable)
+        {
+            output stream SampleType out;
+
+            input event float variableIn [[ name: "Variable", min: 0, max: 1, init: initialVariable, step: 0.01 ]];
+    
+            event variableIn (float v) { variable = SampleType (v); }
+    
+            SampleType variable = SampleType (iVariable);
+            bool recalc = true;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << variable;
+
+                    advance();
+                }
+            }
+        }
+    }
+
 /*==============================================================================
-Mix Processors                                                          12/14/21
+Mix Processors                                                          01/18/22
 ==============================================================================*/
     
     /** Apply a volume via 'AutoParameter' and 'SmoothedVolume' */
     namespace AutoSmoothedVolume
     {
-        graph Processor(int mode = AutoParameter::Modes::Volume_OnepoleC_Lan)
+        graph Processor(int mode)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1827,7 +1747,7 @@ Mix Processors                                                          12/14/21
     /** Apply mixing and panning via 'SmoothedParameter' */
     namespace SmoothedMixPan
     {
-        graph Processor(float iMix = 50, float iPan = 0)
+        graph Processor(float iMix, float iPan)
         {
             input stream SampleType in0, in1;
             output stream SampleType out;
@@ -1860,7 +1780,7 @@ Mix Processors                                                          12/14/21
     /** Apply a volume via 'SmoothedParameter' */
     namespace SmoothedVolume
     {
-        graph Processor (float iVolume = 0)
+        graph Processor (float iVolume)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1886,7 +1806,7 @@ Mix Processors                                                          12/14/21
     }
 
 /*==============================================================================
-Parameter Processors                                                    01/09/22
+Parameter Processors                                                    01/18/22
 ==============================================================================*/
 
     /** Modified version of soul::oscillators::lfo 
@@ -1905,10 +1825,10 @@ Parameter Processors                                                    01/09/22
             let NumModes = 2;
         }
 
-        graph Processor (float iDepth = 50,
-                        float iRate = 1.5,
-                        float iWidth = 0,
-                        int iMode = Modes::Triangle)
+        graph Processor (float iDepth,
+                        float iRate,
+                        float iWidth,
+                        int iMode)
         {
             output stream SampleType out;
     
@@ -1989,9 +1909,9 @@ Parameter Processors                                                    01/09/22
                 return y * c.depth;
             }
 
-            processor Processor (float iRate = 1.5f,
-                                 float iWidth = 0,
-                                 int iMode = Modes::Triangle)
+            processor Processor (float iRate,
+                                 float iWidth,
+                                 int iMode)
             {
                 output stream SampleType out;
                 
@@ -2060,7 +1980,7 @@ Parameter Processors                                                    01/09/22
             let NumModes = 1;
         }
 
-        namespace M (int mode = Modes::Volume_OnepoleC_Lan)
+        namespace M (int mode)
         {
             static_assert ((mode > -1) && (mode < Modes::NumModes), "AutoParameter [[Parameter Processors]]");
 
@@ -2084,7 +2004,7 @@ Parameter Processors                                                    01/09/22
             }
         }
 
-        processor Processor (int mode = Modes::Volume_OnepoleC_Lan)
+        processor Processor (int mode)
         {
             output event float out;
 
@@ -2143,11 +2063,10 @@ Parameter Processors                                                    01/09/22
             let MixPan = 2;
             let G_Onepole = 3;
             let Percent = 4;
-            let TauToOmegaOnepole = 5;
             let NumModes = 6;
         }
 
-        namespace M (int mode = Modes::Linear)
+        namespace M (int mode)
         {
             static_assert ((mode > -1) && (mode < Modes::NumModes), "SmoothedParameter::M [[Parameter Processors]]");
 
@@ -2173,13 +2092,11 @@ Parameter Processors                                                    01/09/22
                 else if const (mode == Modes::Decibel)
                     c.target.at(0) = vdBtoGain (SampleType (parameter.at(0)));
                 else if const (mode == Modes::MixPan)
-                    c.target = vmixPanToGains (parameter.at(0), parameter.at(1));
+                    c.target = vMixPanToGains (parameter.at(0), parameter.at(1));
                 else if const (mode == Modes::G_Onepole)
-                    c.target.at(0) = vcutoffToG_Onepole (parameter.at(0), fs);
+                    c.target.at(0) = vCutoffToG_Onepole (parameter.at(0), fs);
                 else if const (mode == Modes::Percent)
                     c.target.at(0) = SampleType (parameter.at(0) * 0.01);
-                else if const (mode == Modes::TauToOmegaOnepole)
-                    c.target.at(0) = SampleType (1.0 / (parameter.at(0) * 0.001));
 
                 if const (mode != Modes::MixPan)
                     s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
@@ -2201,11 +2118,9 @@ Parameter Processors                                                    01/09/22
                 else if const (mode == Modes::Decibel)
                     s.current.at(0) = vdBtoGain (SampleType (parameter.at(0)));
                 else if const (mode == Modes::MixPan)
-                    s.current = vmixPanToGains (parameter.at(0), parameter.at(1));
+                    s.current = vMixPanToGains (parameter.at(0), parameter.at(1));
                 else if const (mode == Modes::G_Onepole)
-                    s.current.at(0) = vcutoffToG_Onepole (parameter.at(0), fs); 
-                else if const (mode == Modes::TauToOmegaOnepole)
-                    c.target.at(0) = SampleType (1.0 / (parameter.at(0) * 0.001));
+                    s.current.at(0) = vCutoffToG_Onepole (parameter.at(0), fs); 
 
                 s.remainingRampSamples = 0;
             }
@@ -2230,7 +2145,7 @@ Parameter Processors                                                    01/09/22
             }
         }
 
-        processor Processor (float[] iParameter, int mode = Modes::Linear, int oversampling = 1, float slewRateSeconds = FLOAT_SLEW_RATE_SECONDS_GAIN)
+        processor Processor (float[] iParameter, int mode, int oversampling = 1, float slewRateSeconds = FLOAT_SLEW_RATE_SECONDS_GAIN)
         {
             output stream SampleType out0, out1;
 
@@ -2288,39 +2203,51 @@ Parameter Processors                                                    01/09/22
     }
 
 /*==============================================================================
-Vectorized Helper Functions                                             01/15/22
+Vectorized Helper Functions                                             01/18/22
 ==============================================================================*/
 
-    /** Compressor Transfer Function (CTF) with additional color settings to shape the knee 
+    /** 'vCTF' with additional color settings to shape the knee 
     
+        Parameters:
+        - ratio0: ratio above threshold (> 1 is downward compression, < 1 is upward expansion)
+        - ratio1: ratio below threshold (> 1 is upward compression, < 1 is downward expansion)
+        - height: color height
+        - width: color width (internally limited to [3, inf))
+
         Notes:
-        - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color
-        - See https://ocw.mit.edu/courses/mathematics/18-01sc-single-variable-calculus-fall-2010/1.-differentiation/part-falseStatement-implicit-differentiation-and-inverse-functions/session-15-implicit-differentiation-and-inverse-functions/MIT18_01SCF10_Ses15b.pdf
+        - gain is limited to (0, 1.9] (BIBO stable)
+        - At extremely high height parameters, the CTF becomes a 'swell' function
+        - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color;
+          This is cheap to compute and modulation stable
         - See https://blog.audio-tk.com/2015/09/08/audio-toolkit-additional-gain-functions/
     */
     SampleType vCTF_Color (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType height, SampleType width)
     {
-        let xdB = vgainTodB (x);
+        let xdB = vGainTodB (x);
         let xdBmthr = xdB - threshold;
 
         let divWidth = ONE / vmax (vabs (width), SampleType (3.0));
-
         let color = height / (ONE + vpow (xdBmthr * divWidth, 2));
+
         let ydB = viflt (threshold + xdBmthr * (ONE/ratio1) + color, threshold + xdBmthr * (ONE/ratio0) + color, xdB, threshold);
 
         return vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
     }
 
-    /** Classical compressor transfer function (CTF) with ratio control for envelope values below threshold (ratio1) 
+    /** Classical compressor transfer function (CTF) that can become 2 compression and 2 expansion transfer functions 
     
+        Parameters:
+        - ratio0: ratio above threshold (> 1 is downward compression, < 1 is upward expansion)
+        - ratio1: ratio below threshold (> 1 is upward compression, < 1 is downward expansion)
+
         Notes:
-        - The recommended range for ratio0 and ratio1 is [0.5, inf]
         - See https://www.dropbox.com/s/cjq4t08u6pqkaas/ADC17FiftyShadesDistortion.zip?dl=0&file_subpath=%2FCode%2FDynamicsCompressor.cpp
     */
     SampleType vCTF (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1)
     {
         let divRatio0m1 = ONE/ratio0 - ONE;
         let divRatio1m1 = ONE/ratio1 - ONE;
+
         let thrlin = vdBtoGain (threshold);
 
         let y = viflt (vpow (x * (ONE/thrlin), divRatio1m1), vpow (x * (ONE/thrlin), divRatio0m1), x, thrlin);
@@ -2328,12 +2255,13 @@ Vectorized Helper Functions                                             01/15/22
         return vmin (y, MAX_EFFECT_GAIN);
     }
 
-    /** 'BBD' mapping from http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf 
+    /** Bucket Brigade Device static nonlinear mapping
     
         Notes:
         - Use for low order, monotonically decreasing harmonics
-        - Needs makeup gain at high settings, NOT bounded
-        - Harmonics boosted compared to the original version according to the linear gain b 
+        - Needs makeup gain at high settings, NOT always BIBO stable
+        - Harmonics boosted compared to the original version according to the linear gain b
+        - See: http://dafx10.iem.at/proceedings/papers/RaffelSmith_DAFx10_P42.pdf  
     */
     SampleType vBBD (SampleType x, SampleType b)
     {
@@ -2343,60 +2271,38 @@ Vectorized Helper Functions                                             01/15/22
         return x - c1 * vpow (x, 2) - c2 * vpow (x, 3); 
     }
 
-    /** vsigmoidCD with a gain of 1 at the origin and drive (linear gain) of b
+    /** Omega (rad/s) modulation simulating anhysteretic nonlinear inductance/capacitance
     
+        Parameters:
+        - x: sidechain signal
+        - N: nonlinearity
+
         Notes:
-        - use for state saturation with odd order harmonics
-        - needs makeup gain
-    */
-    SampleType vsigmoidCD_S (SampleType x, SampleType b) 
-    {
-        return vsigmoidCD (b * x) * (ONE / b); 
-    }
-
-    /** An continuously differentiable algebraic sigmoid function. 
-
-            f(x) = x / sqrt (x^2 + 1) 
-    
-        A cheap 'tanh' approximation
-    */
-    SampleType vsigmoidCD (SampleType x)
-    {
-        return x / sqrt (x * x + ONE);
-    }
-
-    /** Continuously differentiable algebraic approximation for absolute value
-    
-        Note:
-        - as b -> inf, (vabsCD - vabs) -> 0
-        - See: https://math.stackexchange.com/questions/728094/approximate-x-with-a-smooth-function
-    */
-    SampleType vabsCD (SampleType x, SampleType b)
-    {
-        return vsigmoidCD (b * x) * x;
-    }
-
-    /** Cutoff (Omega) modulation from an anhysteretic first-order nonlinear inductor circuit
-    
-        The linear cutoff is 1. Add a bias if a different linear cutoff is desired
-        (i.e. vLan(x, N) + bias)
+        - The reciprocal of a algebraic sigmoid of class C1
+        - See: https://en.wikipedia.org/wiki/Differentiable_function#Differentiability_classes
+        - The linear cutoff is 1. Add a bias if a different linear cutoff is desired
+        (i.e. vLan (x, N) + bias)
     */
     SampleType vLan (SampleType x, SampleType N)
     {
         return vpow (N * vabs (x) + ONE, 2);
     }
 
-    /** Return 1 if x is positive, -1 if negative, and 0 otherwise */
-    SampleType vsgn (SampleType x)
+    SampleType vStereoLink (SampleType x, float percent)
     {
-        return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
+        let b = vMixToGains (percent * 0.5f);
+        let x1 = SampleType (x[1] , x[0]);
+
+        return b.at(0) * x + b.at(1) * x1;
     }
 
-    /** Convert a cutoff in Hz to the cutoff gain of a TPT Onepole filter 
+    /** Convert cutoff (Hz) to the cutoff gain of a TPT Onepole filter 
     
-        Use case: convert float event parameters
+        Notes:
+        - Optimized for 'update'
+        - Prewarped
     */
-    SampleType vcutoffToG_Onepole (float x, float64 fs)
+    SampleType vCutoffToG_Onepole (float x, float64 fs)
     {
         let Tpi = SampleType (pi / fs);
         
@@ -2405,9 +2311,12 @@ Vectorized Helper Functions                                             01/15/22
         return gOnepole / (ONE + gOnepole);
     }
 
-    /** Convert an angular cutoff (in radians) to the cutoff gain of a TPT Onepole filter 
+    /** Convert Omega (rad/s) to the cutoff gain of a TPT Onepole filter 
     
-        Use case: convert SampleType stream parameters, 2x oversampling
+        Notes:
+        - Optimized for 'updatePerSample'
+        - NOT prewarped
+        - Use with 2x oversampling if using for frequency effects
     */
     SampleType vOmegaToG_Onepole (SampleType x, float64 fs)
     {
@@ -2418,15 +2327,15 @@ Vectorized Helper Functions                                             01/15/22
         return gOnepole / (ONE + gOnepole);
     }
 
-    /** Convert gain to decibels and clamp results to greater than -100.0 dB */
-    SampleType vgainTodB (SampleType x)
+    /** Convert gain to decibels and limit to >= -100.0 dB */
+    SampleType vGainTodB (SampleType x)
     {
         let b = vmax (NOISE_FLOOR, x);
 
         return SampleType (20.0) * log10 (b);
     }
 
-    /** Convert decibels to gain and clamp inputs to greater than -100.0 dB */
+    /** Convert decibels to gain and limit inputs to >= -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
         let dB = vmax (NOISE_FLOOR_DB, x);
@@ -2434,32 +2343,20 @@ Vectorized Helper Functions                                             01/15/22
         return vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0));
     }
 
-    SampleType vstereoLink (SampleType x, float percent)
+    /** Return 1 if x is positive, -1 if negative otherwise */
+    SampleType vSgn (SampleType x)
     {
-        let b = vmixToGains (percent * 0.5f);
-        let x1 = SampleType (x[1] , x[0]);
-
-        return b.at(0) * x + b.at(1) * x1;
-    }
-
-    SampleType vstereoToMidSide (SampleType x)
-    {
-        return SampleType (0.5 * x.sum(), 0.5 * (x[0] - x[1]));
-    }
-
-    SampleType vMidSideToStereo (SampleType x)
-    {
-        return SampleType (x.sum(), x[0] - x[1]);
+        return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
     }
 
     /** Convert a mix and a pan to a SampleType[2] gain array
     
         Use case: mix and pan 2 SampleType streams simultaneously
     */
-    SampleType[2] vmixPanToGains (float m, float p)
+    SampleType[2] vMixPanToGains (float m, float p)
     {
-        let bPan = vpanToGains (p);
-        let bMix = vmixToGains (m);
+        let bPan = vPanToGains (p);
+        let bMix = vMixToGains (m);
 
         return SampleType[2] (bMix.at(0) * bPan.at(0), bMix.at(1) * bPan.at(1));
     }
@@ -2468,7 +2365,7 @@ Vectorized Helper Functions                                             01/15/22
     
         Use case: mix 2 SampleType streams
     */
-    SampleType[2] vmixToGains (float x)
+    SampleType[2] vMixToGains (float x)
     {
         let b1 = SampleType (x) * SampleType (1.0/100.0);
 
@@ -2479,9 +2376,9 @@ Vectorized Helper Functions                                             01/15/22
     
         Use case: pan 2 SampleType streams simultaneously
     */
-    SampleType[2] vpanToGains (float x)
+    SampleType[2] vPanToGains (float x)
     {
-        let b1 = vpanToGain(x);
+        let b1 = vPanToGain(x);
 
         return SampleType[2] (TWO - b1, b1);
     }
@@ -2490,7 +2387,7 @@ Vectorized Helper Functions                                             01/15/22
 
         Use case: pan 1 SampleType stream
     */
-    SampleType vpanToGain (float x)
+    SampleType vPanToGain (float x)
     {
         let bR = float64 (x) + 1.0;
 
@@ -2498,7 +2395,7 @@ Vectorized Helper Functions                                             01/15/22
     }
 
 /*==============================================================================
-Vectorized Intrinsic Functions                                          12/15/21
+Vectorized Intrinsic Functions                                          01/18/22
 ==============================================================================*/
 
     SampleType vabs (SampleType x)
@@ -2531,7 +2428,7 @@ Vectorized Intrinsic Functions                                          12/15/21
     /** 'pow' for int and SampleType exponents 
     
         T:
-        - SampleType: vectorized version of pow with floating point arguments
+        - SampleType: vectorized version of 'pow'
         - int: repeated multiplicaton
     */
     SampleType vpow<T> (SampleType base, T exponent)
@@ -2561,7 +2458,7 @@ Vectorized Intrinsic Functions                                          12/15/21
     }
 
 /*==============================================================================
-Constants                                                               01/14/22
+Constants                                                               01/18/22
 ==============================================================================*/
     
     //const float
@@ -2596,8 +2493,46 @@ Constants                                                               01/14/22
 
 } //namespace VA
 
+
+/** Very unstable and random snippets */
 namespace VA::Experimental
 {
+    /** vSigmoidC2 with a gain of 1 at the origin and drive (linear gain) of b
+    
+        Notes:
+        - Use for state saturation with odd order harmonics
+        - Requires makeup gain for most values of b
+    */
+    // SampleType vSigmoidC2S (SampleType x, SampleType b) 
+    // {
+    //     return vSigmoidC2 (b * x) * (ONE / b); 
+    // }
+
+    /** An algebraic sigmoid function of class C2
+
+            f(x) = x / sqrt (x^2 + 1) 
+    
+        Notes:
+        - A cheap 'tanh' approximation
+        - See: https://en.wikipedia.org/wiki/Differentiable_function#Differentiability_classes
+    */
+    // SampleType vSigmoidC2 (SampleType x)
+    // {
+    //     return x / sqrt (x * x + ONE);
+    // }
+
+    /** Decode mid/side to stereo */
+    // SampleType vDecodeMidSide (SampleType x)
+    // {
+    //     return SampleType (0.5 * x.sum , 0.5 * (x[0] - x[1]));
+    // }
+
+    /** Encode stereo to mid/side */
+    // SampleType vEncodeMidSide (SampleType x)
+    // {
+    //     return SampleType (x.sum(), x[0] - x[1]);
+    // }
+
         /** Signal splitter
         
             Use case: Crossover (frequency), Center/Sides (spatial), Attack/Sustain (time), Loud/Soft (amplitude)

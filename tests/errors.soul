@@ -92,10 +92,8 @@ namespace main
             va3.ratio1In va3_5;
             va3.colorIn va3_6;
             va3.cutoffIn va3_7;
-            va3.qualityIn va3_8;
-            va3.mixIn va3_9;
-            va3.panIn va3_10;
-            va3.makeupVolumeIn va3_11;
+            va3.mixIn va3_8;
+            va3.makeupVolumeIn va3_9;
 
             // va4.frequencyIn va4_0;
             // va4.centerSidesIn va4_1;

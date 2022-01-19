@@ -1,1 +1,4 @@
-TestTrack*.wav - https://freesound.org/people/mareproduction/sounds/188088/
+Tracks in this folder should ideally have peaks of -6dB and noticably stereo (e.g. passed through a panner),
+but with the same phase content on each channel.
+
+TestTrack*.wav is derived from https://freesound.org/people/mareproduction/sounds/188088/

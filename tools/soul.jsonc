@@ -160,7 +160,7 @@
 			"",
 			"                loop (updateIntervalSamples)",
 			"                {",
-			"                    c.updatePerSample(${15:Pass 'event' or 'stream' parameters as arguments});",
+			"                    c.updatePerSample (${15:Pass 'event' or 'stream' parameters as arguments});",
 			"",
 			"                    out << s.process (in, c);",
 			"",
