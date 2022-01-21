@@ -1,6 +1,6 @@
 /** Processor [[main]] 
 
-    '../examples/main.soul' modified to include all 'Processors' in 'VA::HighLevel' connected in series
+    '../examples/main.soul' modified to include all 'Processors' in 'VA::HighLevel' and their endpoints
 
     Notes:
     - Tests that all 'Processors' compile without errors
@@ -10,60 +10,12 @@
 
 namespace main
 {
-    namespace FloatToSampleType
-    {     
-        VA::SampleType process (float x)
-        {
-            return VA::SampleType (x);
-        }
-
-        processor Processor()
-        {
-            input stream float in;
-            output stream VA::SampleType out;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace SampleTypeToFloat
-    {     
-        float process (VA::SampleType x)
-        {
-            return float (x.sum()/VA::SampleType.size);
-        }
-
-        processor Processor()
-        {
-            input stream VA::SampleType in;
-            output stream float out;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
-
     namespace va = VA::HighLevel;
 
     graph Processor [[main]]
     {
-        input stream float in;
-        output stream float out;
+        input stream VA::SampleType in;
+        output stream VA::SampleType out;
 
         input
         {
@@ -119,10 +71,10 @@ namespace main
         connection
         {       
             //all 'Processors' from VA::HighLevel connected in series
-            in -> up -> va0 -> va1.in;
+            in -> va0 -> va1.in;
             va1.out -> va2.in;
             va2.out -> va3.in;
-            va3.out -> down -> out;//va4.in;
+            va3.out -> out;//va4.in;
            // va4.out0, va4.out1 -> down -> out;
         }
     }
