@@ -57,9 +57,6 @@ namespace main
 
         let
         { 
-            up = FloatToSampleType::Processor;
-            down = SampleTypeToFloat::Processor;
-
             //all 'Processors' from VA::HighLevel
             va0 = va::TheDummy::Processor;
             va1 = va::TheBass::Processor;
