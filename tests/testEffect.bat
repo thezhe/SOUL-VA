@@ -1,5 +1,7 @@
 @echo off
 
+REM cd to qa.m for interactive testing
+
 cd ../PLUG-QA
 
-octave qa.m ../tests/effect.soulpatch 44100 24
+octave

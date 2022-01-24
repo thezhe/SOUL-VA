@@ -16,7 +16,7 @@ This library considers background knowledge trivial; *SOUL-VA does not re-explai
 Copy `include/VA.soul`, `examples/main.soul`, and `examples/main.soulpatch` into the editor. Delete '../include/' on line 13 in main.soulpatch. Click 'Compile' to run in mono mode. To enable stereo processing, modify main.soul according to the instructions.
 2. [SOUL CLI 1.0.82](https://github.com/soul-lang/SOUL/releases/tag/1.0.82)  
 Read the CLI instructions by executing soul.exe in a terminal and use main.soulpatch as the `<soul file>`. This method does not support stereo processing.
-3.  [Octave 6.3.0](https://www.gnu.org/software/octave/index)   
+3.  [Octave 6.4.0](https://www.gnu.org/software/octave/download)   
 Include soul.exe in the 'Path' environment variable. Set `tests/` as the current working directory in Octave and run `testEffect(44100)`. See `tests/testEffect.m` for more info on test cases and usage.
 
 ## Contents

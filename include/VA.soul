@@ -38,7 +38,8 @@
 /** Task List
 
     Current Tasks:
-    - annotation steps covers min and max?
+    - annotation steps covers min and max? (TheExpressor)
+    - InType OutType and SampleType(s) to OutType converts (TheSplit)
 
     Future Tasks:
     - IsolateAttackRelease add endpoints and boost option via compounding 1-det.out
@@ -2467,7 +2468,8 @@ Constants                                                               01/18/22
     let FLOAT_SLEW_RATE_SECONDS_GAIN = 100.f;
 
     //soul::filters
-    using SampleType = float64<2>;
+    let SampleNumChannel = 2;
+    using SampleType = float64<SampleNumChannel>;
     let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
     
@@ -2533,85 +2535,87 @@ namespace VA::Experimental
     //     return SampleType (x.sum(), x[0] - x[1]);
     // }
 
-        /** Signal splitter
-        
-            Use case: Crossover (frequency), Center/Sides (spatial), Attack/Sustain (time), Loud/Soft (amplitude)
-        */
-      /*  namespace TheSplit
-        {
-            namespace Modes
-            {
-                let Crossover = 0;
-                let CenterSides = 1;
-                let AttackSustain = 2;
-                let LoudSoft = 3;
-                let NumModes = 4;
-            }
+    /** Signal splitter
+    
+        Use case: Crossover (frequency), Center/Sides (spatial), Attack/Sustain (time), Loud/Soft (amplitude)
+    */
+    // namespace TheSplit
+    // {
+    //     using InType = SampleType;
+    //     using OutType = SampleType.elementType<SampleNumChannels * 2>;
+    //     namespace Modes
+    //     {
+    //         let Crossover = 0;
+    //         let CenterSides = 1;
+    //         let AttackSustain = 2;
+    //         let LoudSoft = 3;
+    //         let NumModes = 4;
+    //     }
 
-            graph Processor(float iCrossoverHz = 1000,
-                            float iCenterSidesPercent = 100, 
-                            float iAttackSustainMs = 30,
-                            float iLoudSoftdB = -25,
-                            int iMode = Modes::AttackSustain)
-            {
-                input stream SampleType in;
-                output stream SampleType out0, out1;
-        
-                input
-                {
-                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
+    //     graph Processor(float iCrossoverHz = 1000,
+    //                     float iCenterSidesPercent = 100, 
+    //                     float iAttackSustainMs = 30,
+    //                     float iLoudSoftdB = -25,
+    //                     int iMode = Modes::AttackSustain)
+    //     {
+    //         input stream InType in;
+    //         output stream OutType out;
+    
+    //         input
+    //         {
+    //             pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
 
-                    splitCenterSides.centerSidesIn;
+    //             splitCenterSides.centerSidesIn;
 
-                    splitAttackSustain.timeIn;
-                    splitAttackSustain.boostIn;
+    //             splitAttackSustain.timeIn;
+    //             splitAttackSustain.boostIn;
 
-                    splitLoudSoft.thresholdIn;
-                    splitLoudSoft.sensitivityIn;
+    //             splitLoudSoft.thresholdIn;
+    //             splitLoudSoft.sensitivityIn;
 
-                    event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Crossover|Center/Sides|Attack/Sustain|Loud/Soft", group: "Unsmoothed" ]];
-                }
-        
-                let
-                {
-                    //non-boilerplate Processors
-                    pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
-                    splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
-                    splitAttackSustain = SplitAttackSustain::Processor;
-                    splitLoudSoft = SplitLoudSoft::Processor;
+    //             event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Crossover|Center/Sides|Attack/Sustain|Loud/Soft", group: "Unsmoothed" ]];
+    //         }
+    
+    //         let
+    //         {
+    //             //non-boilerplate Processors
+    //             pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
+    //             splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
+    //             splitAttackSustain = SplitAttackSustain::Processor;
+    //             splitLoudSoft = SplitLoudSoft::Processor;
 
-                    mux4To1_0 = Mux4To1::Processor (iMode);
-                    mux4To1_1 = Mux4To1::Processor (iMode);
+    //             mux4To1_0 = Mux4To1::Processor (iMode);
+    //             mux4To1_1 = Mux4To1::Processor (iMode);
 
-                    //boilerplate Processors
-                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                }
-        
-                connection
-                {
-                    modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
+    //             //boilerplate Processors
+    //             dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+    //             dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+    //             dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+    //         }
+    
+    //         connection
+    //         {
+    //             modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
 
-                    in -> dcBlockerIn -> pCrossover.in, splitCenterSides.in, splitAttackSustain.in, splitLoudSoft.in;
+    //             in -> dcBlockerIn -> pCrossover.in, splitCenterSides.in, splitAttackSustain.in, splitLoudSoft.in;
 
-                    pCrossover.highOut -> mux4To1_0.in0;
-                    pCrossover.lowOut -> mux4To1_1.in0;
+    //             pCrossover.highOut -> mux4To1_0.in0;
+    //             pCrossover.lowOut -> mux4To1_1.in0;
 
-                    splitCenterSides.centerOut -> mux4To1_0.in1;
-                    splitCenterSides.sidesOut -> mux4To1_1.in1;
+    //             splitCenterSides.centerOut -> mux4To1_0.in1;
+    //             splitCenterSides.sidesOut -> mux4To1_1.in1;
 
-                    splitAttackSustain.attackOut -> mux4To1_0.in2;
-                    splitAttackSustain.sustainOut -> mux4To1_1.in2;
+    //             splitAttackSustain.attackOut -> mux4To1_0.in2;
+    //             splitAttackSustain.sustainOut -> mux4To1_1.in2;
 
-                    splitLoudSoft.loudOut -> mux4To1_0.in3;
-                    splitLoudSoft.softOut -> mux4To1_1.in3;
+    //             splitLoudSoft.loudOut -> mux4To1_0.in3;
+    //             splitLoudSoft.softOut -> mux4To1_1.in3;
 
-                    mux4To1_0.out -> dcBlockerOut0 -> out0;
-                    mux4To1_1.out -> dcBlockerOut1 -> out1;
-                }
-            }
-        } */
+    //             mux4To1_0.out -> dcBlockerOut0 -> out0;
+    //             mux4To1_1.out -> dcBlockerOut1 -> out1;
+    //         }
+    //     }
+    // }
 
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
     
