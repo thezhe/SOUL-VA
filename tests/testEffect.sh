@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# TODO finished this script
+
 set -e
 
 soul errors errors.soulpatch

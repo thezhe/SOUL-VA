@@ -39,7 +39,7 @@
 
     Current Tasks:
     - annotation steps covers min and max? (TheExpressor)
-    - InType OutType and SampleType(s) to OutType converts (TheSplit)
+    - InType OutType and SampleType(s) to OutType converts (TheSplit), snippet
 
     Future Tasks:
     - IsolateAttackRelease add endpoints and boost option via compounding 1-det.out
@@ -67,7 +67,7 @@ VA::HighLevel Processors                                                01/18/22
         namespace TheSplit
         {
             using InType = SampleType;
-            using OutType = SampleType.elementType<4>;
+            using OutType = SampleType2;
 
             namespace Modes
             {
@@ -83,7 +83,7 @@ VA::HighLevel Processors                                                01/18/22
                             float iReleaseMs = 30,
                             float iSustainMs = 50,
                             float iSensitivity_dB = 12,
-                            int iMode = Modes::AttackSustain)
+                            int iMode = 1)
             {
                 input stream InType in;
                 output stream OutType out;
@@ -390,10 +390,13 @@ VA::HighLevel Processors                                                01/18/22
         */
         namespace TheDummy
         {
+            using InType = SampleType;
+            using OutType = SampleType;
+
             graph Processor()
             {
-                input stream SampleType in;
-                output stream SampleType out;
+                input stream InType in;
+                output stream OutType out;
                 
                 connection
                 {
@@ -2575,6 +2578,7 @@ Constants                                                               01/18/22
 
     //soul::filters
     using SampleType = float64<2>;
+    using SampleType2 = SampleType.elementType<SampleType.size * 2>;
     let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
     

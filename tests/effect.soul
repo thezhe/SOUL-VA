@@ -1,18 +1,36 @@
-/** Duplicate of '../examples/main.soul' boilerplate for testEffect.m */
+/** Test a 'VA::HighLevel' effect within a [[main]] processor whilst maintaining float32 input/output for CLI compatibility
+
+    To test a different effect, modify the 'effect' namespace definition;
+    It's reccommended to change the Processor defaults in VA.soul, but you may also 
+    change the defaults via the Processor instance. See comments below.
+*/
 
 namespace main
 {
-    namespace FloatToSampleType
+    //'effect' namespace definition
+    namespace effect = VA::HighLevel::TheSplit; 
+
+    using inType = effect::InType;
+    using inType32 = float<inType.size>;
+    using outType = effect::OutType;
+    using outType32 = float<outType.size>;
+
+    namespace Decode32
     {     
-        VA::SampleType process (float<2> x)
+        inType process (inType32 x)
         {
-            return VA::SampleType (x);
+            inType y;
+
+            for (int i = 0; i < inType32.size; ++i)
+                y.at(i) = inType.elementType (x.at(i));
+            
+            return y;
         }
 
         processor Processor()
         {
-            input stream float<2> in;
-            output stream VA::SampleType out;
+            input stream inType32 in;
+            output stream inType out;
     
             void run()
             {   
@@ -26,17 +44,22 @@ namespace main
         }
     }
 
-    namespace SampleTypeToFloat
+    namespace Encode32
     {     
-        float<4> process (VA::SampleType.elementType<4> x)
+        outType32 process (outType x)
         {
-            return float<4>(x);
+            outType32 y;
+
+            for (int i = 0; i < outType.size; ++i)
+                y.at(i) = outType32.elementType (x.at(i));
+            
+            return y;
         }
 
         processor Processor()
         {
-            input stream VA::SampleType.elementType<4> in;
-            output stream float<4> out;
+            input stream outType in;
+            output stream outType32 out;
     
             void run()
             {   
@@ -52,36 +75,22 @@ namespace main
 
     graph Processor [[main]]
     {
-        input stream float<2> in; //change streams to 'VA::SampleType' for stereo
-        output stream float<4> out;
-
-        input
-        {
-            effect.frequencyIn;
-
-            effect.thresholdIn;
-            effect.releaseIn;
-
-            effect.sustainIn;
-            effect.sensitivityIn;
-
-            effect.modeIn;
-        }
+        input stream inType32 in;
+        output stream outType32 out;
 
         let
         { 
-            //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::TheSplit::Processor (1000, -10, 30, 30, 36, 1);
+            //Processor instance
+            e = effect::Processor;
 
-            //comment out for stereo
-            up = FloatToSampleType::Processor;
-            down = SampleTypeToFloat::Processor;
+            encode32 = Encode32::Processor;
+            decode32 = Decode32::Processor;
         }
 
         connection
         {       
-            in -> up -> effect.in; //comment out 'up' and 'down' for stereo
-            effect.out -> down -> out;
+            in -> decode32 -> e.in;
+            e.out -> encode32 -> out;
         }
     }
 }

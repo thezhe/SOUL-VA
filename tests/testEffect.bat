@@ -3,7 +3,7 @@
 REM Script to run PLUG-QA on 'testEffect.soulpatch'
 REM Usage .\testEffect.bat <Fs>
 
-set FS=%1
+set FS="%~1"
 
 REM Check compilable
 call soul errors errors.soulpatch

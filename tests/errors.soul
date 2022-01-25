@@ -1,78 +1,50 @@
 /** Processor [[main]] 
 
-    '../examples/main.soul' modified to include all 'Processors' in 'VA::HighLevel' and their endpoints
+    '../examples/main.soul' modified to include all 'Processors' 
 
     Notes:
     - Tests that all 'Processors' compile without errors
     - command: soul errors errors.soulpatch | echo
     - Only use with CLI is officially supported
+    - Processors are connected in series s.t. their out and in streams match
 */
 
 namespace main
 {
     namespace va = VA::HighLevel;
 
+    //effect namespace definitions
+    namespace effectIn = va::TheDummy;
+    namespace effect1 = va::TheBass;
+    namespace effect2 = va::TheChorus;
+    namespace effect3 = va::TheExpressor;
+    namespace effectOut = va::TheSplit;
+
+
     graph Processor [[main]]
     {
-        input stream VA::SampleType in;
-        output stream VA::SampleType out;
+        input stream effectIn::InType in;
+        output stream effectOut::OutType out;
 
-        input
-        {
-            //all input events from VA::HighLevel
-            va1.stereoLinkIn va1_0;
-            va1.nonlinearityIn va1_1;
-            va1.volumeIn va1_2;
-
-            va2.rateIn va2_0;
-            va2.depthIn va2_1;
-            va2.widthIn va2_2;
-            va2.modeIn va2_3;
-            va2.delayIn va2_4;
-            va2.cutoffIn va2_5;
-            va2.resonanceIn va2_6;
-            va2.nonlinearityIn va2_7;
-            va2.mixIn va2_8;
-            va2.panIn va2_9;
-            va2.makeupVolumeIn va2_10;
-
-            va3.attackIn va3_0;
-            va3.releaseIn va3_1;
-            va3.stereoLinkIn va3_2;
-            va3.thresholdIn va3_3;
-            va3.ratio0In va3_4;
-            va3.ratio1In va3_5;
-            va3.colorIn va3_6;
-            va3.cutoffIn va3_7;
-            va3.mixIn va3_8;
-            va3.makeupVolumeIn va3_9;
-
-            // va4.frequencyIn va4_0;
-            // va4.centerSidesIn va4_1;
-            // va4.timeIn va4_2;
-            // va4.thresholdIn va4_3;
-            // va4.sensitivityIn va4_4;
-            // va4.modeIn va4_5;
-        }
-
+        //effect processor definitions
         let
         { 
-            //all 'Processors' from VA::HighLevel
-            va0 = va::TheDummy::Processor;
-            va1 = va::TheBass::Processor;
-            va2 = va::TheChorus::Processor;
-            va3 = va::TheExpressor::Processor;
-           // va4 = va::TheSplit::Processor;
+            eIn = effectIn::Processor;
+            e1 = effect1::Processor;
+            e2 = effect2::Processor;
+            e3 = effect3::Processor;
+            eOut = effectOut::Processor;
         }
 
+        //connect each effect Processor in series
         connection
         {       
-            //all 'Processors' from VA::HighLevel connected in series
-            in -> va0 -> va1.in;
-            va1.out -> va2.in;
-            va2.out -> va3.in;
-            va3.out -> out;//va4.in;
-           // va4.out0, va4.out1 -> down -> out;
+            in -> eIn.in;
+            eIn.out -> e1.in;
+            e1.out -> e2.in;
+            e2.out -> e3.in;
+            e3.out -> eOut.in;
+            eOut.out -> out;
         }
     }
 }
