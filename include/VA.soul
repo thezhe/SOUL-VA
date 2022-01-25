@@ -60,6 +60,91 @@ VA::HighLevel Processors                                                01/18/22
     */
     namespace HighLevel
     {  
+        /** Signal splitter
+    
+            Use case: Center/Sides (spatial), Crossover (frequency), Loud/Soft (amplitude), Attack/Sustain (time)
+        */
+        namespace TheSplit
+        {
+            using InType = SampleType;
+            using OutType = SampleType.elementType<4>;
+
+            namespace Modes
+            {
+                let CenterSides = 0;
+                let Crossover = 1;
+                let LoudSoft = 2;
+                let AttackSustain = 3;
+                let NumModes = 4;
+            }
+
+            graph Processor(float iCrossoverHz = 1000,
+                            float iThreshold_dB = -25,
+                            float iReleaseMs = 30,
+                            float iSustainMs = 50,
+                            float iSensitivity_dB = 12,
+                            int iMode = Modes::AttackSustain)
+            {
+                input stream InType in;
+                output stream OutType out;
+        
+                input
+                {
+                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
+
+                    splitLoudSoft.thresholdIn;
+                    splitLoudSoft.releaseIn;
+
+                    splitAttackSustain.sustainIn;
+                    splitAttackSustain.sensitivityIn;
+
+                    event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Center/Sides|Crossover|Loud/Soft|Attack/Sustain", group: "Unsmoothed" ]];
+                }
+        
+                let
+                {
+                    //non-boilerplate Processors
+                    splitCenterSides = SplitCenterSides::Processor (100);
+                    pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
+                    splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs);
+                    splitAttackSustain = SplitAttackSustain::Processor (iSustainMs, iSensitivity_dB);
+                    
+                    mux4To1_0 = Mux4To1::Processor (iMode);
+                    mux4To1_1 = Mux4To1::Processor (iMode);
+
+                    //boilerplate Processors
+                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    sampleTypesToSampleType2 = SampleTypesToSampleType2::Processor;
+                }
+        
+                connection
+                {
+                    modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
+
+                    in -> dcBlockerIn -> splitCenterSides.in, pCrossover.in, splitLoudSoft.in, splitAttackSustain.in;
+
+                    splitCenterSides.centerOut -> mux4To1_0.in0;
+                    splitCenterSides.sidesOut -> mux4To1_1.in0;
+
+                    pCrossover.highOut -> mux4To1_0.in1;
+                    pCrossover.lowOut -> mux4To1_1.in1;
+
+                    splitLoudSoft.loudOut -> mux4To1_0.in2;
+                    splitLoudSoft.softOut -> mux4To1_1.in2;
+
+                    splitAttackSustain.attackOut -> mux4To1_0.in3;
+                    splitAttackSustain.sustainOut -> mux4To1_1.in3;
+
+                    mux4To1_0.out -> dcBlockerOut0 -> sampleTypesToSampleType2.in0;
+                    mux4To1_1.out -> dcBlockerOut1 -> sampleTypesToSampleType2.in1;
+
+                    sampleTypesToSampleType2.out -> out;
+                }
+            }
+        }
+
         /** Upwards/Downwards Ex(pander)/(com)pressor with a colored knee
 
             Notes:
@@ -497,21 +582,21 @@ Filter Processors                                                       01/18/22
     /** Split into high/low amplitude via downward compression or downward expansion */
     namespace SplitLoudSoft
     {
-        graph Processor(float iSensitivity,
-                        float iThreshold)
+        graph Processor(float iThreshold,
+                        float iRelease)
         {
             input stream SampleType in;
             output stream SampleType loudOut, softOut;
     
             input
             {
-                expressorClassical.releaseIn sensitivityIn;
                 expressorClassical.thresholdIn;
+                expressorClassical.releaseIn;
             }
     
             let
             {
-                expressorClassical = ExpressorClassical::Processor(4, iSensitivity, iThreshold, 1, 0.1f);
+                expressorClassical = ExpressorClassical::Processor(4, iRelease, iThreshold, 1, 0.25f);
                 difference = Difference::Processor;
             }
     
@@ -528,21 +613,21 @@ Filter Processors                                                       01/18/22
     /** Split into attack/release via IsolateAttackSustain */
     namespace SplitAttackSustain
     {
-        graph Processor()
+        graph Processor(float iSustain,
+                        float iSensitivity)
         {
             input stream SampleType in;
             output stream SampleType attackOut, sustainOut;
     
             input
             {
-                transientIsolator.timeIn;
-                boostEnvelope.boostIn;
+                transientIsolator.sustainIn;
+                transientIsolator.sensitivityIn;
             }
     
             let
             {
-                transientIsolator = TransientIsolator::Processor;
-                boostEnvelope = BoostEnvelope::Processor (0);
+                transientIsolator = TransientIsolator::Processor (4, iSustain, iSensitivity);
 
                 difference = Difference::Processor;
             }
@@ -551,10 +636,9 @@ Filter Processors                                                       01/18/22
             {
                 in -> transientIsolator.in, difference.in0;
 
-                transientIsolator.out -> boostEnvelope.in;
-                boostEnvelope.out -> difference.in1, attackOut;
+                transientIsolator.out -> difference.in1, sustainOut;
 
-                difference.out -> sustainOut;
+                difference.out -> attackOut;
             }
         }
     }
@@ -582,7 +666,7 @@ Filter Processors                                                       01/18/22
     
             let
             {
-                absADAA = AbsADAA::Processor;
+                absADAA = AbsADAA::Processor * 2;
                 ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
                 ctf = CTF::Processor (iThreshold, iRatio0, iRatio1);
 
@@ -605,20 +689,27 @@ Filter Processors                                                       01/18/22
     /** Isolate the attack or sustain using 'DET' */
     namespace TransientIsolator
     {
-        graph Processor()
+        graph Processor(float iAttack,
+                        float iSustain,
+                        float iSensitivity)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
-                det.releaseIn timeIn;
+                det.attackIn [[ name: "Attack", min: 10, max: 100, init: iAttack, step: 1, unit: "ms" ]];
+                det.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustain, step: 1, unit: "ms" ]];
+                smoothedVolume.volumeIn sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity, step: 1, unit: "dB" ]];
             }
     
             let
             {
-                pAbs = Abs::Processor;
-                det = DET::Processor;
+                pAbs = AbsADAA::Processor * 2;
+                det = DET::Processor (iAttack, iSustain);
+
+                smoothedVolume = SmoothedVolume::Processor (iSensitivity);
+                sigmoidC2 = SigmoidC2::Processor;
 
                 applyGain = ApplyGain::Processor;
             }
@@ -628,7 +719,8 @@ Filter Processors                                                       01/18/22
                 in -> applyGain.in;
 
                 in -> pAbs -> det.in;
-                det.out -> applyGain.b;
+                det.out -> smoothedVolume.in;
+                smoothedVolume.out -> sigmoidC2 -> applyGain.b;
 
                 applyGain.out -> out;
             }
@@ -644,24 +736,23 @@ Filter Processors                                                       01/18/22
     */
     namespace DET
     {
-        graph Processor()
+        graph Processor(float iAttack,
+                        float iSustain,
+                        float iEnvelopeTau = 4)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
-                ballisticsFilter0.attackIn;
-                ballisticsFilter0.releaseIn;
-
-                ballisticsFilter1.attackIn attackIn1;
-                ballisticsFilter1.releaseIn releaseIn1;
+                ballisticsFilter0.releaseIn sustainIn;
+                ballisticsFilter1.attackIn attackIn;
             }
     
             let
             {
-                ballisticsFilter0 = BallisticsFilter::Processor (4, 4);
-                ballisticsFilter1 = BallisticsFilter::Processor (4, 4);
+                ballisticsFilter0 = BallisticsFilter::Processor (iEnvelopeTau, iSustain);
+                ballisticsFilter1 = BallisticsFilter::Processor (iAttack, iEnvelopeTau);
 
                 difference = Difference::Processor;
             }
@@ -999,48 +1090,6 @@ Filter Processors                                                       01/18/22
 /*==============================================================================
 Vectorized Instrinsic/Helper Processors                                 01/18/22
 ==============================================================================*/
-
-    /** Boost an envelope
-    
-        out = 1 - (1 - in)*gain
-    */
-    namespace BoostEnvelope
-    {
-        graph Processor(float iBoost)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                smoothedVolume.volumeIn boostIn;
-            }
-    
-            let
-            {
-                constant = Constant::Processor (1);
-
-                difference0 = Difference::Processor;
-                difference1 = Difference::Processor;
-
-                smoothedVolume = SmoothedVolume::Processor (iBoost);
-            }
-    
-            connection
-            {
-                constant.out -> difference0.in0, difference1.in0;
-                
-                in -> difference0.in1;
-                difference0.out -> smoothedVolume.in;
-
-                smoothedVolume.out -> difference1.in1;
-
-                difference1.out -> out;
-
-
-            }
-        }
-    }   
     
     /** 'vCTF_Color' wrapper */
     namespace CTF_Color
@@ -1368,6 +1417,26 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
 
                         advance();
                     }
+                }
+            }
+        }
+    }
+
+    /** 'vSigmoidC2' wrapper */
+    namespace SigmoidC2
+    {   
+        processor Processor ()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << vSigmoidC2 (in);
+
+                    advance();
                 }
             }
         }
@@ -1704,6 +1773,25 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
                 loop
                 {
                     out << variable;
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace SampleTypesToSampleType2
+    {   
+        processor Processor ()
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType.elementType<4> out;
+
+            void run()
+            {   
+                loop
+                {
+                    out << vSampleTypesToSampleType2 (in0, in1);
 
                     advance();
                 }
@@ -2297,6 +2385,19 @@ Vectorized Helper Functions                                             01/18/22
         return b.at(0) * x + b.at(1) * x1;
     }
 
+    /** An algebraic sigmoid function of class C2
+
+        f(x) = x / sqrt (x^2 + 1) 
+
+        Notes:
+        - A cheap 'tanh' approximation
+        - See: https://en.wikipedia.org/wiki/Differentiable_function#Differentiability_classes
+    */
+    SampleType vSigmoidC2 (SampleType x)
+    {
+        return x / sqrt (x * x + ONE);
+    }
+
     /** Convert cutoff (Hz) to the cutoff gain of a TPT Onepole filter 
     
         Notes:
@@ -2395,6 +2496,11 @@ Vectorized Helper Functions                                             01/18/22
         return SampleType (2.0 - bR, bR);
     }
 
+    SampleType.elementType<4> vSampleTypesToSampleType2(SampleType x0, SampleType x1)
+    {
+        return SampleType.elementType<4> (x0[0], x0[1], x1[0], x1[1]);
+    }
+
 /*==============================================================================
 Vectorized Intrinsic Functions                                          01/18/22
 ==============================================================================*/
@@ -2468,8 +2574,7 @@ Constants                                                               01/18/22
     let FLOAT_SLEW_RATE_SECONDS_GAIN = 100.f;
 
     //soul::filters
-    let SampleNumChannel = 2;
-    using SampleType = float64<SampleNumChannel>;
+    using SampleType = float64<2>;
     let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
     
@@ -2510,19 +2615,6 @@ namespace VA::Experimental
     //     return vSigmoidC2 (b * x) * (ONE / b); 
     // }
 
-    /** An algebraic sigmoid function of class C2
-
-            f(x) = x / sqrt (x^2 + 1) 
-    
-        Notes:
-        - A cheap 'tanh' approximation
-        - See: https://en.wikipedia.org/wiki/Differentiable_function#Differentiability_classes
-    */
-    // SampleType vSigmoidC2 (SampleType x)
-    // {
-    //     return x / sqrt (x * x + ONE);
-    // }
-
     /** Decode mid/side to stereo */
     // SampleType vDecodeMidSide (SampleType x)
     // {
@@ -2533,88 +2625,6 @@ namespace VA::Experimental
     // SampleType vEncodeMidSide (SampleType x)
     // {
     //     return SampleType (x.sum(), x[0] - x[1]);
-    // }
-
-    /** Signal splitter
-    
-        Use case: Crossover (frequency), Center/Sides (spatial), Attack/Sustain (time), Loud/Soft (amplitude)
-    */
-    // namespace TheSplit
-    // {
-    //     using InType = SampleType;
-    //     using OutType = SampleType.elementType<SampleNumChannels * 2>;
-    //     namespace Modes
-    //     {
-    //         let Crossover = 0;
-    //         let CenterSides = 1;
-    //         let AttackSustain = 2;
-    //         let LoudSoft = 3;
-    //         let NumModes = 4;
-    //     }
-
-    //     graph Processor(float iCrossoverHz = 1000,
-    //                     float iCenterSidesPercent = 100, 
-    //                     float iAttackSustainMs = 30,
-    //                     float iLoudSoftdB = -25,
-    //                     int iMode = Modes::AttackSustain)
-    //     {
-    //         input stream InType in;
-    //         output stream OutType out;
-    
-    //         input
-    //         {
-    //             pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
-
-    //             splitCenterSides.centerSidesIn;
-
-    //             splitAttackSustain.timeIn;
-    //             splitAttackSustain.boostIn;
-
-    //             splitLoudSoft.thresholdIn;
-    //             splitLoudSoft.sensitivityIn;
-
-    //             event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Crossover|Center/Sides|Attack/Sustain|Loud/Soft", group: "Unsmoothed" ]];
-    //         }
-    
-    //         let
-    //         {
-    //             //non-boilerplate Processors
-    //             pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
-    //             splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
-    //             splitAttackSustain = SplitAttackSustain::Processor;
-    //             splitLoudSoft = SplitLoudSoft::Processor;
-
-    //             mux4To1_0 = Mux4To1::Processor (iMode);
-    //             mux4To1_1 = Mux4To1::Processor (iMode);
-
-    //             //boilerplate Processors
-    //             dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-    //             dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-    //             dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-    //         }
-    
-    //         connection
-    //         {
-    //             modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
-
-    //             in -> dcBlockerIn -> pCrossover.in, splitCenterSides.in, splitAttackSustain.in, splitLoudSoft.in;
-
-    //             pCrossover.highOut -> mux4To1_0.in0;
-    //             pCrossover.lowOut -> mux4To1_1.in0;
-
-    //             splitCenterSides.centerOut -> mux4To1_0.in1;
-    //             splitCenterSides.sidesOut -> mux4To1_1.in1;
-
-    //             splitAttackSustain.attackOut -> mux4To1_0.in2;
-    //             splitAttackSustain.sustainOut -> mux4To1_1.in2;
-
-    //             splitLoudSoft.loudOut -> mux4To1_0.in3;
-    //             splitLoudSoft.softOut -> mux4To1_1.in3;
-
-    //             mux4To1_0.out -> dcBlockerOut0 -> out0;
-    //             mux4To1_1.out -> dcBlockerOut1 -> out1;
-    //         }
-    //     }
     // }
 
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams

@@ -3,5 +3,6 @@
 *.cpp
 *.png
 
-!tests/TestTrackInputs/*.wav
+tests/results
+
 !logo.png

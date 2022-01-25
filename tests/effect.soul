@@ -28,15 +28,15 @@ namespace main
 
     namespace SampleTypeToFloat
     {     
-        float<2> process (VA::SampleType x)
+        float<4> process (VA::SampleType.elementType<4> x)
         {
-            return float<2>(x);
+            return float<4>(x);
         }
 
         processor Processor()
         {
-            input stream VA::SampleType in;
-            output stream float<2> out;
+            input stream VA::SampleType.elementType<4> in;
+            output stream float<4> out;
     
             void run()
             {   
@@ -53,42 +53,25 @@ namespace main
     graph Processor [[main]]
     {
         input stream float<2> in; //change streams to 'VA::SampleType' for stereo
-        output stream float<2> out;
+        output stream float<4> out;
 
         input
         {
-            // effect.depthIn;
-            // effect.rateIn;
-            // effect.delayIn;
-            
-            // effect.nonlinearityIn;
-            // effect.resonanceIn;
-            // effect.cutoffIn;
+            effect.frequencyIn;
 
-            // effect.mixIn;
-            // effect.widthIn;
-            // effect.makeupVolumeIn;
+            effect.thresholdIn;
+            effect.releaseIn;
 
-            // effect.cutoffIn;
-            // effect.stereoLinkIn;
-            
-            // effect.attackIn;
-            // effect.releaseIn;
+            effect.sustainIn;
+            effect.sensitivityIn;
 
-            // effect.ratio0In;
-            // effect.ratio1In;
-
-            // effect.thresholdIn;
-            // effect.colorIn;
-            
-            // effect.mixIn;
-            // effect.makeupVolumeIn;
+            effect.modeIn;
         }
 
         let
         { 
             //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::TheChorus::Processor(100, 4, 180, 1, 0, 0.5f, 1, 18000, 50, -1, 0);
+            effect = VA::HighLevel::TheSplit::Processor (1000, -10, 30, 30, 36, 1);
 
             //comment out for stereo
             up = FloatToSampleType::Processor;
