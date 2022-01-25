@@ -79,8 +79,7 @@ VA::HighLevel Processors                                                01/25/22
                 let NumModes = 4;
             }
 
-            graph Processor(float iCrossoverHz = 1000,
-                            float iThreshold_dB = -30,
+            graph Processor(float iThreshold_dB = -30,
                             float iReleaseMs = 30,
                             float iSustainMs = 30,
                             float iSensitivity_dB = 36,
@@ -91,22 +90,22 @@ VA::HighLevel Processors                                                01/25/22
         
                 input
                 {
-                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
+                    pCrossover.frequencyIn;
 
-                    splitLoudSoft.thresholdIn [[ name: "Threshold", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
+                    splitLoudSoft.thresholdIn [[ name: "Threshold", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "Unsmoothed" ]];
                     splitLoudSoft.releaseIn;
 
                     splitAttackSustain.sustainIn;
                     splitAttackSustain.sensitivityIn;
 
-                    event float modeIn [[ name: "Mode", min: Modes::Crossover, max: Modes::NumModes - 1, init: iMode, text: "Center/Sides|Crossover|Loud/Soft|Attack/Sustain", group: "Unsmoothed" ]];
+                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "Center/Sides|Crossover|Loud/Soft|Attack/Sustain", group: "Unsmoothed" ]];
                 }
         
                 let
                 {
                     //non-boilerplate Processors
                     splitCenterSides = SplitCenterSides::Processor (100);
-                    pCrossover = filt::tpt::crossover::Processor (iCrossoverHz);
+                    pCrossover = filt::tpt::crossover::Processor;
                     splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs);
                     splitAttackSustain = SplitAttackSustain::Processor (iSustainMs, iSensitivity_dB);
                     
@@ -604,7 +603,7 @@ Filter Processors                                                       01/25/22
             input
             {
                 expressorClassical.thresholdIn;
-                expressorClassical.releaseIn;
+                expressorClassical.releaseIn [[ name: "Release", min: 30, max: 1000, init: iRelease, unit: "ms", step: 1 ]];
             }
     
             let
