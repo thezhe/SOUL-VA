@@ -26,6 +26,7 @@
         *The internal 'CoeffType' is float64<2>
         *Coefficient 'updateInterval' is every 256 samples at 44.1kHz 
         or scaled as needed (i.e. every 512 samples at 88.2kHz)
+        *Each effect's namespace defines an 'InType' and 'OutType' 
     - Parameters not suitable for modulation up through 20Hz are part of the "Unsmoothed" parameter group
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
     - Almost all algorithms use algebraic operations as possible to avoid expensive transcendentals while providing superior
@@ -51,7 +52,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/18/22
+VA::HighLevel Processors                                                01/25/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -79,11 +80,11 @@ VA::HighLevel Processors                                                01/18/22
             }
 
             graph Processor(float iCrossoverHz = 1000,
-                            float iThreshold_dB = -25,
+                            float iThreshold_dB = -30,
                             float iReleaseMs = 30,
-                            float iSustainMs = 50,
-                            float iSensitivity_dB = 12,
-                            int iMode = 1)
+                            float iSustainMs = 30,
+                            float iSensitivity_dB = 36,
+                            int iMode = 2)
             {
                 input stream InType in;
                 output stream OutType out;
@@ -92,7 +93,7 @@ VA::HighLevel Processors                                                01/18/22
                 {
                     pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iCrossoverHz, unit: "Hz", step: 1 ]];
 
-                    splitLoudSoft.thresholdIn;
+                    splitLoudSoft.thresholdIn [[ name: "Threshold", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
                     splitLoudSoft.releaseIn;
 
                     splitAttackSustain.sustainIn;
@@ -153,6 +154,9 @@ VA::HighLevel Processors                                                01/18/22
         */
         namespace TheExpressor
         {
+            using InType = SampleType;
+            using OutType = SampleType;
+
             graph Processor(float iAttackMs = 0.1f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
@@ -164,8 +168,8 @@ VA::HighLevel Processors                                                01/18/22
                             float iMixPercent = 100,
                             float iMakeupVolume_dB = 0)
             {
-                input stream SampleType in;
-                output stream SampleType out;
+                input stream InType in;
+                output stream OutType out;
 
                 input
                 {
@@ -236,6 +240,9 @@ VA::HighLevel Processors                                                01/18/22
         */
         namespace TheChorus
         {
+            using InType = SampleType;
+            using OutType = SampleType;
+
             graph Processor (float iDepthPercent = 50,
                             float iRateHz = 2.f,
                             float iWidthDeg = 180,
@@ -248,8 +255,8 @@ VA::HighLevel Processors                                                01/18/22
                             float iPan = 0,
                             float iMakeupVolume_dB = 0)
             {
-                input stream SampleType in;
-                output stream SampleType out;
+                input stream InType in;
+                output stream OutType out;
         
                 input
                 { 
@@ -306,10 +313,13 @@ VA::HighLevel Processors                                                01/18/22
         */
         namespace TheBass
         {
+            using InType = SampleType;
+            using OutType = SampleType;
+
             graph Processor (float iNonlinearity = 250, float iStereoLinkPercent = 100)
             {
-                input stream SampleType in;
-                output stream SampleType out;
+                input stream InType in;
+                output stream OutType out;
         
                 input
                 {
@@ -407,7 +417,7 @@ VA::HighLevel Processors                                                01/18/22
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       01/18/22
+Filter Processors                                                       01/25/22
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -599,7 +609,7 @@ Filter Processors                                                       01/18/22
     
             let
             {
-                expressorClassical = ExpressorClassical::Processor(4, iRelease, iThreshold, 1, 0.25f);
+                expressorClassical = ExpressorClassical::Processor (4, iRelease, iThreshold, 1, 0.25f);
                 difference = Difference::Processor;
             }
     

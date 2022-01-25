@@ -1,7 +1,8 @@
 @echo off
 
-REM Script to run PLUG-QA on 'testEffect.soulpatch'
-REM Usage .\testEffect.bat <Fs>
+REM Script to run PLUG-QA on 'testEffect.soulpatch' and soul errors on 'errors.soulpatch'
+REM results and logs in 'results\'
+REM Usage .\runAll.bat <Fs>
 
 set FS="%~1"
 
