@@ -79,7 +79,8 @@ VA::HighLevel Processors                                                01/25/22
                 let NumModes = 4;
             }
 
-            graph Processor(float iThreshold_dB = -30,
+            graph Processor(float iFrequencyHz = 1000,
+                            float iThreshold_dB = -30,
                             float iReleaseMs = 30,
                             float iSustainMs = 30,
                             float iSensitivity_dB = 36,
@@ -90,9 +91,9 @@ VA::HighLevel Processors                                                01/25/22
         
                 input
                 {
-                    pCrossover.frequencyIn;
+                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, unit: "Hz", step: 1 ]];
 
-                    splitLoudSoft.thresholdIn [[ name: "Threshold", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "Unsmoothed" ]];
+                    splitLoudSoft.thresholdIn [[ name: "Thresh", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "Unsmoothed" ]];
                     splitLoudSoft.releaseIn;
 
                     splitAttackSustain.sustainIn;
@@ -105,7 +106,7 @@ VA::HighLevel Processors                                                01/25/22
                 {
                     //non-boilerplate Processors
                     splitCenterSides = SplitCenterSides::Processor (100);
-                    pCrossover = filt::tpt::crossover::Processor;
+                    pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
                     splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs);
                     splitAttackSustain = SplitAttackSustain::Processor (iSustainMs, iSensitivity_dB);
                     
