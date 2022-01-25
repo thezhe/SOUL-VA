@@ -369,5 +369,13 @@
             ""
         ],
         "description": "Define modes and namespace with compile time mode-specific code (e.g., a mode-dependent 'process' function); use to avoid the boilerplate from creating an entirely new Processor"
+    },
+
+    "VA::EventParam": {
+        "prefix": "VA::EventParam",
+        "body": [
+            "input event float ${1:Endpoint Name}In [[ name: \"${2:Name}\", min: ${3:Min}, max: ${4:Max}, init: ${5:Init}, step: ${6:Step}, unit: \"${7:Unit}\" ]];"
+        ],
+        "description": "An endpoint of type 'input event float'; this is updated internally every updateInterval."
     }
 }
