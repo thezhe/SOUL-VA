@@ -36,6 +36,13 @@
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
 */
 
+/** Next version (1.1.0) changelog
+    - New Effects: TheExpressor, TheSplit
+    - Tests now use Octave via PLUG-QA and support multichannel output
+    - .soulpatches can now run in multichannel mode when using CLI/Octave 
+    - More parameters are now smoothed and modulation stable
+*/
+
 /** Task List
     Current Tasks:
     - TheExpressor/TheSplit
@@ -49,7 +56,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/25/22
+VA::HighLevel Processors                                                01/26/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -1091,7 +1098,7 @@ Filter Processors                                                       01/25/22
     }
     
 /*==============================================================================
-Vectorized Instrinsic/Helper Processors                                 01/18/22
+Vectorized Instrinsic/Helper Processors                                 01/26/22
 ==============================================================================*/
     
     /** 'vCTF_Color' wrapper */
@@ -1956,7 +1963,7 @@ Mix Processors                                                          01/18/22
     }
 
 /*==============================================================================
-Parameter Processors                                                    01/18/22
+Parameter Processors                                                    01/26/22
 ==============================================================================*/
 
     /** Modified version of soul::oscillators::lfo 
@@ -2629,7 +2636,7 @@ Vectorized Intrinsic Functions                                          01/18/22
     }
 
 /*==============================================================================
-Constants                                                               01/18/22
+Constants                                                               01/26/22
 ==============================================================================*/
     
     //const float
