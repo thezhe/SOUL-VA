@@ -28,8 +28,11 @@ jobs:
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-windows-x64.zip -OutFile SOUL.zip
           Expand-Archive SOUL.zip -DestinationPath .
           ./windows/x64/soul.exe errors tests/errors.soulpatch
+          if %errorlevel% neq 0 exit /b %errorlevel%
           ./windows/x64/soul.exe errors tests/effect.soulpatch
-          ./windows/x64/soul.exe errors tests/main.soulpatch
+          if %errorlevel% neq 0 exit /b %errorlevel%
+          ./windows/x64/soul.exe errors examples/main.soulpatch
+          if %errorlevel% neq 0 exit /b %errorlevel%
         shell: pwsh
 
       - name: Get SOUL compiler and Test (mac)
@@ -37,9 +40,9 @@ jobs:
         run: |
           curl -L "https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-osx-x64.zip" -o SOUL.zip
           unzip SOUL
-          ./osx/x64/soul errors tests/errors.soulpatch
-          ./osx/x64/soul errors tests/effect.soulpatch
-          ./osx/x64/soul errors examples/main.soulpatch
+          ./osx/x64/soul errors tests/errors.soulpatch || exit 1
+          ./osx/x64/soul errors tests/effect.soulpatch || exit 1
+          ./osx/x64/soul errors examples/main.soulpatch || exit 1
         shell: bash
 
       - name: Get SOUL compiler and Test (ubuntu)
@@ -47,7 +50,7 @@ jobs:
         run: |
           curl -L "https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-linux-combined.zip" -o SOUL.zip
           unzip SOUL
-          ./linux/x64/soul errors tests/errors.soulpatch
-          ./linux/x64/soul errors tests/effect.soulpatch
-          ./linux/x64/soul errors examples/main.soulpatch
+          ./linux/x64/soul errors tests/errors.soulpatch || exit 1
+          ./linux/x64/soul errors tests/effect.soulpatch || exit 1
+          ./linux/x64/soul errors examples/main.soulpatch || exit 1
         shell: bash
