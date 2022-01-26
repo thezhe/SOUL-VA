@@ -27,12 +27,12 @@ jobs:
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-windows-x64.zip -OutFile SOUL.zip
           Expand-Archive SOUL.zip -DestinationPath .
-          ./windows/x64/soul.exe errors tests/errors.soulpatch
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          ./windows/x64/soul.exe errors tests/effect.soulpatch
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          ./windows/x64/soul.exe errors examples/main.soulpatch
-          if %errorlevel% neq 0 exit /b %errorlevel%
+          .\windows\x64\soul.exe errors tests\errors.soulpatch
+          if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+          .\windows\x64\soul.exe errors tests\effect.soulpatch
+          if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+          .\windows\x64\soul.exe errors examples\main.soulpatch
+          if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
         shell: pwsh
 
       - name: Get SOUL compiler and Test (mac)
