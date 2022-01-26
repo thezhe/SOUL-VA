@@ -33,7 +33,7 @@ jobs:
           if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
           .\windows\x64\soul.exe errors examples\main.soulpatch
           if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
-        shell: pwsh
+        shell: cmd
 
       - name: Get SOUL compiler and Test (mac)
         if: matrix.os == 'macos-11'
