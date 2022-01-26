@@ -1,90 +1,112 @@
 /** Processor [[main]] 
+    
+    To instantiate a 'VA::HighLevel' effect, change the 'effect' namespace definition.
+    Then, expose parameter endpoints as desired.
 
-    To test an effect, change the definition of 'effect' and expose endpoints under 'graph Processor [[main]]'.
-
-    Extra step if not using CLI or Octave:
-
-        The SOUL CLI doesn't take 'VA::SampleType' streams so 'float' must cast to 'VA::SampleType' and vice versa for processing.
-        Follow the comments to bypass the mono compatibility code and enable stereo mode if using soul.dev/lab.
+    NOTE:
+    To maintain compatibility with the CLI and Octave, the input and output streams have elements that are float32
+    and they are decoded to float64 before going into the effect and encoded to float32 after leaving the effect.
+    This code may be deleted and the in/out streams can be changed to 'inType'/'outType' if using soul.dev/lab.
 */
 
 namespace main
 {
-    namespace FloatToSampleType
-    {     
-        VA::SampleType process (float x)
-        {
-            return VA::SampleType (x);
-        }
-
-        processor Processor()
-        {
-            input stream float in;
-            output stream VA::SampleType out;
+    /*' effect' namespace definition */
+    namespace effect = VA::HighLevel::TheChorus; 
     
-            void run()
-            {   
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace SampleTypeToFloat
-    {     
-        float process (VA::SampleType x)
-        {
-            return float (x.sum()/VA::SampleType.size);
-        }
-
-        processor Processor()
-        {
-            input stream VA::SampleType in;
-            output stream float out;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << process (in);
-
-                    advance();
-                }
-            }
-        }
-    }
+    using inType = effect::InType;
+    using outType = effect::OutType;
 
     graph Processor [[main]]
     {
-        input stream float in; //change streams to 'VA::SampleType' for stereo
-        output stream float out;
+        input stream inType32 in;
+        output stream outType32 out;
 
-        input
+        input 
         {
-            //expose effect event endpoints
-            effect.stereoLinkIn;
-            effect.nonlinearityIn;
-            effect.volumeIn;
+            /* expose parameter endpoints */
+            //For example: e.depthIn;
         }
 
         let
         { 
-            //define effect as a 'Processor' from 'VA::HighLevel'
-            effect = VA::HighLevel::OnepoleC_Lan::Processor;
+            e = effect::Processor; 
 
-            //comment out for stereo
-            up = FloatToSampleType::Processor;
-            down = SampleTypeToFloat::Processor;
+            encode32 = Encode32::Processor;
+            decode32 = Decode32::Processor;
         }
 
         connection
         {       
-            in -> up -> effect.in; //comment out 'up' and 'down' for stereo
-            effect.out -> down -> out;
+            in -> decode32 -> e.in;
+            e.out -> encode32 -> out;
         }
     }
+
+/*==============================================================================
+CLI/Octave compatibility code                       
+==============================================================================*/
+
+    using inType32 = float<inType.size>;
+    using outType32 = float<outType.size>;
+
+    namespace Decode32
+    {     
+        inType process (inType32 x)
+        {
+            inType y;
+
+            for (int i = 0; i < inType32.size; ++i)
+                y.at(i) = inType.elementType (x.at(i));
+            
+            return y;
+        }
+
+        processor Processor()
+        {
+            input stream inType32 in;
+            output stream inType out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace Encode32
+    {     
+        outType32 process (outType x)
+        {
+            outType32 y;
+
+            for (int i = 0; i < outType.size; ++i)
+                y.at(i) = outType32.elementType (x.at(i));
+            
+            return y;
+        }
+
+        processor Processor()
+        {
+            input stream outType in;
+            output stream outType32 out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << process (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+
 }

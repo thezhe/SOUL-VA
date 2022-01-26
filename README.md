@@ -1,6 +1,6 @@
-![SOUL-VA_logo](https://user-images.githubusercontent.com/42720670/143501884-f9a4daac-9460-4312-bacf-4984ef002dc4.png)
+![SOUL-VA_logo](logo.png)
 # The SOUL Virtual Analog Library
-[SOUL-VA](https://github.com/thezhe/SOUL-VA) is a collection of analog-inspired audio effects. Unlike other libraries, this project achieves [analytical](https://math.stackexchange.com/questions/935405/what-s-the-difference-between-analytical-and-numerical-approaches-to-problems) solutions and [a strict -60dB peak amplitude limit for aliasing artifacts](https://github.com/thezhe/SOUL-VA#example-3-onepolec_lan-nonlinearity--500). Each effect can run at full quality at 44.1kHz without any additional antialiasing measures. In addition, unless marked otherwise, parameters are artifact-free under modulation up through 20Hz.
+[SOUL-VA](https://github.com/thezhe/SOUL-VA) is a collection of analog-inspired audio effects. Unlike other libraries, this project achieves [analytical](https://math.stackexchange.com/questions/935405/what-s-the-difference-between-analytical-and-numerical-approaches-to-problems) solutions and [a strict -60dB peak amplitude limit for aliasing artifacts](https://github.com/thezhe/SOUL-VA#example-3-onepolec_lan-nonlinearity--500). Each effect can run at full quality at 44.1kHz without any additional antialiasing measures. In addition, unless marked as non-automatable, parameters are artifact-free (e.g. no clicks) and responsive under user interaction and under modulation by any waveform up through 8 Hz; theoretically they may modulate up to 50Hz without artifacts.
 
 ## Background Knowledge
 This library considers background knowledge trivial; *SOUL-VA does not re-explain any of the following concepts*:  
@@ -31,6 +31,7 @@ Please post bugs in issues and feature requests in discussions. Bug fixes take p
 
 ## Octave Examples
 The following sections explain the output after running `testEffect (44100)` on different `VA::HighLevel` effects (instantiated in `effects.soul`). The script is useful for catching common errors in development without needing to listen to processed samples.
+
 ### Example Effect 1: `TheDummy`
 The system is trivial (and linear) and simply passes signals through unmodified. Notice how the step response input is actually a pulse signal with values 0.5 and 0.25 so that the test can measure overshoot (up towards 1) and undershoot (down towards -1). The DC IO plot is the same as the decibel mapping of a dynamic range compressor with a ratio of 1 and SinRamp IO plot shows what the system would look like as a waveshaper (may not always be a function). 
 ![Dummy2](https://user-images.githubusercontent.com/42720670/143499549-a8484fe7-bb55-4c24-8242-aa6dd5be6b1c.png)  
@@ -39,8 +40,6 @@ The system is trivial (and linear) and simply passes signals through unmodified.
 The system is significantly nonlinear and all outputs show some sort of nontrivial filtering. While the 'Magnitude Response' only applies to linear systems, its plot accurately predicts that `TheBass` tends to boost bass frequencies. In addition, the internal DC blocker filter corresponds to the high-pass effect at 5 Hz. Consequently, the 'DC IO Plot' does not contain any meaningful information for this effect.
 ![200_0](https://user-images.githubusercontent.com/42720670/147501416-b4dd38a7-3c66-49b3-8b57-07cc84e9f2ea.png)
 ![200_1](https://user-images.githubusercontent.com/42720670/147501419-4961ac5c-b33e-49fc-822b-9c117b886c2c.png)
-
-
 ### Example Effect 3: `TheBass` (nonlinearity = 500)
 The system is nontrivial, but does not meet the standards of this library. Not all aliasing components are less than -60 dB because they are visible in 'SinSweep Spectrogram (BW)'. Partials that are not parallel to any harmonics/inharmonics, nor low enough in frequency to be residual DC noise appear on the figure -- these are the aliasing components above -60 dB.
 ![500_0](https://user-images.githubusercontent.com/42720670/147501429-f1b6f600-2b86-40c1-a913-f888c2f9ef35.png)

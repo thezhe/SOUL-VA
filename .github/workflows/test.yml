@@ -1,4 +1,4 @@
-name: Test (errors.soulpatch)
+name: Test all .soulpatch files
 
 on:
   push:
@@ -27,7 +27,9 @@ jobs:
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-windows-x64.zip -OutFile SOUL.zip
           Expand-Archive SOUL.zip -DestinationPath .
-          ./windows/x64/soul.exe errors tests/errors.soulpatch | echo
+          ./windows/x64/soul.exe errors tests/errors.soulpatch
+          ./windows/x64/soul.exe errors tests/effect.soulpatch
+          ./windows/x64/soul.exe errors tests/main.soulpatch
         shell: pwsh
 
       - name: Get SOUL compiler and Test (mac)
@@ -35,7 +37,9 @@ jobs:
         run: |
           curl -L "https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-osx-x64.zip" -o SOUL.zip
           unzip SOUL
-          ./osx/x64/soul errors tests/errors.soulpatch | echo
+          ./osx/x64/soul errors tests/errors.soulpatch
+          ./osx/x64/soul errors tests/effect.soulpatch
+          ./osx/x64/soul errors examples/main.soulpatch
         shell: bash
 
       - name: Get SOUL compiler and Test (ubuntu)
@@ -43,5 +47,7 @@ jobs:
         run: |
           curl -L "https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-linux-combined.zip" -o SOUL.zip
           unzip SOUL
-          ./linux/x64/soul errors tests/errors.soulpatch | echo
+          ./linux/x64/soul errors tests/errors.soulpatch
+          ./linux/x64/soul errors tests/effect.soulpatch
+          ./linux/x64/soul errors examples/main.soulpatch
         shell: bash

@@ -27,7 +27,7 @@
         *Coefficient 'updateInterval' is every 256 samples at 44.1kHz 
         or scaled as needed (i.e. every 512 samples at 88.2kHz)
         *Each effect's namespace defines an 'InType' and 'OutType' 
-    - Parameters not suitable for modulation up through 20Hz are part of the "Unsmoothed" parameter group
+    - Parameters not suitable for modulation have 'automation: false' in their annotations
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
     - Almost all algorithms use algebraic operations as possible to avoid expensive transcendentals while providing superior
     accuracy and modulate-ability than look up tables
@@ -37,14 +37,11 @@
 */
 
 /** Task List
-
     Current Tasks:
-    - annotation steps covers min and max? (TheExpressor)
-    - InType OutType and SampleType(s) to OutType converts (TheSplit), snippet
+    - TheExpressor/TheSplit
+    - main example update
 
     Future Tasks:
-    - IsolateAttackRelease add endpoints and boost option via compounding 1-det.out
-    - TheSplit (A/S), rename stereoTo... to splitter, centerSides, AbsADAA or Abs
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
 */
@@ -79,11 +76,14 @@ VA::HighLevel Processors                                                01/25/22
                 let NumModes = 4;
             }
 
-            graph Processor(float iFrequencyHz = 1000,
-                            float iThreshold_dB = -30,
-                            float iReleaseMs = 30,
+            graph Processor(float iCenterSidesPercent = 100,
+                            float iFrequencyHz = 1000,
                             float iSustainMs = 30,
                             float iSensitivity_dB = 36,
+                            float iStereoLinkAsPercent = 0,
+                            float iThreshold_dB = -30,
+                            float iReleaseMs = 30,
+                            float iStereoLinkLsPercent = 0,
                             int iMode = 2)
             {
                 input stream InType in;
@@ -91,24 +91,28 @@ VA::HighLevel Processors                                                01/25/22
         
                 input
                 {
-                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, unit: "Hz", step: 1 ]];
+                    splitCenterSides.centerSidesIn [[ name: "Sides", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "CS" ]];
 
-                    splitLoudSoft.thresholdIn [[ name: "Thresh", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "Unsmoothed" ]];
-                    splitLoudSoft.releaseIn;
+                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "LH" ]];
 
-                    splitAttackSustain.sustainIn;
-                    splitAttackSustain.sensitivityIn;
+                    splitAttackSustain.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustainMs, step: 1, unit: "ms", group: "AS" ]];
+                    splitAttackSustain.sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity_dB, step: 1, unit: "dB", group: "AS" ]];
+                    splitAttackSustain.stereoLinkIn stereoLinkAsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkAsPercent, unit: "%", step: 1, group: "AS" ]];
 
-                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "Center/Sides|Crossover|Loud/Soft|Attack/Sustain", group: "Unsmoothed" ]];
+                    splitLoudSoft.thresholdIn [[ name: "Thresh", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "LS" ]];
+                    splitLoudSoft.releaseIn [[ name: "Release", min: 30, max: 999, init: iReleaseMs, unit: "ms", step: 1, group: "LS" ]];
+                    splitLoudSoft.stereoLinkIn stereoLinkLsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkLsPercent, unit: "%", step: 1, group: "LS" ]];
+
+                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C/S|L/H|A/S|L/S", automatable: false ]];
                 }
         
                 let
                 {
                     //non-boilerplate Processors
-                    splitCenterSides = SplitCenterSides::Processor (100);
+                    splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
                     pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
-                    splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs);
-                    splitAttackSustain = SplitAttackSustain::Processor (iSustainMs, iSensitivity_dB);
+                    splitAttackSustain = SplitAttackSustain::Processor (iSustainMs, iSensitivity_dB, iStereoLinkAsPercent);
+                    splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
                     
                     mux4To1_0 = Mux4To1::Processor (iMode);
                     mux4To1_1 = Mux4To1::Processor (iMode);
@@ -129,14 +133,14 @@ VA::HighLevel Processors                                                01/25/22
                     splitCenterSides.centerOut -> mux4To1_0.in0;
                     splitCenterSides.sidesOut -> mux4To1_1.in0;
 
-                    pCrossover.highOut -> mux4To1_0.in1;
-                    pCrossover.lowOut -> mux4To1_1.in1;
+                    pCrossover.lowOut -> mux4To1_0.in1;
+                    pCrossover.highOut -> mux4To1_1.in1;
+                    
+                    splitAttackSustain.attackOut -> mux4To1_0.in2;
+                    splitAttackSustain.sustainOut -> mux4To1_1.in2;
 
-                    splitLoudSoft.loudOut -> mux4To1_0.in2;
-                    splitLoudSoft.softOut -> mux4To1_1.in2;
-
-                    splitAttackSustain.attackOut -> mux4To1_0.in3;
-                    splitAttackSustain.sustainOut -> mux4To1_1.in3;
+                    splitLoudSoft.loudOut -> mux4To1_0.in3;
+                    splitLoudSoft.softOut -> mux4To1_1.in3;
 
                     mux4To1_0.out -> dcBlockerOut0 -> sampleTypesToSampleType2.in0;
                     mux4To1_1.out -> dcBlockerOut1 -> sampleTypesToSampleType2.in1;
@@ -265,7 +269,7 @@ VA::HighLevel Processors                                                01/25/22
                     lfo.widthIn; //UNSMOOTHED
                     lfo.modeIn; //UNSMOOTHED
 
-                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, group: "Unsmoothed" ]];
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, automatable: false ]];
 
                     ladderLpfS.nonlinearityIn;
                     ladderLpfS.resonanceIn;
@@ -323,7 +327,7 @@ VA::HighLevel Processors                                                01/25/22
         
                 input
                 {
-                    event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, group: "Unsmoothed"]];
+                    event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, automatable: false]];
                     stereoLink.stereoLinkIn;
                     autoSmoothedVolume.parameterIn volumeIn;
                     //smoothedMixPan.mixIn;
@@ -446,8 +450,8 @@ Filter Processors                                                       01/25/22
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (iCutoff), SmoothedParameter::Modes::G_Onepole, oversampling);
-                smoothedParameter1 = SmoothedParameter::Processor (float[] (iResonance), SmoothedParameter::Modes::Linear);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iCutoff), SmoothedParameter::Modes::G_OnepoleToGain, oversampling);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (iResonance), SmoothedParameter::Modes::GainToGain);
                 
                 internal = Internal::Processor (iNonlinearity) * oversampling;
             }
@@ -563,71 +567,12 @@ Filter Processors                                                       01/25/22
         }
     }
 
-    /** Split into center/sides using StereoLink */
-    namespace SplitCenterSides
-    {
-        graph Processor(float iCenterSides)
-        {
-            input stream SampleType in;
-            output stream SampleType centerOut, sidesOut;
-    
-            input
-            {
-                stereoLink.stereoLinkIn centerSidesIn [[ name: "C/S", min: 0, max: 100, init: iCenterSides, unit: "%", step: 1 ]];
-            }
-    
-            let
-            {
-                stereoLink = StereoLink::Processor (iCenterSides);
-                difference = Difference::Processor;
-            }
-    
-            connection
-            {
-                in -> stereoLink.in, difference.in0;
-                stereoLink.out -> difference.in1, centerOut;
-
-                difference.out -> sidesOut;
-            }
-        }
-    }
-
-    /** Split into high/low amplitude via downward compression or downward expansion */
-    namespace SplitLoudSoft
-    {
-        graph Processor(float iThreshold,
-                        float iRelease)
-        {
-            input stream SampleType in;
-            output stream SampleType loudOut, softOut;
-    
-            input
-            {
-                expressorClassical.thresholdIn;
-                expressorClassical.releaseIn [[ name: "Release", min: 30, max: 1000, init: iRelease, unit: "ms", step: 1 ]];
-            }
-    
-            let
-            {
-                expressorClassical = ExpressorClassical::Processor (4, iRelease, iThreshold, 1, 0.25f);
-                difference = Difference::Processor;
-            }
-    
-            connection
-            {
-                in -> expressorClassical.in, difference.in0;
-                expressorClassical.out -> loudOut, difference.in1;
-
-                difference.out -> softOut;
-            }
-        }
-    }
-
     /** Split into attack/release via IsolateAttackSustain */
     namespace SplitAttackSustain
     {
         graph Processor(float iSustain,
-                        float iSensitivity)
+                        float iSensitivity,
+                        float iStereoLink)
         {
             input stream SampleType in;
             output stream SampleType attackOut, sustainOut;
@@ -636,11 +581,12 @@ Filter Processors                                                       01/25/22
             {
                 transientIsolator.sustainIn;
                 transientIsolator.sensitivityIn;
+                transientIsolator.stereoLinkIn;
             }
     
             let
             {
-                transientIsolator = TransientIsolator::Processor (4, iSustain, iSensitivity);
+                transientIsolator = TransientIsolator::Processor (iStereoLink, 4, iSustain, iSensitivity);
 
                 difference = Difference::Processor;
             }
@@ -655,54 +601,45 @@ Filter Processors                                                       01/25/22
             }
         }
     }
-    
-    /** Classical digital downwards/updawards ex(pander)/(com)pressor */
-    namespace ExpressorClassical
+
+    /** Split into high/low amplitude via downward compression or downward expansion */
+    namespace SplitLoudSoft
     {
-        graph Processor(float iAttack,
+        graph Processor(float iThreshold,
                         float iRelease,
-                        float iThreshold,
-                        float iRatio0,
-                        float iRatio1)
+                        float iStereoLink)
         {
             input stream SampleType in;
-            output stream SampleType out;
+            output stream SampleType loudOut, softOut;
     
             input
             {
-                ballisticsFilter.attackIn;
-                ballisticsFilter.releaseIn;
-                ctf.thresholdIn;
-                ctf.ratio0In;
-                ctf.ratio1In;
+                expressorClassical.thresholdIn;
+                expressorClassical.releaseIn [[ name: "Release", min: 30, max: 999, init: iRelease, unit: "ms", step: 1 ]];
+                expressorClassical.stereoLinkIn;
             }
     
             let
             {
-                absADAA = AbsADAA::Processor * 2;
-                ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
-                ctf = CTF::Processor (iThreshold, iRatio0, iRatio1);
-
-                applyGain = ApplyGain::Processor;
+                expressorClassical = ExpressorClassical::Processor (iStereoLink, 4, iRelease, iThreshold, 1, 0.25f);
+                difference = Difference::Processor;
             }
     
             connection
             {
-                in -> applyGain.in;
+                in -> expressorClassical.in, difference.in0;
+                expressorClassical.out -> loudOut, difference.in1;
 
-                in -> absADAA -> ballisticsFilter.in;
-                ballisticsFilter.out -> ctf.in;
-                ctf.out -> applyGain.b;
-
-                applyGain.out -> out;
+                difference.out -> softOut;
             }
         }
     }
-
+    
     /** Isolate the attack or sustain using 'DET' */
     namespace TransientIsolator
     {
-        graph Processor(float iAttack,
+        graph Processor(float iStereoLink,
+                        float iAttack,
                         float iSustain,
                         float iSensitivity)
         {
@@ -711,6 +648,7 @@ Filter Processors                                                       01/25/22
     
             input
             {
+                stereoLink.stereoLinkIn;
                 det.attackIn [[ name: "Attack", min: 10, max: 100, init: iAttack, step: 1, unit: "ms" ]];
                 det.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustain, step: 1, unit: "ms" ]];
                 smoothedVolume.volumeIn sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity, step: 1, unit: "dB" ]];
@@ -719,6 +657,8 @@ Filter Processors                                                       01/25/22
             let
             {
                 pAbs = AbsADAA::Processor * 2;
+                stereoLink = StereoLink::Processor (iStereoLink);
+
                 det = DET::Processor (iAttack, iSustain);
 
                 smoothedVolume = SmoothedVolume::Processor (iSensitivity);
@@ -731,9 +671,59 @@ Filter Processors                                                       01/25/22
             {
                 in -> applyGain.in;
 
-                in -> pAbs -> det.in;
+                in -> pAbs -> stereoLink.in;
+                stereoLink.out -> det.in;
                 det.out -> smoothedVolume.in;
                 smoothedVolume.out -> sigmoidC2 -> applyGain.b;
+
+                applyGain.out -> out;
+            }
+        }
+    }
+
+    /** Classical digital downwards/updawards ex(pander)/(com)pressor */
+    namespace ExpressorClassical
+    {
+        graph Processor (float iStereoLink,
+                        float iAttack,
+                        float iRelease,
+                        float iThreshold,
+                        float iRatio0,
+                        float iRatio1)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                stereoLink.stereoLinkIn;
+
+                ballisticsFilter.attackIn;
+                ballisticsFilter.releaseIn;
+
+                ctf.thresholdIn;
+                ctf.ratio0In;
+                ctf.ratio1In;
+            }
+    
+            let
+            {
+                absADAA = AbsADAA::Processor * 2;
+                stereoLink = StereoLink::Processor (iStereoLink);
+                ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
+                ctf = CTF::Processor (iThreshold, iRatio0, iRatio1);
+
+                applyGain = ApplyGain::Processor;
+            }
+    
+            connection
+            {
+                in -> applyGain.in;
+
+                in -> absADAA -> stereoLink.in;
+                stereoLink.out -> ballisticsFilter.in;
+                ballisticsFilter.out -> ctf.in;
+                ctf.out -> applyGain.b;
 
                 applyGain.out -> out;
             }
@@ -1064,7 +1054,7 @@ Filter Processors                                                       01/25/22
 
             input stream SampleType lfoIn; //unipolar, <= 1
 
-            input event float delayIn [[ name: "Delay", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1, group: "Unsmoothed" ]];
+            input event float delayIn [[ name: "Delay", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1, automatable: false ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
@@ -1107,77 +1097,91 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
     /** 'vCTF_Color' wrapper */
     namespace CTF_Color
     {
-        struct Coeffs 
-        {
-            SampleType threshold;
-            SampleType ratio0;
-            SampleType ratio1;
-            SampleType height;
-            SampleType width; 
-        }
-    
-        void update (Coeffs& c, float threshold, float ratio0, float ratio1, float colorHeight, float colorWidth) 
-        {
-            c.threshold = SampleType (threshold);
-            c.ratio0 = SampleType (ratio0);
-            c.ratio1 = SampleType (ratio1);
-            c.height = SampleType (colorHeight);
-            c.width = SampleType (colorWidth);
-        }
-    
-        SampleType process (SampleType x, const Coeffs& c) 
-        {
-            return vCTF_Color (x, c.threshold, c.ratio0, c.ratio1, c.height, c.width);
-        }
-
-        processor Processor(float iThreshold,
-                            float iRatio0,
-                            float iRatio1,
-                            float iHeight,
-                            float iWidth)
+        graph Processor(float iThreshold,
+                        float iRatio0,
+                        float iRatio1,
+                        float iHeight,
+                        float iWidth)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Unsmoothed" ]];
-            input event float heightIn [[ name: "Height", min: -24.f, max: 24.f, init: iHeight, unit: "dB", step: 0.1f ]];
-            input event float widthIn [[ name: "Width", min: 3.f, max: 24.f, init: iWidth, unit: "dB", step: 0.1f ]];
-
-            event thresholdIn (float v) { threshold = v; recalc = true; }
-            event ratio0In (float v) { ratio0 = v; recalc = true; }
-            event ratio1In (float v) { ratio1 = v; recalc = true; }
-            event heightIn (float v) { height = v; recalc = true; }
-            event widthIn (float v) { width = v; recalc = true; }
-
-            float threshold = iThreshold;
-            float ratio0 = iRatio0;
-            float ratio1 = iRatio1;
-            float height = iHeight;
-            float width = iWidth;
-            bool recalc = true;
-
-            void run()
+            input
             {
-                Coeffs c;
+                smoothedParameter0.in0 thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
+                smoothedParameter1.in0 ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
+                smoothedParameter2.in0 ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
+                smoothedParameter3.in0 heightIn [[ name: "Height", min: -24.f, max: 24.f, init: iHeight, unit: "dB", step: 0.1f ]];
+                smoothedParameter4.in0 widthIn [[ name: "Width", min: 3.f, max: 24.f, init: iWidth, unit: "dB", step: 0.1f ]];
+            }
+    
+            let
+            {
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iThreshold), SmoothedParameter::Modes::DecibelToDecibel);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (iRatio0), SmoothedParameter::Modes::RatioToRatio);
+                smoothedParameter2 = SmoothedParameter::Processor (float[] (iRatio1), SmoothedParameter::Modes::RatioToRatio);
+                smoothedParameter3 = SmoothedParameter::Processor (float[] (iHeight), SmoothedParameter::Modes::DecibelToDecibel);
+                smoothedParameter4 = SmoothedParameter::Processor (float[] (iWidth), SmoothedParameter::Modes::DecibelToDecibel);
 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-            
-                loop
+                internal = Internal::Processor;
+            }
+    
+            connection
+            {
+                smoothedParameter0.out0 -> internal.thresholdIn;
+                smoothedParameter1.out0 -> internal.ratio0In;
+                smoothedParameter2.out0 -> internal.ratio1In;
+                smoothedParameter3.out0 -> internal.heightIn;
+                smoothedParameter4.out0 -> internal.widthIn;
+
+                in -> internal.in;
+                internal.out -> out;
+            }
+        }
+
+        namespace Internal
+        {
+            struct Coeffs 
+            {
+                SampleType threshold;
+                SampleType ratio0;
+                SampleType ratio1;
+                SampleType height;
+                SampleType width; 
+            }
+        
+            void updatePerSample (Coeffs& c, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType colorHeight, SampleType colorWidth) 
+            {
+                c.threshold = threshold;
+                c.ratio0 = ratio0;
+                c.ratio1 = ratio1;
+                c.height = colorHeight;
+                c.width = colorWidth;
+            }
+        
+            SampleType process (SampleType x, const Coeffs& c) 
+            {
+                return vCTF_Color (x, c.threshold, c.ratio0, c.ratio1, c.height, c.width);
+            }
+
+            processor Processor()
+            {
+                input stream SampleType in;
+                input stream SampleType thresholdIn, ratio0In, ratio1In, heightIn, widthIn;
+                output stream SampleType out;
+
+                void run()
                 {
-                    if (recalc)
+                    Coeffs c;
+
+                    loop
                     {
-                        recalc = false;
-    
-                        c.update (threshold, ratio0, ratio1, height, width);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
+                        c.updatePerSample (thresholdIn, ratio0In, ratio1In, heightIn, widthIn);
+
                         out << process (in, c);
     
                         advance();
+                    
                     }
                 }
             }
@@ -1187,65 +1191,109 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
     /** 'vCTF' wrapper */
     namespace CTF
     {
-        struct Coeffs 
-        {
-            SampleType threshold;
-            SampleType ratio0;
-            SampleType ratio1;
-        }
-    
-        void update (Coeffs& c, float threshold, float ratio0, float ratio1) 
-        {
-            c.threshold = SampleType (threshold);
-            c.ratio0 = SampleType (ratio0);
-            c.ratio1 = SampleType (ratio1);
-        }
-    
-        SampleType process (SampleType x, const Coeffs& c) 
-        {
-            return vCTF (x, c.threshold, c.ratio0, c.ratio1);
-        }
-
-        processor Processor (float initialThreshold, float initialRatio0, float initialRatio1)
+        graph Processor(float iThreshold,
+                        float iRatio0,
+                        float iRatio1)
         {
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: initialThreshold, unit: "dB", step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: initialRatio0, step: 0.1f, group: "Unsmoothed" ]];
-            input event float ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: initialRatio1, step: 0.1f, group: "Unsmoothed" ]];
-
-            event thresholdIn (float v) { threshold = v; recalc = true; }
-            event ratio0In (float v) { ratio0 = v; recalc = true; }
-            event ratio1In (float v) { ratio1 = v; recalc = true; }
-
-            float threshold = initialThreshold;
-            float ratio0 = initialRatio0;
-            float ratio1 = initialRatio1;
-            bool recalc = true;
-
-            void run()
+            input
             {
-                Coeffs c;
+                smoothedParameter0.in0 thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
+                smoothedParameter1.in0 ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
+                smoothedParameter2.in0 ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
+            }
+    
+            let
+            {
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iThreshold), SmoothedParameter::Modes::DecibelToDecibel);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (iRatio0), SmoothedParameter::Modes::RatioToRatio);
+                smoothedParameter2 = SmoothedParameter::Processor (float[] (iRatio1), SmoothedParameter::Modes::RatioToRatio);
 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-            
-                loop
+                internal = Internal::Processor;
+            }
+    
+            connection
+            {
+                smoothedParameter0.out0 -> internal.thresholdIn;
+                smoothedParameter1.out0 -> internal.ratio0In;
+                smoothedParameter2.out0 -> internal.ratio1In;
+
+                in -> internal.in;
+                internal.out -> out;
+            }
+        }
+        
+        namespace Internal
+        {
+            struct Coeffs 
+            {
+                SampleType threshold;
+                SampleType ratio0;
+                SampleType ratio1;
+            }
+        
+            void updatePerSample (Coeffs& c, SampleType threshold, SampleType ratio0, SampleType ratio1) 
+            {
+                c.threshold = threshold;
+                c.ratio0 = ratio0;
+                c.ratio1 = ratio1;
+            }
+        
+            SampleType process (SampleType x, const Coeffs& c) 
+            {
+                return vCTF (x, c.threshold, c.ratio0, c.ratio1);
+            }
+
+            processor Processor()
+            {
+                input stream SampleType in;
+                input stream SampleType thresholdIn, ratio0In, ratio1In;
+                output stream SampleType out;
+
+                void run()
                 {
-                    if (recalc)
+                    Coeffs c;
+                
+                    loop
                     {
-                        recalc = false;
-    
-                        c.update (threshold, ratio0, ratio1);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
+                        c.updatePerSample (thresholdIn, ratio0In, ratio1In);
+
                         out << process (in, c);
-    
+
                         advance();
                     }
                 }
+            }
+        }
+    }
+
+    /** Split into center/sides using StereoLink */
+    namespace SplitCenterSides
+    {
+        graph Processor (float iCenterSides)
+        {
+            input stream SampleType in;
+            output stream SampleType centerOut, sidesOut;
+    
+            input
+            {
+                stereoLink.stereoLinkIn centerSidesIn [[ name: "C/S", min: 0, max: 100, init: iCenterSides, unit: "%", step: 1 ]];
+            }
+    
+            let
+            {
+                stereoLink = StereoLink::Processor (iCenterSides);
+                difference = Difference::Processor;
+            }
+    
+            connection
+            {
+                in -> stereoLink.in, difference.in0;
+                stereoLink.out -> difference.in1, centerOut;
+
+                difference.out -> sidesOut;
             }
         }
     }
@@ -1273,7 +1321,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             input stream SampleType in;
             output stream SampleType out;
     
-            input event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLink, unit: "%", step: 1 ]];
+            input event float stereoLinkIn [[ name: "Link", min: 0, max: 100, init: iStereoLink, unit: "%", step: 1 ]];
             
             event stereoLinkIn (float v) { stereoLink = v; recalc = true; }
 
@@ -1400,7 +1448,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, group: "Unsmoothed" ]];
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, automatable: false ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1658,7 +1706,7 @@ Vectorized Instrinsic/Helper Processors                                 01/18/22
             input stream SampleType in0, in1, in2, in3;
             output stream SampleType out;
     
-            input event float idxIn [[ name: "idx", min: 0, max: 3, init: iIdx, step: 1, group: "Unsmoothed" ]];
+            input event float idxIn [[ name: "idx", min: 0, max: 3, init: iIdx, step: 1, automatable: false ]];
     
             event idxIn (float v) { idx = v; recalc = true; }
     
@@ -1862,7 +1910,7 @@ Mix Processors                                                          01/18/22
 
             let
             {
-                smoothedGains = SmoothedParameter::Processor (float[2] (iMix, iPan), SmoothedParameter::Modes::MixPan);
+                smoothedGains = SmoothedParameter::Processor (float[2] (iMix, iPan), SmoothedParameter::Modes::MixPanToGains);
                 applyGains = ApplyGains::Processor;
             }
     
@@ -1891,7 +1939,7 @@ Mix Processors                                                          01/18/22
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (float[] (iVolume), SmoothedParameter::Modes::Decibel);
+                smoothedGain = SmoothedParameter::Processor (float[] (iVolume), SmoothedParameter::Modes::DecibelToGain);
                 applyGain = ApplyGain::Processor;
             }
     
@@ -1944,7 +1992,7 @@ Parameter Processors                                                    01/18/22
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (iDepth), SmoothedParameter::Modes::Percent);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iDepth), SmoothedParameter::Modes::PercentToGain);
                 
                 internal = Internal::Processor (iRate, iWidth, iMode);
             }
@@ -2022,8 +2070,8 @@ Parameter Processors                                                    01/18/22
                 input event
                 {
                     float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
-                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1, group: "Unsmoothed" ]];
-                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine", group: "Unsmoothed" ]];
+                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1, automatable: false ]];
+                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine", automatable: false ]];
                 }
 
                 event rateIn (float v) { rate = v; recalc = true; }
@@ -2142,39 +2190,40 @@ Parameter Processors                                                    01/18/22
         }
     }
 
-    /** Maps float event(s) to smoothed output SampleType stream(s); heavily modified version of soul::gain::SmoothedGainParameter
-
-        Modes:
-        - Linear: Maps unsmoothed (in0) to smoothed (out0)
-        - Decibel: Maps unsmoothed dB scale (in0) to smoothed linear scale (out0)
-        - MixPan: Maps unsmoothed mix and pan (in0, in1) to smoothed gains for mixing two SampleType streams via ApplyGains (out0, out1)
-        - G_Onepole: Maps unsmoothed cutoff in Hz (in0) to smoothed Onepole cutoff gain (out0) 
+    /** Maps float event(s) to smoothed SampleType stream(s); heavily modified version of soul::gain::SmoothedGainParameter
 
         Note:
-        - initial parameter is a float[] that defines the initial value of the parameter(s) corresponding to each of the float event(s)
-        - 'slewRateSeconds' is NOT the same as in soul::gain::SmoothedGainParameter; it is the max change in linear gain per second
-        (e.g., if slewRateSeconds 0.5 and gain changes by 1, then it will take 2 seconds to reach a gain of 1)  
+        - float event(s) are smoothed s.t. their maximum sine modulation frequency that preserves their amplitude is 50 Hz
+        - iParameter is a float[] that defines the initial value of the parameter(s) corresponding to each of the float event(s)
         - This Processor may be modified in the future to include other one-to-one, one-to-two, two-to-one, or two-to-two event-stream mapping Modes
-    */    
+    */       
     namespace SmoothedParameter
     {
+        let DOUBLE_SLEW_RATE_SECONDS_GAIN = 100.0; //1 unit unipolar sine period is approx 2 units of movement (i.e. the sine modulates b/w 0 and 1); 100/2 = 50 Hz 
+        let DOUBLE_SLEW_RATE_SECONDS_DECIBEL = 5000.0; //1 unit unipolar sine period is approx 100dBs of movement; 5000/100 = 50 Hz  
+        let DOUBLE_SLEW_RATE_SECONDS_RATIO = 2000.0; //1 unit unipolar sine period is approx 40 units of movement; 2000/40 = 50 Hz
+
         namespace Modes
         {
-            let Linear = 0;
-            let Decibel = 1;
-            let MixPan = 2;
-            let G_Onepole = 3;
-            let Percent = 4;
-            let NumModes = 6;
+            let GainToGain = 0;
+            let DecibelToGain = 1;
+            let MixPanToGains = 2;
+            let G_OnepoleToGain = 3;
+            let PercentToGain = 4;
+            let DecibelToDecibel = 5;
+            let RatioToRatio = 6;
+            let NumModes = 7;
         }
 
         namespace M (int mode)
         {
             static_assert ((mode > -1) && (mode < Modes::NumModes), "SmoothedParameter::M [[Parameter Processors]]");
 
-            let NumIn = (mode == Modes::MixPan ? 2 : 1);
-            let NumOut = (mode == Modes::MixPan ? 2 : 1);
+            let SlewRateSeconds = (mode == Modes::DecibelToDecibel? DOUBLE_SLEW_RATE_SECONDS_DECIBEL: (mode== Modes::RatioToRatio ? DOUBLE_SLEW_RATE_SECONDS_RATIO : DOUBLE_SLEW_RATE_SECONDS_GAIN));
             
+            let NumIn = (mode == Modes::MixPanToGains ? 2 : 1);
+            let NumOut = (mode == Modes::MixPanToGains ? 2 : 1);
+
             struct Coeffs
             {
                 SampleType[NumOut] target;
@@ -2187,22 +2236,31 @@ Parameter Processors                                                    01/18/22
                 int remainingRampSamples;
             }
 
+            SampleType[NumOut] decodeParameter (float[] parameter, float64 fs)
+            {
+                SampleType[NumOut] y;
+
+                if const (mode == Modes::GainToGain || mode == Modes::DecibelToDecibel || mode == Modes::RatioToRatio)
+                    y.at(0) = SampleType (parameter.at(0));
+                else if const (mode ==  Modes::DecibelToGain)
+                    y.at(0) = vdBtoGain (SampleType (parameter.at(0)));
+                else if const (mode == Modes::MixPanToGains)
+                    y = vMixPanToGains (parameter.at(0), parameter.at(1));
+                else if const (mode == Modes::G_OnepoleToGain)
+                    y.at(0) = vCutoffToG_Onepole (parameter.at(0), fs); 
+                else if const (mode == Modes::PercentToGain)
+                    y.at(0) = parameter.at(0) * 0.01;
+
+                return y;
+            }
+
             void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta, float64 fs)
             {
-                if const (mode == Modes::Linear)
-                    c.target.at(0) = SampleType (parameter.at(0));
-                else if const (mode == Modes::Decibel)
-                    c.target.at(0) = vdBtoGain (SampleType (parameter.at(0)));
-                else if const (mode == Modes::MixPan)
-                    c.target = vMixPanToGains (parameter.at(0), parameter.at(1));
-                else if const (mode == Modes::G_Onepole)
-                    c.target.at(0) = vCutoffToG_Onepole (parameter.at(0), fs);
-                else if const (mode == Modes::Percent)
-                    c.target.at(0) = SampleType (parameter.at(0) * 0.01);
+                c.target = decodeParameter (parameter, fs);
 
-                if const (mode != Modes::MixPan)
+                if const (mode != Modes::MixPanToGains)
                     s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
-                else if const (mode == Modes::MixPan)
+                else if const (mode == Modes::MixPanToGains)
                 {
                     let r0 = int (vmaxr (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta));
                     let r1 = int (vmaxr (vabs (c.target.at(1) - s.current.at(1)) * divMaxDelta));
@@ -2215,16 +2273,9 @@ Parameter Processors                                                    01/18/22
 
             void updateUnsmoothed (Coeffs& c, float[] parameter, State& s, float64 fs)
             {
-                if const (mode == Modes::Linear)
-                    s.current.at(0) = SampleType (parameter.at(0));
-                else if const (mode == Modes::Decibel)
-                    s.current.at(0) = vdBtoGain (SampleType (parameter.at(0)));
-                else if const (mode == Modes::MixPan)
-                    s.current = vMixPanToGains (parameter.at(0), parameter.at(1));
-                else if const (mode == Modes::G_Onepole)
-                    s.current.at(0) = vCutoffToG_Onepole (parameter.at(0), fs); 
+                c.target = decodeParameter (parameter, fs);
 
-                s.remainingRampSamples = 0;
+                s.remainingRampSamples = 1;
             }
 
             SampleType[NumOut] process (State& s, const Coeffs& c)
@@ -2247,7 +2298,7 @@ Parameter Processors                                                    01/18/22
             }
         }
 
-        processor Processor (float[] iParameter, int mode, int oversampling = 1, float slewRateSeconds = FLOAT_SLEW_RATE_SECONDS_GAIN)
+        processor Processor (float[] iParameter, int mode, int oversampling = 1)
         {
             output stream SampleType out0, out1;
 
@@ -2274,7 +2325,7 @@ Parameter Processors                                                    01/18/22
                 M(mode)::Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-                let divMaxDelta = SampleType (float (processor.frequency) / slewRateSeconds);
+                let divMaxDelta = SampleType (processor.frequency / M(mode)::SlewRateSeconds);
                 let fs = processor.frequency * float64 (oversampling);
     
                 M(mode)::updateUnsmoothed (c, parameter, s, fs);
@@ -2584,7 +2635,6 @@ Constants                                                               01/18/22
     //const float
     let FLOAT_DC_BLOCKER_CUTOFF_HZ = 1.f;
     let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f);
-    let FLOAT_SLEW_RATE_SECONDS_GAIN = 100.f;
 
     //soul::filters
     using SampleType = float64<2>;
