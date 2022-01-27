@@ -1,11 +1,11 @@
 /** Processor [[main]] 
 
-    '../examples/main.soul' modified to include all 'Processors' 
+    '../examples/main.soul' modified to include all 'Processors' in 'VA::HighLevel'
 
     Notes:
     - Tests that all 'Processors' compile without errors
     - command: soul errors errors.soulpatch | echo
-    - Only use with CLI is officially supported
+    - Only use with CLI/Octave is officially supported
     - Processors are connected in series s.t. their out and in streams match
 */
 
@@ -19,7 +19,6 @@ namespace main
     namespace effect2 = va::TheChorus;
     namespace effect3 = va::TheExpressor;
     namespace effectOut = va::TheSplit;
-
 
     graph Processor [[main]]
     {

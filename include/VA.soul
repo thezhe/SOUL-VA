@@ -91,7 +91,7 @@ VA::HighLevel Processors                                                01/26/22
                             float iThreshold_dB = -30,
                             float iReleaseMs = 30,
                             float iStereoLinkLsPercent = 0,
-                            int iMode = 2)
+                            int iMode = Modes::CenterSides)
             {
                 input stream InType in;
                 output stream OutType out;
