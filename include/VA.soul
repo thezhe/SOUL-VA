@@ -98,19 +98,19 @@ VA::HighLevel Processors                                                01/26/22
         
                 input
                 {
-                    splitCenterSides.centerSidesIn [[ name: "Sides", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "CS" ]];
+                    splitCenterSides.centerSidesIn [[ name: "Sides", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "C&S" ]];
 
-                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "LH" ]];
+                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "L&H" ]];
 
-                    splitAttackSustain.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustainMs, step: 1, unit: "ms", group: "AS" ]];
-                    splitAttackSustain.sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity_dB, step: 1, unit: "dB", group: "AS" ]];
-                    splitAttackSustain.stereoLinkIn stereoLinkAsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkAsPercent, unit: "%", step: 1, group: "AS" ]];
+                    splitAttackSustain.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustainMs, step: 1, unit: "ms", group: "A&S" ]];
+                    splitAttackSustain.sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity_dB, step: 1, unit: "dB", group: "A&S" ]];
+                    splitAttackSustain.stereoLinkIn stereoLinkAsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkAsPercent, unit: "%", step: 1, group: "A&S" ]];
 
-                    splitLoudSoft.thresholdIn [[ name: "Thresh", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "LS" ]];
-                    splitLoudSoft.releaseIn [[ name: "Release", min: 30, max: 999, init: iReleaseMs, unit: "ms", step: 1, group: "LS" ]];
-                    splitLoudSoft.stereoLinkIn stereoLinkLsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkLsPercent, unit: "%", step: 1, group: "LS" ]];
+                    splitLoudSoft.thresholdIn [[ name: "Thresh", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "L&S" ]];
+                    splitLoudSoft.releaseIn [[ name: "Release", min: 30, max: 999, init: iReleaseMs, unit: "ms", step: 1, group: "L&S" ]];
+                    splitLoudSoft.stereoLinkIn stereoLinkLsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkLsPercent, unit: "%", step: 1, group: "L&S" ]];
 
-                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C/S|L/H|A/S|L/S", automatable: false ]];
+                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "GroupSelect", automatable: false ]];
                 }
         
                 let
