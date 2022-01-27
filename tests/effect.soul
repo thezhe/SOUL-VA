@@ -3,7 +3,7 @@
 namespace main
 {
     /*' effect' namespace definition */
-    namespace effect = VA::HighLevel::TheChorus; 
+    namespace effect = VA::HighLevel::TheSplit; 
     
     using inType = effect::InType;
     using outType = effect::OutType;

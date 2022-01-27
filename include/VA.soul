@@ -56,7 +56,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/26/22
+VA::HighLevel Processors                                                01/27/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -77,27 +77,29 @@ VA::HighLevel Processors                                                01/26/22
             namespace Modes
             {
                 let CenterSides = 0;
-                let Crossover = 1;
-                let LoudSoft = 2;
-                let AttackSustain = 3;
+                let LowHigh = 1;
+                let AttackSustain = 2;
+                let LoudSoft = 3;
                 let NumModes = 4;
             }
 
-            graph Processor(float iCenterSidesPercent = 100,
+            graph Processor(int iMode = Modes::CenterSides,
+                            float iCenterSidesPercent = 100,
                             float iFrequencyHz = 1000,
                             float iSustainMs = 30,
                             float iSensitivity_dB = 36,
                             float iStereoLinkAsPercent = 0,
                             float iThreshold_dB = -30,
                             float iReleaseMs = 30,
-                            float iStereoLinkLsPercent = 0,
-                            int iMode = Modes::CenterSides)
+                            float iStereoLinkLsPercent = 0)
             {
                 input stream InType in;
                 output stream OutType out;
         
                 input
                 {
+                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "GroupSelect", automatable: false ]];
+
                     splitCenterSides.centerSidesIn [[ name: "Sides", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "C&S" ]];
 
                     pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "L&H" ]];
@@ -109,8 +111,6 @@ VA::HighLevel Processors                                                01/26/22
                     splitLoudSoft.thresholdIn [[ name: "Thresh", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "L&S" ]];
                     splitLoudSoft.releaseIn [[ name: "Release", min: 30, max: 999, init: iReleaseMs, unit: "ms", step: 1, group: "L&S" ]];
                     splitLoudSoft.stereoLinkIn stereoLinkLsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkLsPercent, unit: "%", step: 1, group: "L&S" ]];
-
-                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "GroupSelect", automatable: false ]];
                 }
         
                 let
