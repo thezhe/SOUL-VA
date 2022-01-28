@@ -190,7 +190,7 @@ VA::HighLevel Processors                                                01/27/22
 
                 input
                 {
-                    mux2To1.idxIn [[ name: "Sidechain", min: 0, max: 1, init: iMode, text:"Off|On", automatable: false ]];   
+                    mux2To1.idxIn sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On", automatable: false ]];   
 
                     ballisticsFilter.attackIn;
                     ballisticsFilter.releaseIn;
@@ -202,7 +202,7 @@ VA::HighLevel Processors                                                01/27/22
                     ctfColor.ratio1In;
                     event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB" ]];
 
-                    svf.frequencyIn cutoffIn [[ name: "SC HPF", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                    svf.frequencyIn cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
                 
                     smoothedMixPan.mixIn;
                     smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -6, max: 50, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
