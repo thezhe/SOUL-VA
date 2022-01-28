@@ -17,8 +17,8 @@ namespace main
     namespace effectIn = va::TheDummy;
     namespace effect1 = va::TheBass;
     namespace effect2 = va::TheChorus;
-    namespace effect3 = va::TheExpressor;
-    namespace effectOut = va::TheSplit;
+    namespace effect3 = va::TheSplit;
+    namespace effectOut = va::TheExpressor;
 
     graph Processor [[main]]
     {

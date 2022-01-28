@@ -45,8 +45,7 @@
 
 /** Task List
     Current Tasks:
-    - TheExpressor/TheSplit
-    - main example update
+    - TheSplit Sidechain?
 
     Future Tasks:
     - TheBass boilerplate, abs before stereo link and rectified lan
@@ -165,10 +164,17 @@ VA::HighLevel Processors                                                01/27/22
         */
         namespace TheExpressor
         {
-            using InType = SampleType;
+            using InType = SampleType2;
             using OutType = SampleType;
 
-            graph Processor(float iAttackMs = 0.1f,
+            namespace Modes
+            {
+                let SidechainOff = 0;
+                let SidechainOn = 1;
+            }
+
+            graph Processor(int iMode = Modes::SidechainOff,
+                            float iAttackMs = 0.1f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
                             float iThreshold_dB = -50,
@@ -184,6 +190,8 @@ VA::HighLevel Processors                                                01/27/22
 
                 input
                 {
+                    mux2To1.idxIn [[ name: "Sidechain", min: 0, max: 1, init: iMode, text:"Off|On", automatable: false ]];   
+
                     ballisticsFilter.attackIn;
                     ballisticsFilter.releaseIn;
 
@@ -203,13 +211,15 @@ VA::HighLevel Processors                                                01/27/22
                 let
                 {
                     //non-boilerplate Processors
-                    absADAA = AbsADAA::Processor;      
-
-                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
-
+                    sampleType2ToSampleTypes = SampleType2ToSampleTypes::Processor;
+                    mux2To1 = Mux2To1::Processor (iMode);
+                    
                     svf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
+                    absADAA = AbsADAA::Processor;      
+
                     ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
+                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
                     ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iColor_dB, iColor_dB);
 
                     applyGain = ApplyGain::Processor;
@@ -224,13 +234,17 @@ VA::HighLevel Processors                                                01/27/22
 
                 connection
                 {
-
                     //input events
                     colorIn -> ctfColor.heightIn;
                     colorIn -> ctfColor.widthIn;
 
-                    in -> dcBlockerIn -> smoothedMixPan.in0, svf.in, applyGain.in;
-                    
+                    in -> sampleType2ToSampleTypes.in;
+
+                    sampleType2ToSampleTypes.out0 -> dcBlockerIn -> smoothedMixPan.in0, applyGain.in;
+
+                    sampleType2ToSampleTypes.out0 -> mux2To1.in0;
+                    sampleType2ToSampleTypes.out1 -> mux2To1.in1;
+                    mux2To1.out -> svf.in;
                     svf.highpassOut -> absADAA -> stereoLink.in;
                     stereoLink.out -> ballisticsFilter.in;
                     ballisticsFilter.out -> ctfColor.in;
@@ -1746,6 +1760,62 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
         }
     }
 
+    /** Output 1 of 2 signals */
+    namespace Mux2To1
+    {   
+        struct Coeffs
+        {
+            int idx;
+        }
+    
+        void update (Coeffs& c, float idx)
+        {
+            c.idx = int (floor (idx));
+        }
+    
+        SampleType process (SampleType[2] x, const Coeffs& c)
+        {
+            return x.at (c.idx);
+        }
+    
+        processor Processor (int iIdx)
+        {
+            input stream SampleType in0, in1;
+            output stream SampleType out;
+    
+            input event float idxIn [[ name: "idx", min: 0, max: 1, init: iIdx, step: 1, automatable: false ]];
+    
+            event idxIn (float v) { idx = v; recalc = true; }
+    
+            float idx = float (iIdx);
+            bool recalc = true;
+    
+            void run()
+            {   
+                Coeffs c;
+    
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (idx);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << process (SampleType[2] (in0, in1), c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
     namespace Max
     {   
         processor Processor()
@@ -1860,6 +1930,26 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 loop
                 {
                     out << vSampleTypesToSampleType2 (in0, in1);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace SampleType2ToSampleTypes
+    {
+        processor Processor ()
+        {
+            input stream SampleType2 in;
+            output stream SampleType out0, out1;
+
+            void run()
+            {   
+                loop
+                {
+                    out0 << SampleType (in[0], in[1]);
+                    out1 << SampleType (in[2], in[3]);
 
                     advance();
                 }
