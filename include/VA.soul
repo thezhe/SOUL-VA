@@ -82,7 +82,7 @@ VA::HighLevel Processors                                                01/27/22
             graph Processor(int iMode = Modes::CenterSides,
                             float iCenterSidesPercent = 100,
                             float iFrequencyHz = 1000,
-                            float iAttack = 4,
+                            float iAttackMs = 4,
                             float iSustainMs = 30,
                             float iSensitivity_dB = 36,
                             float iStereoLinkAsPercent = 0,
@@ -101,7 +101,7 @@ VA::HighLevel Processors                                                01/27/22
 
                     pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "L&H" ]];
 
-                    splitAttackSustain.attackIn [[ name: "Attack", min: 4, max: 25, init: iSustainMs, step: 1, unit: "ms", group: "A&S" ]];
+                    splitAttackSustain.attackIn [[ name: "Attack", min: 4, max: 25, init: iAttackMs, step: 1, unit: "ms", group: "A&S" ]];
                     splitAttackSustain.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustainMs, step: 1, unit: "ms", group: "A&S" ]];
                     splitAttackSustain.sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity_dB, step: 1, unit: "dB", group: "A&S" ]];
                     splitAttackSustain.stereoLinkIn stereoLinkAsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkAsPercent, unit: "%", step: 1, group: "A&S" ]];
@@ -116,7 +116,7 @@ VA::HighLevel Processors                                                01/27/22
                     //non-boilerplate Processors
                     splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
                     pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
-                    splitAttackSustain = SplitAttackSustain::Processor (iAttack, iSustainMs, iSensitivity_dB, iStereoLinkAsPercent);
+                    splitAttackSustain = SplitAttackSustain::Processor (iAttackMs, iSustainMs, iSensitivity_dB, iStereoLinkAsPercent);
                     splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
                     
                     mux4To1_0 = Mux4To1::Processor (iMode);
