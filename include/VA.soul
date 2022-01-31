@@ -674,8 +674,8 @@ Filter Processors                                                       01/25/22
     
             input
             {
-                det.release0In attackIn [[ name: "Attack", min: 4, max: 25, init: iAttack, step: 1, unit: "ms" ]];       
-                det.release1In sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustain, step: 1, unit: "ms" ]];
+                det.release0In sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustain, step: 1, unit: "ms" ]];
+                det.release1In attackIn [[ name: "Attack", min: 4, max: 25, init: iAttack, step: 1, unit: "ms" ]];       
                 smoothedVolume.volumeIn sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity, step: 1, unit: "dB" ]];
                 stereoLink.stereoLinkIn;
             }
@@ -685,7 +685,7 @@ Filter Processors                                                       01/25/22
                 absADAA = AbsADAA::Processor * 2;
                 stereoLink = StereoLink::Processor (iStereoLink);
 
-                det = DET::Processor (4, iAttack, 4, iSustain);
+                det = DET::Processor (4, iSustain, 4, iAttack);
 
                 smoothedVolume = SmoothedVolume::Processor (iSensitivity);
                 sigmoidC2 = SigmoidC2::Processor;
