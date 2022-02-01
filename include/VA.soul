@@ -79,14 +79,8 @@ VA::HighLevel Processors                                                01/27/22
                 let NumModes = 4;
             }
 
-            namespace SwapMode
-            {
-                let Normal = 0;
-                let Swapped = 1;
-            }
-
             graph Processor(int iMode = Modes::CenterSides,
-                            int iSwapMode = SwapMode::Normal,
+                            int iFlip = 0,
                             float iCenterSidesPercent = 100,
                             float iFrequencyHz = 1000,
                             float iAttackMs = 4,
@@ -103,7 +97,7 @@ VA::HighLevel Processors                                                01/27/22
                 input
                 {
                     event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "GroupSelect", automatable: false ]];
-                    event float swapModeIn [[ name: "Outputs", min: 0, max: 1, init: iSwapMode, text: "Normal|Swapped", automatable: false ]];
+                    event float flipIn [[ name: "Flip", min: 0, max: 1, init: iFlip, text: "Off|On", automatable: false ]];
 
                     splitCenterSides.centerSidesIn [[ name: "Sides", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "C&S" ]];
 
@@ -130,8 +124,8 @@ VA::HighLevel Processors                                                01/27/22
                     mux4To1_0 = Mux4To1::Processor (iMode);
                     mux4To1_1 = Mux4To1::Processor (iMode);
 
-                    mux2To1_0 = Mux2To1::Processor (iSwapMode);
-                    mux2To1_1 = Mux2To1::Processor (iSwapMode);
+                    mux2To1_0 = Mux2To1::Processor (iFlip);
+                    mux2To1_1 = Mux2To1::Processor (iFlip);
 
                     //boilerplate Processors
                     dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
@@ -143,8 +137,7 @@ VA::HighLevel Processors                                                01/27/22
                 connection
                 {
                     modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
-
-                    swapModeIn -> mux2To1_0.idxIn, mux2To1_1.idxIn;
+                    flipIn -> mux2To1_0.idxIn, mux2To1_1.idxIn;
 
                     in -> dcBlockerIn -> splitCenterSides.in, pCrossover.in, splitLoudSoft.in, splitAttackSustain.in;
 
