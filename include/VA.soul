@@ -101,7 +101,7 @@ VA::HighLevel Processors                                                01/27/22
 
                     pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "L&H" ]];
 
-                    splitAttackSustain.attackIn [[ name: "Attack", min: 4, max: 25, init: iAttackMs, step: 1, unit: "ms", group: "A&S" ]];
+                    splitAttackSustain.attackIn [[ name: "Attack", min: 4, max: 26, init: iAttackMs, step: 1, unit: "ms", group: "A&S" ]];
                     splitAttackSustain.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustainMs, step: 1, unit: "ms", group: "A&S" ]];
                     splitAttackSustain.sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity_dB, step: 1, unit: "dB", group: "A&S" ]];
                     splitAttackSustain.stereoLinkIn stereoLinkAsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkAsPercent, unit: "%", step: 1, group: "A&S" ]];
