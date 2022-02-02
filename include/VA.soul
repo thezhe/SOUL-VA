@@ -27,7 +27,7 @@
         *Coefficient 'updateInterval' is every 256 samples at 44.1kHz 
         or scaled as needed (i.e. every 512 samples at 88.2kHz)
         *Each effect's namespace defines an 'InType' and 'OutType' 
-    - Parameters not suitable for modulation have 'automation: false' in their annotations
+    - Parameters not suitable for modulation are commented as 'UNSMOOTHED' in their annotations
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
     - Almost all algorithms use algebraic operations as possible to avoid expensive transcendentals while providing superior
     accuracy and modulate-ability than look up tables
@@ -96,8 +96,8 @@ VA::HighLevel Processors                                                01/27/22
         
                 input
                 {
-                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "GroupSelect", automatable: false ]];
-                    event float flipIn [[ name: "Flip", min: 0, max: 1, init: iFlip, text: "Off|On", automatable: false ]];
+                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "GroupSelect" /*UNSMOOTHED*/ ]];
+                    event float flipIn [[ name: "Flip", min: 0, max: 1, init: iFlip, text: "Off|On" /*UNSMOOTHED*/ ]];
 
                     splitCenterSides.centerSidesIn [[ name: "Sides", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "C&S" ]];
 
@@ -198,7 +198,7 @@ VA::HighLevel Processors                                                01/27/22
 
                 input
                 {
-                    mux2To1.idxIn sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On", automatable: false ]];   
+                    mux2To1.idxIn sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On" /*UNSMOOTHED*/ ]];   
 
                     ballisticsFilter.attackIn;
                     ballisticsFilter.releaseIn;
@@ -298,7 +298,7 @@ VA::HighLevel Processors                                                01/27/22
                     lfo.widthIn; //UNSMOOTHED
                     lfo.modeIn; //UNSMOOTHED
 
-                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, automatable: false ]];
+                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 /*UNSMOOTHED*/ ]];
 
                     ladderLpfS.nonlinearityIn;
                     ladderLpfS.resonanceIn;
@@ -356,7 +356,7 @@ VA::HighLevel Processors                                                01/27/22
         
                 input
                 {
-                    event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, automatable: false]];
+                    event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1 /*UNSMOOTHED*/]];
                     stereoLink.stereoLinkIn;
                     autoSmoothedVolume.parameterIn volumeIn;
                     //smoothedMixPan.mixIn;
@@ -1092,7 +1092,7 @@ Filter Processors                                                       01/25/22
 
             input stream SampleType lfoIn; //unipolar, <= 1
 
-            input event float delayIn [[ name: "Delay", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1, automatable: false ]];
+            input event float delayIn [[ name: "Delay", min: 0, max: maxDelayMs, init: iDelayMs, unit: "ms", step: 1 /*UNSMOOTHED*/ ]];
 
             event delayIn (float v) { delayMs = v; recalc = true; }
 
@@ -1486,7 +1486,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
             input stream SampleType in;
             output stream SampleType Omega;
 
-            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1, automatable: false ]];
+            input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 350, init: iNonlinearity, step: 1 /*UNSMOOTHED*/ ]];
 
             event nonlinearityIn (float v) { nonlinearity = v; recalc = true; }
             
@@ -1744,7 +1744,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
             input stream SampleType in0, in1, in2, in3;
             output stream SampleType out;
     
-            input event float idxIn [[ name: "idx", min: 0, max: 3, init: iIdx, step: 1, automatable: false ]];
+            input event float idxIn [[ name: "idx", min: 0, max: 3, init: iIdx, step: 1 /*UNSMOOTHED*/ ]];
     
             event idxIn (float v) { idx = v; recalc = true; }
     
@@ -1800,7 +1800,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
             input stream SampleType in0, in1;
             output stream SampleType out;
     
-            input event float idxIn [[ name: "idx", min: 0, max: 1, init: iIdx, step: 1, automatable: false ]];
+            input event float idxIn [[ name: "idx", min: 0, max: 1, init: iIdx, step: 1 /*UNSMOOTHED*/ ]];
     
             event idxIn (float v) { idx = v; recalc = true; }
     
@@ -2184,8 +2184,8 @@ Parameter Processors                                                    01/26/22
                 input event
                 {
                     float rateIn [[ name: "Rate", min: 0.1, max: 4, init: iRate, unit: "Hz", step: 0.01 ]];
-                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1, automatable: false ]];
-                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine", automatable: false ]];
+                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidth, unit: "deg", step: 1 /*UNSMOOTHED*/ ]];
+                    float modeIn [[ name: "Mode", min: 0, max: 1, init: iMode, text: "Tri|Sine" /*UNSMOOTHED*/ ]];
                 }
 
                 event rateIn (float v) { rate = v; recalc = true; }
