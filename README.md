@@ -46,4 +46,6 @@ The system is nontrivial, but does not meet the standards of this library. Not a
 ![500_1](https://user-images.githubusercontent.com/42720670/147501430-67f85641-2030-4946-bb75-9630ddbed1b7.png)
  
 ## Plugins Made with SOUL-VA 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F07MT0Z)
+[![bluecup](https://user-images.githubusercontent.com/42720670/152609111-888165ed-e27e-4955-a22f-347d2954891c.png)](ko-fi.com/thezhe/shop)
+[![kvr](https://user-images.githubusercontent.com/42720670/152609112-e1d92040-9d24-41b8-aaff-470976a1b883.png)](kvraudio.com/developer/thezhe)
+[![p4fimg](https://user-images.githubusercontent.com/42720670/152609108-04d95a63-f082-4fd6-b5b1-447fcca3e88c.jpg)](plugins4free.com/dev/814/)
