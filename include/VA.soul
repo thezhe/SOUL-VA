@@ -19,8 +19,9 @@
 
 /** SOUL-VA (https://github.com/thezhe/SOUL-VA)
 
-    The following interface is nearly identical to soul::filters EXCEPT:
-    - Each effect is a 'Processor' under 'VA::HighLevel'
+    The interface is nearly identical to soul::filters EXCEPT:
+    - Effects are 'Processors' under 'VA::HighLevel'
+    - Effects have an InType and an OutType which determines channel IO configuration
     - No user-defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
@@ -29,7 +30,7 @@
         *Each effect's namespace defines an 'InType' and 'OutType' 
     - Parameters not suitable for modulation are commented as 'UNSMOOTHED' in their annotations
     - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
-    - Almost all algorithms use algebraic operations as possible to avoid expensive transcendentals while providing superior
+    - Algebraic operations are preferred to avoid expensive transcendentals while providing superior
     accuracy and modulate-ability than look up tables
     See: https://en.wikipedia.org/wiki/Algebraic_function
     - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are officially supported
@@ -39,7 +40,7 @@
 /** Next version (1.1.0) changelog
     - New Effects: TheExpressor, TheSplit
     - Tests now use Octave via PLUG-QA and support multichannel output
-    - .soulpatches can now run in multichannel mode when using CLI/Octave 
+    - .soulpatches now run in multichannel mode when using CLI/Octave 
     - More parameters are now smoothed and modulation stable
 */
 
