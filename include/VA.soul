@@ -186,7 +186,7 @@ VA::HighLevel Processors                                                02/12/22
             }
             
             graph Processor(int iMode = Modes::SidechainOff,
-                            float iAttackMs = 0.1f,
+                            float iAttackMs = 1,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
                             float iThreshold_dB = -50,
@@ -207,7 +207,7 @@ VA::HighLevel Processors                                                02/12/22
                 input
                 {
                     event float sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On" /*UNSMOOTHED*/ ]];   
-                    event float attackIn [[ name: "Attack", min: 0.1f, max: 50, init: iAttackMs, unit: "ms", step: 0.1 ]];
+                    event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1 ]];
                     event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1 ]];
                     event float stereoLinkIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1 ]];
                     event float thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f]];
@@ -2842,7 +2842,7 @@ Vectorized Helper Functions                                             01/18/22
     {
         let Tdiv2 = SampleType (1.0 / (2.0 * fs));
 
-        let gOnepole = SampleType (x) * Tdiv2;
+        let gOnepole = tan (x * Tdiv2);
 
         return gOnepole / (ONE + gOnepole);
     }
