@@ -3,7 +3,7 @@
 namespace main
 {
     /*' effect' namespace definition */
-    namespace effect = VA::HighLevel::TheSplit; 
+    namespace effect = VA::HighLevel::TheExpressor; 
     
     using inType = effect::InType;
     using outType = effect::OutType;
@@ -15,7 +15,11 @@ namespace main
 
         let
         { 
+            mux3To1 = VA::Mux3To1::Processor(0);
+
             e = effect::Processor; 
+            eD2 = effect::Processor / 2;
+            eD4 = effect::Processor / 4;
 
             encode32 = Encode32::Processor;
             decode32 = Decode32::Processor;
@@ -23,8 +27,14 @@ namespace main
 
         connection
         {       
-            in -> decode32 -> e.in;
-            e.out -> encode32 -> out;
+            in -> decode32.in;
+            
+            [sinc] decode32.out -> e.in, eD2.in, eD4.in;
+            [sinc] e.out -> mux3To1.in0;
+            [sinc] eD2.out -> mux3To1.in1;
+            [sinc] eD4.out -> mux3To1.in2;
+
+            mux3To1.out -> encode32 -> out;
         }
     }
 

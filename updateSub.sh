@@ -8,3 +8,5 @@ chmod +x ./PLUG-QA/SameWav/builds/SameWav.app
 
 cd ./PLUG-QA
 octave qaClear.m
+
+cd ..

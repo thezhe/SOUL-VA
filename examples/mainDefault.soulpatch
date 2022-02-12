@@ -1,0 +1,16 @@
+{
+    "soulPatchV1": {
+        "ID": "com.TheZhe.SOULVA.mainDefault",
+        "version": "1.0",
+        "name": "mainDefault",
+        "description": "link VA.soul with mainDefault.soul",
+        "category": "effect",
+        "manufacturer": "TheZhe",
+        "website": "https://github.com/thezhe/SOUL-VA",
+        "isInstrument": false,
+        "source": [
+            "mainDefault.soul",
+            "../include/VA.soul"
+        ]
+    }
+}

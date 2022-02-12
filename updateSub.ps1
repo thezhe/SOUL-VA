@@ -6,3 +6,5 @@ git submodule foreach git submodule update --init --recursive
 cd PLUG-QA
 
 octave qaClear.m
+
+cd ..

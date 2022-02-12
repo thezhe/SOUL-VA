@@ -23,7 +23,7 @@ cd ../PLUG-QA
 OUT_DIR=../tests/results
 
 mkdir -p $OUT_DIR
-octave qaScript.m ../tests/effect.soulpatch $FS > $OUT_DIR/qa.log
+octave qa.m ../tests/effect.soulpatch > $OUT_DIR/qa.log
 rm -rf ../tests/qa.log
 cp -R results $OUT_DIR
 

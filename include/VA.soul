@@ -189,6 +189,7 @@ VA::HighLevel Processors                                                01/27/22
                             float iThreshold_dB = -50,
                             float iRatio0 = 8,
                             float iRatio1 = 1,
+                            float iSoftness_dB = 0,
                             float iColor_dB = 0,
                             float iHpfCutoffHz = 1,
                             float iMixPercent = 100,
@@ -209,7 +210,8 @@ VA::HighLevel Processors                                                01/27/22
                     ctfColor.thresholdIn;
                     ctfColor.ratio0In;
                     ctfColor.ratio1In;
-                    event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB" ]];
+                    ctfColor.softnessIn;
+                    ctfColor.colorIn;
 
                     svf.frequencyIn cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
                 
@@ -225,11 +227,11 @@ VA::HighLevel Processors                                                01/27/22
                     
                     svf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
-                    absADAA = AbsADAA::Processor;      
+                    absADAA = AbsADAA::Processor * 2;      
 
                     ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                     stereoLink = StereoLink::Processor (iStereoLinkPercent);
-                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iColor_dB, iColor_dB);
+                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB);
 
                     applyGain = ApplyGain::Processor;
 
@@ -243,10 +245,6 @@ VA::HighLevel Processors                                                01/27/22
 
                 connection
                 {
-                    //input events
-                    colorIn -> ctfColor.heightIn;
-                    colorIn -> ctfColor.widthIn;
-
                     in -> sampleType2ToSampleTypes.in;
 
                     sampleType2ToSampleTypes.out0 -> dcBlockerIn -> smoothedMixPan.in0, applyGain.in;
@@ -453,6 +451,32 @@ VA::HighLevel Processors                                                01/27/22
 /*==============================================================================
 Filter Processors                                                       01/25/22
 ==============================================================================*/
+
+    /** Limit signal to audio band pre and post effect to minimize unwanted DC or +20kHz interactions 
+    
+        Use with nonlinear effects that don't require accuracy around 20kHz
+    */
+    namespace AudioBandIsolator
+    {
+        graph Processor
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            let
+            {
+                dcBlocker = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                pCrossover = filt::tpt::crossover::Processor (20000);
+            }
+    
+            connection
+            {
+                in -> dcBlocker -> pCrossover.in;
+                pCrossover.lowOut -> out;
+            }
+        }
+    }
+    
 
     /** Ladder Low Pass Filter with variable order and saturating state 
     
@@ -1026,11 +1050,9 @@ Filter Processors                                                       01/25/22
                 State s;
                 Coeffs c;
 
-                let fs = processor.frequency;
-
                 loop
                 {
-                    c.updatePerSample (Omega, fs);
+                    c.updatePerSample (Omega, processor.frequency);
 
                     let y = process (s, in, c);
 
@@ -1139,8 +1161,8 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
         graph Processor(float iThreshold,
                         float iRatio0,
                         float iRatio1,
-                        float iHeight,
-                        float iWidth)
+                        float iSoftness,
+                        float iColor)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -1150,8 +1172,9 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 smoothedParameter0.in0 thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
                 smoothedParameter1.in0 ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
                 smoothedParameter2.in0 ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
-                smoothedParameter3.in0 heightIn [[ name: "Height", min: -24.f, max: 24.f, init: iHeight, unit: "dB", step: 0.1f ]];
-                smoothedParameter4.in0 widthIn [[ name: "Width", min: 3.f, max: 24.f, init: iWidth, unit: "dB", step: 0.1f ]];
+                smoothedParameter4.in0 softnessIn [[ name: "Softness", min: 0, max: 10, init: iSoftness, unit: "dB", step: 0.1f ]];
+                smoothedParameter4.in0 colorIn [[ name: "Color", min: -24, max: 24, init: iColor, unit: "dB", step: 0.1f ]];
+                
             }
     
             let
@@ -1159,8 +1182,8 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 smoothedParameter0 = SmoothedParameter::Processor (float[] (iThreshold), SmoothedParameter::Modes::DecibelToDecibel);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (iRatio0), SmoothedParameter::Modes::RatioToRatio);
                 smoothedParameter2 = SmoothedParameter::Processor (float[] (iRatio1), SmoothedParameter::Modes::RatioToRatio);
-                smoothedParameter3 = SmoothedParameter::Processor (float[] (iHeight), SmoothedParameter::Modes::DecibelToDecibel);
-                smoothedParameter4 = SmoothedParameter::Processor (float[] (iWidth), SmoothedParameter::Modes::DecibelToDecibel);
+                smoothedParameter3 = SmoothedParameter::Processor (float[] (iSoftness), SmoothedParameter::Modes::DecibelToDecibel);
+                smoothedParameter4 = SmoothedParameter::Processor (float[] (iColor), SmoothedParameter::Modes::DecibelToDecibel);
 
                 internal = Internal::Processor;
             }
@@ -1170,8 +1193,8 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 smoothedParameter0.out0 -> internal.thresholdIn;
                 smoothedParameter1.out0 -> internal.ratio0In;
                 smoothedParameter2.out0 -> internal.ratio1In;
-                smoothedParameter3.out0 -> internal.heightIn;
-                smoothedParameter4.out0 -> internal.widthIn;
+                smoothedParameter3.out0 -> internal.softnessIn;
+                smoothedParameter4.out0 -> internal.colorIn;
 
                 in -> internal.in;
                 internal.out -> out;
@@ -1185,28 +1208,28 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 SampleType threshold;
                 SampleType ratio0;
                 SampleType ratio1;
-                SampleType height;
-                SampleType width; 
+                SampleType softness;
+                SampleType color; 
             }
         
-            void updatePerSample (Coeffs& c, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType colorHeight, SampleType colorWidth) 
+            void updatePerSample (Coeffs& c, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType softness, SampleType color) 
             {
                 c.threshold = threshold;
                 c.ratio0 = ratio0;
                 c.ratio1 = ratio1;
-                c.height = colorHeight;
-                c.width = colorWidth;
+                c.softness = softness;
+                c.color = color;
             }
         
             SampleType process (SampleType x, const Coeffs& c) 
             {
-                return vCTF_Color (x, c.threshold, c.ratio0, c.ratio1, c.height, c.width);
+                return vCTF_Color (x, c.threshold, c.ratio0, c.ratio1, c.softness, c.color);
             }
 
             processor Processor()
             {
                 input stream SampleType in;
-                input stream SampleType thresholdIn, ratio0In, ratio1In, heightIn, widthIn;
+                input stream SampleType thresholdIn, ratio0In, ratio1In, softnessIn, colorIn;
                 output stream SampleType out;
 
                 void run()
@@ -1215,7 +1238,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
 
                     loop
                     {
-                        c.updatePerSample (thresholdIn, ratio0In, ratio1In, heightIn, widthIn);
+                        c.updatePerSample (thresholdIn, ratio0In, ratio1In, softnessIn, colorIn);
 
                         out << process (in, c);
     
@@ -1567,11 +1590,18 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
         {
             return vSgn (x) * SampleType (1.0 / 6.0) * vpow (x, 3);
         }
+
+        SampleType F3 (SampleType x, const Coeffs& c)
+        {
+            return vSgn(x) * SampleType (1.0 / 24.0) * vpow (x, 4);
+        }
     
         struct State
         {
+            SampleType x_3;
             SampleType x_2;
             SampleType x_1;
+            SampleType F3_1;
             SampleType F2_1;
             SampleType F1_1;
         }
@@ -1584,6 +1614,55 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
             s.F1_1 = ZERO;
         }
     
+        SampleType processADAA3 (State& s, SampleType x, const Coeffs& c)
+        {
+            //F2_0
+            let x_0mx_1 = x - s.x_1;
+            let F3_0 = F3 (x, c);
+
+            let F2_0 = viflt (
+                F2 (HALF * (x + s.x_1), c), 
+                (F3_0 - s.F3_1) / x_0mx_1,
+                vabs (x_0mx_1), 
+                ADAA_TOL
+            );
+
+            //Find F1_0
+            let x_0mx_2 = x - s.x_2;
+    
+            let xBar = HALF * (x + s.x_2);
+            let delta = xBar - s.x_1;
+    
+            let F1_0 = viflt (
+                viflt (
+                    F1 (HALF * (xBar + s.x_1), c),
+                    (TWO / delta) * (F2 (xBar, c) + (s.F3_1 - F3 (xBar, c)) / delta),
+                    vabs (delta), ADAA_TOL
+                ),
+                (TWO / (x_0mx_2)) * (F2_0 - s.F2_1),
+                vabs (x_0mx_2), 
+                ADAA_TOL
+            );
+
+            //Find f_0
+            let x_1mx_2 = s.x_1 - s.x_2;
+    
+            let f_0 = viflt (f (HALF * (s.x_1 + s.x_2), c), 
+                (F1_0 - s.F1_1) / x_1mx_2,
+                vabs (x_1mx_2), 
+                ADAA_TOL);
+
+            //update s
+            s.x_3 = s.x_2;
+            s.x_2 = s.x_1;
+            s.x_1 = x;
+            s.F3_1 = F3_0;
+            s.F2_1 = F2_0;
+            s.F1_1 = F1_0;
+
+            return f_0;
+        }
+
         SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
         {
             //Find F1_0
@@ -1638,7 +1717,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
         SampleType process (State& s, SampleType x, const Coeffs& c)
         {
-            return s.processADAA2 (x, c);
+            return s.processADAA3(x, c);
         }
     
         processor Processor()
@@ -1770,6 +1849,62 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                     loop (updateIntervalSamples)
                     {
                         out << process (SampleType[4] (in0, in1, in2, in3), c);
+    
+                        advance();
+                    }
+                }
+            }
+        }
+    }
+
+    /** Output 1 of 3 signals */
+    namespace Mux3To1
+    {   
+        struct Coeffs
+        {
+            int idx;
+        }
+    
+        void update (Coeffs& c, float idx)
+        {
+            c.idx = int (floor (idx));
+        }
+    
+        SampleType process (SampleType[3] x, const Coeffs& c)
+        {
+            return x.at (c.idx);
+        }
+    
+        processor Processor (int iIdx)
+        {
+            input stream SampleType in0, in1, in2;
+            output stream SampleType out;
+    
+            input event float idxIn [[ name: "idx", min: 0, max: 2, init: iIdx, step: 1 /*UNSMOOTHED*/ ]];
+    
+            event idxIn (float v) { idx = v; recalc = true; }
+    
+            float idx = float (iIdx);
+            bool recalc = true;
+    
+            void run()
+            {   
+                Coeffs c;
+    
+                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+    
+                loop
+                {
+                    if (recalc)
+                    {
+                        recalc = false;
+    
+                        c.update (idx);
+                    }
+    
+                    loop (updateIntervalSamples)
+                    {
+                        out << process (SampleType[3] (in0, in1, in2), c);
     
                         advance();
                     }
@@ -2479,26 +2614,56 @@ Vectorized Helper Functions                                             01/18/22
         Parameters:
         - ratio0: ratio above threshold (> 1 is downward compression, < 1 is upward expansion)
         - ratio1: ratio below threshold (> 1 is upward compression, < 1 is downward expansion)
-        - height: color height
-        - width: color width (internally limited to [3, inf))
+        - height: color height in dB
+        - width: color width in dB (internally limited to [3, inf))
+        - softness: width of the quadratic interpolation in dB
 
         Notes:
         - gain is limited to (0, 1.9] (BIBO stable)
         - At extremely high height parameters, the CTF becomes a 'swell' function
         - Algebraic bell-shaped function (derivative of a sigmoidal function arctan) used for color;
           This is cheap to compute and modulation stable
+        - Soft knee is quadratic interpolation given y and dy/dx at xdB = T + softness/2 and T - softness/2 
         - See https://blog.audio-tk.com/2015/09/08/audio-toolkit-additional-gain-functions/
+        - See https://people.math.sc.edu/kellerlv/Quadratic_Interpolation.pdf
     */
-    SampleType vCTF_Color (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType height, SampleType width)
+    SampleType vCTF_Color (SampleType x, SampleType threshold, SampleType ratio0, SampleType ratio1, SampleType softness, SampleType color)
     {
+        //dB scale
         let xdB = vGainTodB (x);
         let xdBmthr = xdB - threshold;
 
-        let divWidth = ONE / vmax (vabs (width), SampleType (3.0));
-        let color = height / (ONE + vpow (xdBmthr * divWidth, 2));
+        //constants
+        let divRatio0 = ONE/ratio0;
+        let divRatio1 = ONE/ratio1;
+        let softnessDiv2 = softness * HALF;
+        let thresholdPlus = threshold + softnessDiv2;
+        let divRatioDiffDivSoftness = (divRatio0 - divRatio1) / vmax (softness, ADAA_TOL);
 
-        let ydB = viflt (threshold + xdBmthr * (ONE/ratio1) + color, threshold + xdBmthr * (ONE/ratio0) + color, xdB, threshold);
+        //softness
+        let c = HALF * divRatioDiffDivSoftness;
+        let b = divRatio0 - divRatioDiffDivSoftness * thresholdPlus;
+        let a = threshold - threshold * divRatio0 + c * vpow (thresholdPlus, 2);
+        let softKnee = a  + b * xdB + c * vpow (xdB, 2);
 
+        //color
+        let divColorWidth = ONE / vmax (vabs (color), SampleType (3.0));
+        let colorInternal = color / (ONE + vpow (xdBmthr * divColorWidth, 2));
+
+        //CTF
+        let ydB = viflt ( 
+            threshold + xdBmthr * divRatio1, 
+            viflt (
+                softKnee,
+                threshold + xdBmthr * divRatio0, 
+                xdBmthr,
+                softnessDiv2
+            ),
+            xdBmthr, 
+            -softnessDiv2
+        ) + colorInternal;
+
+        //convert to linear gain
         return vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
     }
 
