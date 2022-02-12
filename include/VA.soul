@@ -22,6 +22,7 @@
     The interface is nearly identical to soul::filters EXCEPT:
     - Effects are 'Processors' under 'VA::HighLevel'
     - Effects have an InType and an OutType which determines channel IO configuration
+    - The last 'input event float' is always 'fsIn'. Set this to the current sampling rate.
     - No user-defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
@@ -33,7 +34,7 @@
     - Algebraic operations are preferred to avoid expensive transcendentals while providing superior
     accuracy and modulate-ability than look up tables
     See: https://en.wikipedia.org/wiki/Algebraic_function
-    - 44.1kHz is the recommended sampling rate, but rates up through 96kHz are officially supported
+    - 44.1 and 48kHz are the recommended sampling rates, but rates up through 192kHz are officially supported
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
 */
 
@@ -42,10 +43,12 @@
     - Tests now use Octave via PLUG-QA and support multichannel output
     - .soulpatches now run in multichannel mode when using CLI/Octave 
     - More parameters are now smoothed and modulation stable
+    - 44.1/48 internal (works best with ADAA)
 */
 
 /** Task List
     Future Tasks:
+    -TheChorus, TheBass, TheSplit update to 192kHz support and Expressor standard
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
 */
@@ -53,7 +56,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                01/27/22
+VA::HighLevel Processors                                                02/12/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -181,85 +184,158 @@ VA::HighLevel Processors                                                01/27/22
                 let SidechainOff = 0;
                 let SidechainOn = 1;
             }
-
+            
             graph Processor(int iMode = Modes::SidechainOff,
                             float iAttackMs = 0.1f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
                             float iThreshold_dB = -50,
-                            float iRatio0 = 8,
+                            float iRatio0 = 20,
                             float iRatio1 = 1,
-                            float iSoftness_dB = 0,
-                            float iColor_dB = 0,
+                            float iSoftness_dB = 10,
+                            float iColor_dB = 24,
                             float iHpfCutoffHz = 1,
+                            float iMakeup_dB = 0,
                             float iMixPercent = 100,
-                            float iMakeupVolume_dB = 0)
+                            float iFs = 0)
             {
                 input stream InType in;
                 output stream OutType out;
 
+               // output stream SampleType grOut;
+        
                 input
                 {
-                    mux2To1.idxIn sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On" /*UNSMOOTHED*/ ]];   
+                    event float sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On" /*UNSMOOTHED*/ ]];   
+                    event float attackIn [[ name: "Attack", min: 0.1f, max: 50, init: iAttackMs, unit: "ms", step: 0.1 ]];
+                    event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1 ]];
+                    event float stereoLinkIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1 ]];
+                    event float thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f]];
+                    event float ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
+                    event float ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
+                    event float softnessIn [[ name: "Softness", min: 0, max: 10, init: iSoftness_dB, unit: "dB", step: 0.1f ]];
+                    event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB", step: 0.1f ]]; 
+                    event float cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                    event float makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
+                    event float mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1 ]];
 
-                    ballisticsFilter.attackIn;
-                    ballisticsFilter.releaseIn;
-
-                    stereoLink.stereoLinkIn;
-
-                    ctfColor.thresholdIn;
-                    ctfColor.ratio0In;
-                    ctfColor.ratio1In;
-                    ctfColor.softnessIn;
-                    ctfColor.colorIn;
-
-                    svf.frequencyIn cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
-                
-                    smoothedMixPan.mixIn;
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -6, max: 50, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                    mux3To1.idxIn fsIn [[ name: "fs", min: 0, max: 2, init: iFs, step: 1, text: "44.1/48|88.2/96|176.4/192" /*UNSMOOTHED*/ ]];
                 }
-
+        
                 let
                 {
-                    //non-boilerplate Processors
-                    sampleType2ToSampleTypes = SampleType2ToSampleTypes::Processor;
-                    mux2To1 = Mux2To1::Processor (iMode);
-                    
-                    svf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
+                    internalDS0 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent);
+                    internalDS2 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 2;
+                    internalDS4 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 4;
 
-                    absADAA = AbsADAA::Processor * 2;      
-
-                    ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
-                    stereoLink = StereoLink::Processor (iStereoLinkPercent);
-                    ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB);
-
-                    applyGain = ApplyGain::Processor;
-
-                    //boilerplate Processors
-                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-
-                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
-                    smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
+                    mux3To1 = Mux3To1::Processor(iFs);
                 }
-
+        
                 connection
                 {
-                    in -> sampleType2ToSampleTypes.in;
+                    //input event float
+                    sidechainIn -> internalDS0.sidechainIn, internalDS2.sidechainIn, internalDS4.sidechainIn;
+                    attackIn -> internalDS0.attackIn, internalDS2.attackIn, internalDS4.attackIn;   
+                    releaseIn -> internalDS0.releaseIn, internalDS2.releaseIn, internalDS4.releaseIn;
+                    stereoLinkIn -> internalDS0.stereoLinkIn, internalDS2.stereoLinkIn, internalDS4.stereoLinkIn;
+                    thresholdIn -> internalDS0.thresholdIn, internalDS2.thresholdIn, internalDS4.thresholdIn;
+                    ratio0In -> internalDS0.ratio0In, internalDS2.ratio0In, internalDS4.ratio0In;
+                    ratio1In -> internalDS0.ratio1In, internalDS2.ratio1In, internalDS4.ratio1In;
+                    softnessIn -> internalDS0.softnessIn, internalDS2.softnessIn, internalDS4.softnessIn;
+                    colorIn -> internalDS0.colorIn, internalDS2.colorIn, internalDS4.colorIn;
+                    cutoffIn -> internalDS0.cutoffIn, internalDS2.cutoffIn, internalDS4.cutoffIn;
+                    makeupIn -> internalDS0.makeupIn, internalDS2.makeupIn, internalDS4.makeupIn;
+                    mixIn -> internalDS0.mixIn, internalDS2.mixIn, internalDS4.mixIn;
 
-                    sampleType2ToSampleTypes.out0 -> dcBlockerIn -> smoothedMixPan.in0, applyGain.in;
+                    //apply 3 downsampling rates
+                    [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
+                    [sinc] internalDS0.out -> mux3To1.in0;
+                    [sinc] internalDS2.out -> mux3To1.in1;
+                    [sinc] internalDS4.out -> mux3To1.in2;
+                    mux3To1.out -> out;
+                }
+            }
+            
+            namespace Internal
+            {
+                graph Processor(int iMode,
+                                float iAttackMs,
+                                float iReleaseMs, 
+                                float iStereoLinkPercent,
+                                float iThreshold_dB,
+                                float iRatio0,
+                                float iRatio1,
+                                float iSoftness_dB,
+                                float iColor_dB,
+                                float iHpfCutoffHz,
+                                float iMakeup_dB,
+                                float iMixPercent)
+                {
+                    input stream InType in;
+                    output stream OutType out;
 
-                    sampleType2ToSampleTypes.out0 -> mux2To1.in0;
-                    sampleType2ToSampleTypes.out1 -> mux2To1.in1;
-                    mux2To1.out -> svf.in;
-                    svf.highpassOut -> absADAA -> stereoLink.in;
-                    stereoLink.out -> ballisticsFilter.in;
-                    ballisticsFilter.out -> ctfColor.in;
-                    ctfColor.out -> applyGain.b;
+                    input
+                    {
+                        mux2To1.idxIn sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On" /*UNSMOOTHED*/ ]];   
 
-                    applyGain.out -> smoothedMixPan.in1;
-                    smoothedMixPan.out -> smoothedVolume.in;
-                    smoothedVolume.out -> dcBlockerOut -> out;                    
+                        ballisticsFilter.attackIn;
+                        ballisticsFilter.releaseIn;
+
+                        stereoLink.stereoLinkIn;
+
+                        ctfColor.thresholdIn;
+                        ctfColor.ratio0In;
+                        ctfColor.ratio1In;
+                        ctfColor.softnessIn;
+                        ctfColor.colorIn;
+
+                        svf.frequencyIn cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                    
+                        smoothedVolume.volumeIn makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
+                        smoothedMixPan.mixIn;
+                    }
+
+                    let
+                    {
+                        //non-boilerplate Processors
+                        sampleType2ToSampleTypes = SampleType2ToSampleTypes::Processor;
+                        mux2To1 = Mux2To1::Processor (iMode);
+                        
+                        svf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
+
+                        absADAA = AbsADAA::Processor;      
+
+                        ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
+                        stereoLink = StereoLink::Processor (iStereoLinkPercent);
+                        ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB);
+
+                        applyGain = ApplyGain::Processor;
+
+                        //boilerplate Processors
+                        dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                        dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+
+                        smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
+                        smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
+                    }
+
+                    connection
+                    {
+                        in -> sampleType2ToSampleTypes.in;
+
+                        sampleType2ToSampleTypes.out0 -> dcBlockerIn -> smoothedMixPan.in0, applyGain.in;
+
+                        sampleType2ToSampleTypes.out0 -> mux2To1.in0;
+                        sampleType2ToSampleTypes.out1 -> mux2To1.in1;
+                        mux2To1.out -> svf.in; svf.highpassOut -> absADAA -> stereoLink.in;
+                        stereoLink.out -> ballisticsFilter.in;
+                        ballisticsFilter.out -> ctfColor.in;
+                        ctfColor.out -> applyGain.b;
+
+                        applyGain.out -> smoothedVolume.in;
+                        smoothedVolume.out -> smoothedMixPan.in1;
+                        smoothedMixPan.out -> dcBlockerOut -> out;                    
+                    }
                 }
             }
         }
@@ -285,7 +361,7 @@ VA::HighLevel Processors                                                01/27/22
                             float iCutoffHz = 3000,
                             float iMixPercent = 50,
                             float iPan = 0,
-                            float iMakeupVolume_dB = 0)
+                            float iMakeup_dB = 0)
             {
                 input stream InType in;
                 output stream OutType out;
@@ -305,7 +381,7 @@ VA::HighLevel Processors                                                01/27/22
 
                     smoothedMixPan.mixIn;
                     smoothedMixPan.panIn;
-                    smoothedVolume.volumeIn makeupVolumeIn [[ name: "Makeup", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: "dB" ]];
+                    smoothedVolume.volumeIn makeupIn [[ name: "Makeup", min: -12, max: 12, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
                 }
         
                 let
@@ -321,7 +397,7 @@ VA::HighLevel Processors                                                01/27/22
                     dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
 
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
-                    smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);
+                    smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
                 }
         
                 connection
@@ -476,7 +552,6 @@ Filter Processors                                                       01/25/22
             }
         }
     }
-    
 
     /** Ladder Low Pass Filter with variable order and saturating state 
     
@@ -1173,8 +1248,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 smoothedParameter1.in0 ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
                 smoothedParameter2.in0 ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
                 smoothedParameter4.in0 softnessIn [[ name: "Softness", min: 0, max: 10, init: iSoftness, unit: "dB", step: 0.1f ]];
-                smoothedParameter4.in0 colorIn [[ name: "Color", min: -24, max: 24, init: iColor, unit: "dB", step: 0.1f ]];
-                
+                smoothedParameter4.in0 colorIn [[ name: "Color", min: -24, max: 24, init: iColor, unit: "dB", step: 0.1f ]]; 
             }
     
             let
@@ -1717,7 +1791,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
         SampleType process (State& s, SampleType x, const Coeffs& c)
         {
-            return s.processADAA3(x, c);
+            return s.processADAA2(x, c);
         }
     
         processor Processor()
