@@ -289,7 +289,7 @@ VA::HighLevel Processors                                                02/12/22
                         ctfColor.softnessIn;
                         ctfColor.colorIn;
 
-                        svf.frequencyIn cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                        pSvf.frequencyIn cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
                     
                         smoothedVolume.volumeIn makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
                         smoothedMixPan.mixIn;
@@ -301,9 +301,9 @@ VA::HighLevel Processors                                                02/12/22
                         sampleType2ToSampleTypes = SampleType2ToSampleTypes::Processor;
                         mux2To1 = Mux2To1::Processor (iMode);
                         
-                        svf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
+                        pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
-                        absADAA = AbsADAA::Processor;      
+                        absADAA = AbsADAA::Processor * 2;     
 
                         ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                         stereoLink = StereoLink::Processor (iStereoLinkPercent);
@@ -312,6 +312,8 @@ VA::HighLevel Processors                                                02/12/22
                         applyGain = ApplyGain::Processor;
 
                         //boilerplate Processors
+                        ultraBlockerIn0 = UltraBlocker::Processor;
+                        ultraBlockerIn1 = UltraBlocker::Processor;
                         dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
                         dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
 
@@ -323,11 +325,12 @@ VA::HighLevel Processors                                                02/12/22
                     {
                         in -> sampleType2ToSampleTypes.in;
 
-                        sampleType2ToSampleTypes.out0 -> dcBlockerIn -> smoothedMixPan.in0, applyGain.in;
+                        sampleType2ToSampleTypes.out0 -> dcBlockerIn -> ultraBlockerIn0 -> smoothedMixPan.in0, applyGain.in;
 
                         sampleType2ToSampleTypes.out0 -> mux2To1.in0;
                         sampleType2ToSampleTypes.out1 -> mux2To1.in1;
-                        mux2To1.out -> svf.in; svf.highpassOut -> absADAA -> stereoLink.in;
+                        mux2To1.out -> ultraBlockerIn1 -> pSvf.in; 
+                        pSvf.highpassOut -> absADAA -> stereoLink.in;
                         stereoLink.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
                         ctfColor.out -> applyGain.b;
@@ -528,31 +531,6 @@ VA::HighLevel Processors                                                02/12/22
 Filter Processors                                                       01/25/22
 ==============================================================================*/
 
-    /** Limit signal to audio band pre and post effect to minimize unwanted DC or +20kHz interactions 
-    
-        Use with nonlinear effects that don't require accuracy around 20kHz
-    */
-    namespace AudioBandIsolator
-    {
-        graph Processor
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            let
-            {
-                dcBlocker = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                pCrossover = filt::tpt::crossover::Processor (20000);
-            }
-    
-            connection
-            {
-                in -> dcBlocker -> pCrossover.in;
-                pCrossover.lowOut -> out;
-            }
-        }
-    }
-
     /** Ladder Low Pass Filter with variable order and saturating state 
     
         Notes:
@@ -733,6 +711,27 @@ Filter Processors                                                       01/25/22
         }
     }
 
+    /** Ultrasonic blocker using a critically-damped svf */
+    namespace UltraBlocker
+    {
+        graph Processor()
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            let
+            {
+                pSvf = filt::tpt::svf::Processor (16000, 0.4f);
+            }
+    
+            connection
+            {
+                in -> pSvf.in;
+                pSvf.lowpassOut -> out;
+            }
+        }
+    }
+    
     /** Split into high/low amplitude via downward compression or downward expansion */
     namespace SplitLoudSoft
     {

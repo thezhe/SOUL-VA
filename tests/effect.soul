@@ -13,8 +13,6 @@ namespace main
         input stream inType32 in;
         output stream outType32 out;
 
-       // output stream VA::SampleType grOut;
-
         let
         { 
             e = effect::Processor; 
