@@ -43,7 +43,7 @@
     - Tests now use Octave via PLUG-QA and support multichannel output
     - .soulpatches now run in multichannel mode when using CLI/Octave 
     - More parameters are now smoothed and modulation stable
-    - 44.1/48 internal (works best with ADAA)
+    - Effects can run at 44.1 to 192 kHz now with internal processing set to 44.1 or 48 kHz
 */
 
 /** Task List
@@ -192,7 +192,7 @@ VA::HighLevel Processors                                                02/12/22
                             float iThreshold_dB = -50,
                             float iRatio0 = 20,
                             float iRatio1 = 1,
-                            float iSoftness_dB = 10,
+                            float iSoftness_dB = 24,
                             float iColor_dB = 24,
                             float iHpfCutoffHz = 1,
                             float iMakeup_dB = 0,
@@ -213,7 +213,7 @@ VA::HighLevel Processors                                                02/12/22
                     event float thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f]];
                     event float ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
                     event float ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
-                    event float softnessIn [[ name: "Softness", min: 0, max: 10, init: iSoftness_dB, unit: "dB", step: 0.1f ]];
+                    event float softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness_dB, unit: "dB", step: 0.1f ]];
                     event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB", step: 0.1f ]]; 
                     event float cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
                     event float makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
@@ -1323,7 +1323,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 smoothedParameter0.in0 thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
                 smoothedParameter1.in0 ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
                 smoothedParameter2.in0 ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
-                smoothedParameter4.in0 softnessIn [[ name: "Softness", min: 0, max: 10, init: iSoftness, unit: "dB", step: 0.1f ]];
+                smoothedParameter3.in0 softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness, unit: "dB", step: 0.1f ]];
                 smoothedParameter4.in0 colorIn [[ name: "Color", min: -24, max: 24, init: iColor, unit: "dB", step: 0.1f ]]; 
             }
     
@@ -2788,11 +2788,10 @@ Vectorized Helper Functions                                             01/18/22
         let divRatio1 = ONE/ratio1;
         let softnessDiv2 = softness * HALF;
         let thresholdPlus = threshold + softnessDiv2;
-        let divRatioDiffDivSoftness = (divRatio0 - divRatio1) / vmax (softness, ADAA_TOL);
 
         //softness
-        let c = HALF * divRatioDiffDivSoftness;
-        let b = divRatio0 - divRatioDiffDivSoftness * thresholdPlus;
+        let c = (divRatio0 - divRatio1) / vmax (softness * TWO, ADAA_TOL);
+        let b = divRatio0 - TWO * c * thresholdPlus;
         let a = threshold - threshold * divRatio0 + c * vpow (thresholdPlus, 2);
         let softKnee = a  + b * xdB + c * vpow (xdB, 2);
 
