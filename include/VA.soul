@@ -303,7 +303,7 @@ VA::HighLevel Processors                                                02/12/22
                         
                         pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
-                        absADAA = AbsADAA::Processor;     
+                        absADAA = AbsADAA::Processor * 2;     
 
                         ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                         stereoLink = StereoLink::Processor (iStereoLinkPercent);
@@ -1790,7 +1790,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
         SampleType process (State& s, SampleType x, const Coeffs& c)
         {
-            return s.processADAA2(x, c);
+            return s.processADAA3(x, c);
         }
     
         processor Processor()
