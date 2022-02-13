@@ -303,7 +303,7 @@ VA::HighLevel Processors                                                02/12/22
                         
                         pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
-                        absADAA = AbsADAA::Processor * 2;     
+                        absADAA = AbsADAA::Processor;     
 
                         ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                         stereoLink = StereoLink::Processor (iStereoLinkPercent);
