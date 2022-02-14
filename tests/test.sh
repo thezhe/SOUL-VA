@@ -1,22 +1,20 @@
 #!/bin/bash
 
-# NOTE: This script is not thouroughly tested. Please modify to match the behaviour of 'runAll.bat' as needed.
+# NOTE: This script is not thouroughly tested. Please modify to match the behaviour of 'test.bat' as needed.
 
-# Script to run PLUG-QA on 'testEffect.soulpatch' and soul errors on 'errors.soulpatch'
+# Script to run soul errors on 'errors.soulpatch' and PLUG-QA on 'testEffect.soulpatch'
 # results and logs in './results/'
-# Usage sudo ./runAll.sh <Fs>
+# Usage sh ./test.sh
 
 set -e
 
-# parse arguments
-
-FS="$1" 
-
-# soul errors errors.soulpatch
+echo "running 'soul errors'"
+echo ""
 
 soul errors errors.soulpatch
 
-# PLUG-QA
+echo "populating 'results'"
+echo ""
 
 cd ../PLUG-QA
 

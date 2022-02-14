@@ -241,7 +241,7 @@
             "",
             "        let F1_0 = viflt (F1 (HALF * (x + s.x_1), c), ",
             "            (F2_0 - s.F2_1) / x_0mx_1,",
-            "            vabs (x_0mx_1), ADAA_TOL);",
+            "            vabs (x_0mx_1), DIV_TOL);",
             "",
             "        //Find f_0",
             "        let x_0mx_2 = x - s.x_2;",
@@ -253,10 +253,10 @@
             "            viflt (",
             "                f (HALF * (xBar + s.x_1), c),",
             "                (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),",
-            "                vabs (delta), ADAA_TOL",
+            "                vabs (delta), DIV_TOL",
             "            ),",
             "            (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),",
-            "            vabs (x_0mx_2), ADAA_TOL",
+            "            vabs (x_0mx_2), DIV_TOL",
             "        );",
             "",
             "        //update s",
@@ -276,7 +276,7 @@
             "",
 			"        let f_0 = viflt (f (HALF * (x + s.x_1), c), ",
 		    "            (F1_0 - s.F1_1) / x_0mx_1,",
-		    "            vabs (x_0mx_1), ADAA_TOL);",
+		    "            vabs (x_0mx_1), DIV_TOL);",
             "",
             "        //update s",
             "        s.x_1 = x;",
@@ -379,5 +379,13 @@
             "input event float ${1:Endpoint Name}In [[ name: \"${2:Name}\", min: ${3:Min}, max: ${4:Max}, init: ${5:Init}, step: ${6:Step}, unit: \"${7:Unit}\" ]];"
         ],
         "description": "An endpoint of type 'input event float'; this is updated internally every updateInterval."
+    },
+
+    "VA::ConnectDS": {
+        "prefix": "VA::ConnectDS",
+        "body": [
+            "${1:Endpoint Name}In -> internalDS0.${1:Endpoint Name}In, internalDS2.${1:Endpoint Name}In, internalDS4.${1:Endpoint Name}In;"
+        ],
+        "description": "Connect an event endpoint to the internalDS* in VA::HighLevel Processors."
     }
 }

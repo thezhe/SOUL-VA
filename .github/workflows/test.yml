@@ -31,7 +31,7 @@ jobs:
           if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
           .\windows\x64\soul.exe errors tests\effect.soulpatch
           if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
-          .\windows\x64\soul.exe errors examples\mainCompatible.soulpatch
+          .\windows\x64\soul.exe errors examples\main.soulpatch
           if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
         shell: cmd
 
@@ -42,7 +42,7 @@ jobs:
           unzip SOUL
           ./osx/x64/soul errors tests/errors.soulpatch || exit 1
           ./osx/x64/soul errors tests/effect.soulpatch || exit 1
-          ./osx/x64/soul errors examples/mainCompatible.soulpatch || exit 1
+          ./osx/x64/soul errors examples/main.soulpatch || exit 1
         shell: bash
 
       - name: Get SOUL compiler and Test (ubuntu)
@@ -52,5 +52,5 @@ jobs:
           unzip SOUL
           ./linux/x64/soul errors tests/errors.soulpatch || exit 1
           ./linux/x64/soul errors tests/effect.soulpatch || exit 1
-          ./linux/x64/soul errors examples/mainCompatible.soulpatch || exit 1
+          ./linux/x64/soul errors examples/main.soulpatch || exit 1
         shell: bash

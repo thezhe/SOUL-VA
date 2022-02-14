@@ -21,7 +21,7 @@
 
     The interface is nearly identical to soul::filters EXCEPT:
     - Effects are 'Processors' under 'VA::HighLevel'
-    - Effects have an InType and an OutType which determines channel IO configuration
+    - Each effect has at least input and output SampleType streams called 'in' and an 'out'
     - The last 'input event float' is always 'fsIn'. Set this to the current sampling rate.
     - No user-defined types:
         *'SampleType' is float64<2>
@@ -48,6 +48,7 @@
 
 /** Task List
     Future Tasks:
+    - update snippets
     -TheChorus, TheBass, TheSplit update to 192kHz support and Expressor standard
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
@@ -71,9 +72,6 @@ VA::HighLevel Processors                                                02/12/22
         */
         namespace TheSplit
         {
-            using InType = SampleType;
-            using OutType = SampleType2;
-
             namespace Modes
             {
                 let CenterSides = 0;
@@ -95,8 +93,8 @@ VA::HighLevel Processors                                                02/12/22
                             float iReleaseMs = 30,
                             float iStereoLinkLsPercent = 0)
             {
-                input stream InType in;
-                output stream OutType out;
+                input stream SampleType in;
+                output stream SampleType out, out1;
         
                 input
                 {
@@ -132,10 +130,9 @@ VA::HighLevel Processors                                                02/12/22
                     mux2To1_1 = Mux2To1::Processor (iFlip);
 
                     //boilerplate Processors
-                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut0 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut1 = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    sampleTypesToSampleType2 = SampleTypesToSampleType2::Processor;
+                    dcBlockerIn = DC_Blocker::Processor;
+                    dcBlockerOut0 = DC_Blocker::Processor;
+                    dcBlockerOut1 = DC_Blocker::Processor;
                 }
         
                 connection
@@ -145,8 +142,8 @@ VA::HighLevel Processors                                                02/12/22
 
                     in -> dcBlockerIn -> splitCenterSides.in, pCrossover.in, splitLoudSoft.in, splitAttackSustain.in;
 
-                    splitCenterSides.centerOut -> mux4To1_0.in0;
-                    splitCenterSides.sidesOut -> mux4To1_1.in0;
+                    splitCenterSides.centerOut -> mux4To1_0.in;
+                    splitCenterSides.sidesOut -> mux4To1_1.in;
 
                     pCrossover.lowOut -> mux4To1_0.in1;
                     pCrossover.highOut -> mux4To1_1.in1;
@@ -157,13 +154,11 @@ VA::HighLevel Processors                                                02/12/22
                     splitLoudSoft.loudOut -> mux4To1_0.in3;
                     splitLoudSoft.softOut -> mux4To1_1.in3;
 
-                    mux4To1_0.out -> mux2To1_0.in0, mux2To1_1.in1;
-                    mux4To1_1.out -> mux2To1_0.in1, mux2To1_1.in0;
+                    mux4To1_0.out -> mux2To1_0.in, mux2To1_1.in1;
+                    mux4To1_1.out -> mux2To1_0.in1, mux2To1_1.in;
 
-                    mux2To1_0.out -> dcBlockerOut0 -> sampleTypesToSampleType2.in0;
-                    mux2To1_1.out -> dcBlockerOut1 -> sampleTypesToSampleType2.in1;
-
-                    sampleTypesToSampleType2.out -> out;
+                    mux2To1_0.out -> dcBlockerOut0 -> out;
+                    mux2To1_1.out -> dcBlockerOut1 -> out1;
                 }
             }
         }
@@ -176,9 +171,6 @@ VA::HighLevel Processors                                                02/12/22
         */
         namespace TheExpressor
         {
-            using InType = SampleType2;
-            using OutType = SampleType;
-
             namespace Modes
             {
                 let SidechainOff = 0;
@@ -199,8 +191,8 @@ VA::HighLevel Processors                                                02/12/22
                             float iMixPercent = 100,
                             float iFs = 0)
             {
-                input stream InType in;
-                output stream OutType out;
+                input stream SampleType in, scIn;
+                output stream SampleType out;
 
                // output stream SampleType grOut;
         
@@ -218,8 +210,6 @@ VA::HighLevel Processors                                                02/12/22
                     event float cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
                     event float makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
                     event float mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1 ]];
-
-                    mux3To1.idxIn fsIn [[ name: "fs", min: 0, max: 2, init: iFs, step: 1, text: "44.1/48|88.2/96|176.4/192" /*UNSMOOTHED*/ ]];
                 }
         
                 let
@@ -227,8 +217,7 @@ VA::HighLevel Processors                                                02/12/22
                     internalDS0 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent);
                     internalDS2 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 2;
                     internalDS4 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 4;
-
-                    mux3To1 = Mux3To1::Processor(iFs);
+                    mux3To1Fs = Mux3To1Fs::Processor;
                 }
         
                 connection
@@ -249,10 +238,10 @@ VA::HighLevel Processors                                                02/12/22
 
                     //apply 3 downsampling rates
                     [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
-                    [sinc] internalDS0.out -> mux3To1.in0;
-                    [sinc] internalDS2.out -> mux3To1.in1;
-                    [sinc] internalDS4.out -> mux3To1.in2;
-                    mux3To1.out -> out;
+                    [sinc] internalDS0.out -> mux3To1Fs.in;
+                    [sinc] internalDS2.out -> mux3To1Fs.in1;
+                    [sinc] internalDS4.out -> mux3To1Fs.in2;
+                    mux3To1Fs.out -> out;
                 }
             }
             
@@ -271,8 +260,8 @@ VA::HighLevel Processors                                                02/12/22
                                 float iMakeup_dB,
                                 float iMixPercent)
                 {
-                    input stream InType in;
-                    output stream OutType out;
+                    input stream SampleType in, scIn;
+                    output stream SampleType out;
 
                     input
                     {
@@ -298,7 +287,6 @@ VA::HighLevel Processors                                                02/12/22
                     let
                     {
                         //non-boilerplate Processors
-                        sampleType2ToSampleTypes = SampleType2ToSampleTypes::Processor;
                         mux2To1 = Mux2To1::Processor (iMode);
                         
                         pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
@@ -314,8 +302,8 @@ VA::HighLevel Processors                                                02/12/22
                         //boilerplate Processors
                         ultraBlockerIn0 = UltraBlocker::Processor;
                         ultraBlockerIn1 = UltraBlocker::Processor;
-                        dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                        dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                        dcBlockerIn = DC_Blocker::Processor;
+                        dcBlockerOut = DC_Blocker::Processor;
 
                         smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
                         smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
@@ -323,14 +311,12 @@ VA::HighLevel Processors                                                02/12/22
 
                     connection
                     {
-                        in -> sampleType2ToSampleTypes.in;
+                        in -> dcBlockerIn -> ultraBlockerIn0 -> smoothedMixPan.in, applyGain.in;
 
-                        sampleType2ToSampleTypes.out0 -> dcBlockerIn -> ultraBlockerIn0 -> smoothedMixPan.in0, applyGain.in;
-
-                        sampleType2ToSampleTypes.out0 -> mux2To1.in0;
-                        sampleType2ToSampleTypes.out1 -> mux2To1.in1;
-                        mux2To1.out -> ultraBlockerIn1 -> pSvf.in; 
-                        pSvf.highpassOut -> absADAA -> stereoLink.in;
+                        in -> mux2To1.in;
+                        scIn -> mux2To1.in1;
+                        mux2To1.out -> pSvf.in; 
+                        pSvf.highpassOut -> ultraBlockerIn1 -> absADAA -> stereoLink.in;
                         stereoLink.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
                         ctfColor.out -> applyGain.b;
@@ -396,8 +382,8 @@ VA::HighLevel Processors                                                02/12/22
                     ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
 
                     //boilerplate Processors
-                    dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
-                    dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);
+                    dcBlockerIn = DC_Blocker::Processor;
+                    dcBlockerOut = DC_Blocker::Processor;
 
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
                     smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
@@ -407,7 +393,7 @@ VA::HighLevel Processors                                                02/12/22
                 {
                     lfo.out -> delayLine.lfoIn;
                     
-                    in -> dcBlockerIn -> delayLine.in, smoothedMixPan.in0;
+                    in -> dcBlockerIn -> delayLine.in, smoothedMixPan.in;
                     
                     delayLine.out -> ladderLpfS.in;
                     ladderLpfS.out -> smoothedMixPan.in1;
@@ -528,7 +514,7 @@ VA::HighLevel Processors                                                02/12/22
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       01/25/22
+Filter Processors                                                       02/14/22
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -550,8 +536,8 @@ Filter Processors                                                       01/25/22
     
             input
             {
-                smoothedParameter0.in0 cutoffIn [[ name: "Cutoff", min: 3000, max: 18000, init: iCutoff, unit: "Hz", step: 1 ]];
-                smoothedParameter1.in0 resonanceIn [[ name: "Resonance", min: 0, max: 2, init: iResonance, step: 0.01f ]];
+                smoothedParameter0.in cutoffIn [[ name: "Cutoff", min: 3000, max: 18000, init: iCutoff, unit: "Hz", step: 1 ]];
+                smoothedParameter1.in resonanceIn [[ name: "Resonance", min: 0, max: 2, init: iResonance, step: 0.01f ]];
                 internal.nonlinearityIn;
             }
     
@@ -565,8 +551,8 @@ Filter Processors                                                       01/25/22
     
             connection
             {
-                smoothedParameter0.out0 -> internal.G_OnepoleIn;
-                smoothedParameter1.out0 -> internal.kIn;
+                smoothedParameter0.out -> internal.G_OnepoleIn;
+                smoothedParameter1.out -> internal.kIn;
 
                 in -> internal.in;
                 internal.out -> out;
@@ -702,7 +688,7 @@ Filter Processors                                                       01/25/22
     
             connection
             {
-                in -> sustainIsolator.in, difference.in0;
+                in -> sustainIsolator.in, difference.in;
 
                 sustainIsolator.out -> difference.in1, sustainOut;
 
@@ -711,7 +697,30 @@ Filter Processors                                                       01/25/22
         }
     }
 
-    /** Ultrasonic blocker using a critically-damped svf */
+    /** First order HPF with cutoff at 1Hz */
+    namespace DC_Blocker
+    {
+        graph Processor
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            let
+            {
+                dcBlocker = filt::dc_blocker::Processor (1);
+            }
+    
+            connection
+            {
+                in -> dcBlocker -> out;
+            }
+        }
+    }
+
+    /** Ultrasonic blocker using a slightly over-damped svf 
+    
+        No overshoot
+    */
     namespace UltraBlocker
     {
         graph Processor()
@@ -757,7 +766,7 @@ Filter Processors                                                       01/25/22
     
             connection
             {
-                in -> expressorClassical.in, difference.in0;
+                in -> expressorClassical.in, difference.in;
                 expressorClassical.out -> loudOut, difference.in1;
 
                 difference.out -> softOut;
@@ -901,7 +910,7 @@ Filter Processors                                                       01/25/22
             {
                 in -> ballisticsFilter0.in, ballisticsFilter1.in;
 
-                ballisticsFilter0.out -> difference.in0;
+                ballisticsFilter0.out -> difference.in;
                 ballisticsFilter1.out -> difference.in1;
 
                 difference.out -> out;
@@ -1320,11 +1329,11 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             input
             {
-                smoothedParameter0.in0 thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
-                smoothedParameter1.in0 ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
-                smoothedParameter2.in0 ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
-                smoothedParameter3.in0 softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness, unit: "dB", step: 0.1f ]];
-                smoothedParameter4.in0 colorIn [[ name: "Color", min: -24, max: 24, init: iColor, unit: "dB", step: 0.1f ]]; 
+                smoothedParameter0.in thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
+                smoothedParameter1.in ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
+                smoothedParameter2.in ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
+                smoothedParameter3.in softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness, unit: "dB", step: 0.1f ]];
+                smoothedParameter4.in colorIn [[ name: "Color", min: -24, max: 24, init: iColor, unit: "dB", step: 0.1f ]]; 
             }
     
             let
@@ -1340,11 +1349,11 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             connection
             {
-                smoothedParameter0.out0 -> internal.thresholdIn;
-                smoothedParameter1.out0 -> internal.ratio0In;
-                smoothedParameter2.out0 -> internal.ratio1In;
-                smoothedParameter3.out0 -> internal.softnessIn;
-                smoothedParameter4.out0 -> internal.colorIn;
+                smoothedParameter0.out -> internal.thresholdIn;
+                smoothedParameter1.out -> internal.ratio0In;
+                smoothedParameter2.out -> internal.ratio1In;
+                smoothedParameter3.out -> internal.softnessIn;
+                smoothedParameter4.out -> internal.colorIn;
 
                 in -> internal.in;
                 internal.out -> out;
@@ -1412,9 +1421,9 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             input
             {
-                smoothedParameter0.in0 thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
-                smoothedParameter1.in0 ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
-                smoothedParameter2.in0 ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
+                smoothedParameter0.in thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold, unit: "dB", step: 0.1f]];
+                smoothedParameter1.in ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f ]];
+                smoothedParameter2.in ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f ]];
             }
     
             let
@@ -1428,9 +1437,9 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             connection
             {
-                smoothedParameter0.out0 -> internal.thresholdIn;
-                smoothedParameter1.out0 -> internal.ratio0In;
-                smoothedParameter2.out0 -> internal.ratio1In;
+                smoothedParameter0.out -> internal.thresholdIn;
+                smoothedParameter1.out -> internal.ratio0In;
+                smoothedParameter2.out -> internal.ratio1In;
 
                 in -> internal.in;
                 internal.out -> out;
@@ -1502,7 +1511,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             connection
             {
-                in -> stereoLink.in, difference.in0;
+                in -> stereoLink.in, difference.in;
                 stereoLink.out -> difference.in1, centerOut;
 
                 difference.out -> sidesOut;
@@ -1623,7 +1632,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             let F1_0 = viflt (F1 (HALF * (x + s.x_1), c), 
                 (F2_0 - s.F2_1) / x_0mx_1,
-                vabs (x_0mx_1), ADAA_TOL);
+                vabs (x_0mx_1), DIV_TOL);
     
             //Find f_0
             let x_0mx_2 = x - s.x_2;
@@ -1635,10 +1644,10 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 viflt (
                     f (HALF * (xBar + s.x_1), c),
                     (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),
-                    vabs (delta), ADAA_TOL
+                    vabs (delta), DIV_TOL
                 ),
                 (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
-                vabs (x_0mx_2), ADAA_TOL
+                vabs (x_0mx_2), DIV_TOL
             );
     
             //update s
@@ -1774,7 +1783,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 F2 (HALF * (x + s.x_1), c), 
                 (F3_0 - s.F3_1) / x_0mx_1,
                 vabs (x_0mx_1), 
-                ADAA_TOL
+                DIV_TOL
             );
 
             //Find F1_0
@@ -1787,11 +1796,11 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 viflt (
                     F1 (HALF * (xBar + s.x_1), c),
                     (TWO / delta) * (F2 (xBar, c) + (s.F3_1 - F3 (xBar, c)) / delta),
-                    vabs (delta), ADAA_TOL
+                    vabs (delta), DIV_TOL
                 ),
                 (TWO / (x_0mx_2)) * (F2_0 - s.F2_1),
                 vabs (x_0mx_2), 
-                ADAA_TOL
+                DIV_TOL
             );
 
             //Find f_0
@@ -1800,7 +1809,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
             let f_0 = viflt (f (HALF * (s.x_1 + s.x_2), c), 
                 (F1_0 - s.F1_1) / x_1mx_2,
                 vabs (x_1mx_2), 
-                ADAA_TOL);
+                DIV_TOL);
 
             //update s
             s.x_3 = s.x_2;
@@ -1821,7 +1830,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             let F1_0 = viflt (F1 (HALF * (x + s.x_1), c), 
                 (F2_0 - s.F2_1) / x_0mx_1,
-                vabs (x_0mx_1), ADAA_TOL);
+                vabs (x_0mx_1), DIV_TOL);
     
             //Find f_0
             let x_0mx_2 = x - s.x_2;
@@ -1833,10 +1842,10 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
                 viflt (
                     f (HALF * (xBar + s.x_1), c),
                     (TWO / delta) * (F1 (xBar, c) + (s.F2_1 - F2 (xBar, c)) / delta),
-                    vabs (delta), ADAA_TOL
+                    vabs (delta), DIV_TOL
                 ),
                 (TWO / (x_0mx_2)) * (F1_0 - s.F1_1),
-                vabs (x_0mx_2), ADAA_TOL
+                vabs (x_0mx_2), DIV_TOL
             );
     
             //update s
@@ -1856,7 +1865,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             let f_0 = viflt (f (HALF * (x + s.x_1), c), 
                 (F1_0 - s.F1_1) / x_0mx_1,
-                vabs (x_0mx_1), ADAA_TOL);
+                vabs (x_0mx_1), DIV_TOL);
     
             //update s
             s.x_1 = x;
@@ -1930,20 +1939,20 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
         }
     }
 
-    /** out = b0 * in0 + b1 * in1 */
+    /** out = b * in + b1 * in1 */
     namespace ApplyGains
     {
         processor Processor
         {
-            input stream SampleType b0, b1;
-            input stream SampleType in0, in1;
+            input stream SampleType b, b1;
+            input stream SampleType in, in1;
             output stream SampleType out;
     
             void run()
             {
                 loop
                 {
-                    out << b0 * in0 + b1 * in1;
+                    out << b * in + b1 * in1;
     
                     advance();
                 }
@@ -1971,7 +1980,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
         processor Processor (int iIdx)
         {
-            input stream SampleType in0, in1, in2, in3;
+            input stream SampleType in, in1, in2, in3;
             output stream SampleType out;
     
             input event float idxIn [[ name: "idx", min: 0, max: 3, init: iIdx, step: 1 /*UNSMOOTHED*/ ]];
@@ -1998,7 +2007,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
                     loop (updateIntervalSamples)
                     {
-                        out << process (SampleType[4] (in0, in1, in2, in3), c);
+                        out << process (SampleType[4] (in, in1, in2, in3), c);
     
                         advance();
                     }
@@ -2007,6 +2016,56 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
         }
     }
 
+    /** Output 1 of 3 signals depending on processor.frequency (fs) 
+    
+        Input streams correspond to the the following common fs ranges in kHz:
+        - in: 44.1, 48
+        - in1: 88.2, 96
+        - in2: 176.4, 192
+    */
+    namespace Mux3To1Fs
+    {
+        struct Coeffs
+        {
+            int idx;
+        }
+    
+        void update (Coeffs& c, float64 fs)
+        {
+            if (fs > 96001.0)
+                c.idx = 2;
+            else if (fs > 48001.0)
+                c.idx = 1;
+            else 
+                c.idx = 0;
+        }
+
+        SampleType process (SampleType[3] x, const Coeffs& c)
+        {
+            return x.at (c.idx);
+        }
+    
+        processor Processor()
+        {
+            input stream SampleType in, in1, in2;
+            output stream SampleType out;
+    
+            void run()
+            {   
+                Coeffs c;
+
+                c.update (processor.frequency);
+
+                loop
+                {
+                    out << process (SampleType[3] (in, in1, in2), c);
+
+                    advance();
+                }
+            }
+        }
+    }
+    
     /** Output 1 of 3 signals */
     namespace Mux3To1
     {   
@@ -2027,7 +2086,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
         processor Processor (int iIdx)
         {
-            input stream SampleType in0, in1, in2;
+            input stream SampleType in, in1, in2;
             output stream SampleType out;
     
             input event float idxIn [[ name: "idx", min: 0, max: 2, init: iIdx, step: 1 /*UNSMOOTHED*/ ]];
@@ -2054,7 +2113,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
                     loop (updateIntervalSamples)
                     {
-                        out << process (SampleType[3] (in0, in1, in2), c);
+                        out << process (SampleType[3] (in, in1, in2), c);
     
                         advance();
                     }
@@ -2083,7 +2142,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
         processor Processor (int iIdx)
         {
-            input stream SampleType in0, in1;
+            input stream SampleType in, in1;
             output stream SampleType out;
     
             input event float idxIn [[ name: "idx", min: 0, max: 1, init: iIdx, step: 1 /*UNSMOOTHED*/ ]];
@@ -2110,7 +2169,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
                     loop (updateIntervalSamples)
                     {
-                        out << process (SampleType[2] (in0, in1), c);
+                        out << process (SampleType[2] (in, in1), c);
     
                         advance();
                     }
@@ -2142,14 +2201,14 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     {
         processor Processor()
         {
-            input stream SampleType in0, in1;
+            input stream SampleType in, in1;
             output stream SampleType out;
 
             void run()
             {
                 loop
                 {
-                    out << in0 + in1;
+                    out << in + in1;
 
                     advance();
                 }
@@ -2161,14 +2220,14 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     {
         processor Processor()
         {
-            input stream SampleType in0, in1;
+            input stream SampleType in, in1;
             output stream SampleType out;
 
             void run()
             {
                 loop
                 {
-                    out << in0 - in1;
+                    out << in - in1;
 
                     advance();
                 }
@@ -2221,45 +2280,6 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
         }
     }
 
-    namespace SampleTypesToSampleType2
-    {   
-        processor Processor ()
-        {
-            input stream SampleType in0, in1;
-            output stream SampleType.elementType<4> out;
-
-            void run()
-            {   
-                loop
-                {
-                    out << vSampleTypesToSampleType2 (in0, in1);
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace SampleType2ToSampleTypes
-    {
-        processor Processor ()
-        {
-            input stream SampleType2 in;
-            output stream SampleType out0, out1;
-
-            void run()
-            {   
-                loop
-                {
-                    out0 << SampleType (in[0], in[1]);
-                    out1 << SampleType (in[2], in[3]);
-
-                    advance();
-                }
-            }
-        }
-    }
-
 /*==============================================================================
 Mix Processors                                                          01/18/22
 ==============================================================================*/
@@ -2299,12 +2319,12 @@ Mix Processors                                                          01/18/22
     {
         graph Processor(float iMix, float iPan)
         {
-            input stream SampleType in0, in1;
+            input stream SampleType in, in1;
             output stream SampleType out;
     
             input
             {
-                smoothedGains.in0 mixIn [[ name: "Mix", min: 0, max: 100, init: iMix, unit: "%", step: 1 ]];
+                smoothedGains.in mixIn [[ name: "Mix", min: 0, max: 100, init: iMix, unit: "%", step: 1 ]];
                 smoothedGains.in1 panIn [[ name: "Pan", min: -1, max: 1, init: iPan, step: 0.01f ]];
             }
 
@@ -2316,10 +2336,10 @@ Mix Processors                                                          01/18/22
     
             connection
             {
-                smoothedGains.out0 -> applyGains.b0;
+                smoothedGains.out -> applyGains.b;
                 smoothedGains.out1 -> applyGains.b1;
 
-                in0 -> applyGains.in0;
+                in -> applyGains.in;
                 in1 -> applyGains.in1;
 
                 applyGains.out -> out;
@@ -2347,8 +2367,8 @@ Mix Processors                                                          01/18/22
             {
                 in -> applyGain.in;
                 
-                volumeIn -> smoothedGain.in0;
-                smoothedGain.out0 -> applyGain.b;
+                volumeIn -> smoothedGain.in;
+                smoothedGain.out -> applyGain.b;
 
                 applyGain.out -> out;
             }
@@ -2384,7 +2404,7 @@ Parameter Processors                                                    01/26/22
     
             input
             {
-                smoothedParameter0.in0 depthIn [[ name: "Depth", min: 0, max: 100, init: iDepth, unit: "%", step: 1 ]];
+                smoothedParameter0.in depthIn [[ name: "Depth", min: 0, max: 100, init: iDepth, unit: "%", step: 1 ]];
                 internal.rateIn;
                 internal.widthIn;
                 internal.modeIn;
@@ -2399,7 +2419,7 @@ Parameter Processors                                                    01/26/22
     
             connection
             {
-                smoothedParameter0.out0 -> internal.depthIn;
+                smoothedParameter0.out -> internal.depthIn;
 
                 internal.out -> out;
             }
@@ -2700,11 +2720,11 @@ Parameter Processors                                                    01/26/22
 
         processor Processor (float[] iParameter, int mode, int oversampling = 1)
         {
-            output stream SampleType out0, out1;
+            output stream SampleType out, out1;
 
-            input event float in0, in1;
+            input event float in, in1;
 
-            event in0 (float v) { parameter.at(0) = v; recalc = true; }
+            event in (float v) { parameter.at(0) = v; recalc = true; }
             event in1 (float v) { parameter.at(1) = v; recalc = true; }
 
             float[2] parameter;
@@ -2743,7 +2763,7 @@ Parameter Processors                                                    01/26/22
                     {
                         let y = M(mode)::process (s, c);
 
-                        out0 << y.at(0);
+                        out << y.at(0);
 
                         if const (M(mode)::NumOut > 1)
                             out1 << y.at(1);
@@ -2756,7 +2776,7 @@ Parameter Processors                                                    01/26/22
     }
 
 /*==============================================================================
-Vectorized Helper Functions                                             01/18/22
+Vectorized Helper Functions                                             02/14/22
 ==============================================================================*/
 
     /** 'vCTF' with additional color settings to shape the knee 
@@ -2790,7 +2810,7 @@ Vectorized Helper Functions                                             01/18/22
         let thresholdPlus = threshold + softnessDiv2;
 
         //softness
-        let c = (divRatio0 - divRatio1) / vmax (softness * TWO, ADAA_TOL);
+        let c = (divRatio0 - divRatio1) / vmax (softness * TWO, DIV_TOL);
         let b = divRatio0 - TWO * c * thresholdPlus;
         let a = threshold - threshold * divRatio0 + c * vpow (thresholdPlus, 2);
         let softKnee = a  + b * xdB + c * vpow (xdB, 2);
@@ -2989,11 +3009,6 @@ Vectorized Helper Functions                                             01/18/22
         return SampleType (2.0 - bR, bR);
     }
 
-    SampleType.elementType<4> vSampleTypesToSampleType2(SampleType x0, SampleType x1)
-    {
-        return SampleType.elementType<4> (x0[0], x0[1], x1[0], x1[1]);
-    }
-
 /*==============================================================================
 Vectorized Intrinsic Functions                                          01/18/22
 ==============================================================================*/
@@ -3058,7 +3073,7 @@ Vectorized Intrinsic Functions                                          01/18/22
     }
 
 /*==============================================================================
-Constants                                                               01/26/22
+Constants                                                               02/14/22
 ==============================================================================*/
     
     //const float
@@ -3067,7 +3082,6 @@ Constants                                                               01/26/22
 
     //soul::filters
     using SampleType = float64<2>;
-    using SampleType2 = SampleType.elementType<SampleType.size * 2>;
     let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
     
@@ -3085,7 +3099,7 @@ Constants                                                               01/26/22
     let CHANNEL_ZERO_MASK = SampleType (1.0, 0.0);
     let CHANNEL_ONE_MASK = SampleType (0.0, 1.0);
     
-    let ADAA_TOL = SampleType (0.0000001);
+    let DIV_TOL = SampleType (0.0000001); //do not allow division by a number smaller than this
 
     //const int
     let INT_MAX_BUFFER_SIZE = 22050; //for arrays of SampleType

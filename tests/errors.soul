@@ -6,44 +6,36 @@
     - Tests that all 'Processors' compile without errors
     - command: soul errors errors.soulpatch | echo
     - Only use with CLI/Octave is officially supported
-    - Processors are connected in series s.t. their out and in streams match
+    - Processors are connected in series using all input/output streams
 */
 
 namespace main
 {
     namespace va = VA::HighLevel;
 
-    //effect namespace definitions
-    namespace effectIn = va::TheDummy;
-    namespace effect1 = va::TheBass;
-    namespace effect2 = va::TheChorus;
-    namespace effect3 = va::TheSplit;
-    namespace effectOut = va::TheExpressor;
-
     graph Processor [[main]]
     {
-        input stream effectIn::InType in;
-        output stream effectOut::OutType out;
+        input stream VA::SampleType in;
+        output stream VA::SampleType out;
 
-        //effect processor definitions
         let
         { 
-            eIn = effectIn::Processor;
-            e1 = effect1::Processor;
-            e2 = effect2::Processor;
-            e3 = effect3::Processor;
-            eOut = effectOut::Processor;
+            e0 = va::TheDummy::Processor;
+            e1 = va::TheBass::Processor;
+            e2 = va::TheChorus::Processor;
+            e3 = va::TheSplit::Processor;
+            e4 = va::TheExpressor::Processor;
         }
 
-        //connect each effect Processor in series
         connection
         {       
-            in -> eIn.in;
-            eIn.out -> e1.in;
+            in -> e0.in;
+            e0.out -> e1.in;
             e1.out -> e2.in;
             e2.out -> e3.in;
-            e3.out -> eOut.in;
-            eOut.out -> out;
+            e3.out, e3.out1 -> e4.in;
+            e3.out, e3.out1 -> e4.scIn;
+            e4.out -> out;
         }
     }
 }

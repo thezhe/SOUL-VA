@@ -2,28 +2,27 @@
 
 namespace main
 {
-    /*' effect' namespace definition */
-    namespace effect = VA::HighLevel::TheExpressor; 
-    
-    using inType = effect::InType;
-    using outType = effect::OutType;
+    //effect namespace definition
+    namespace effect = VA::HighLevel::TheExpressor;
 
     graph Processor [[main]]
     {
-        input stream inType32 in;
-        output stream outType32 out;
+        input stream SampleType32 in; //, scIn;
+        output stream SampleType32 out;
 
         let
         { 
             e = effect::Processor; 
 
-            encode32 = Encode32::Processor;
             decode32 = Decode32::Processor;
+           // decode32_1 = Decode32::Processor;
+            encode32 = Encode32::Processor;
         }
 
         connection
         {       
             in -> decode32 -> e.in;
+          //  scIn -> decode32_1 -> e.scIn;
             e.out -> encode32 -> out;
         }
     }
@@ -32,25 +31,24 @@ namespace main
 CLI/Octave compatibility code                       
 ==============================================================================*/
 
-    using inType32 = float<inType.size>;
-    using outType32 = float<outType.size>;
+    using SampleType32 = float32<VA::SampleType.size>;
 
     namespace Decode32
     {     
-        inType process (inType32 x)
+        VA::SampleType process (SampleType32 x)
         {
-            inType y;
+            VA::SampleType y;
 
-            for (int i = 0; i < inType32.size; ++i)
-                y.at(i) = inType.elementType (x.at(i));
+            for (int i = 0; i < SampleType32.size; ++i)
+                y.at(i) = VA::SampleType.elementType (x.at(i));
             
             return y;
         }
 
         processor Processor()
         {
-            input stream inType32 in;
-            output stream inType out;
+            input stream SampleType32 in;
+            output stream VA::SampleType out;
     
             void run()
             {   
@@ -66,20 +64,20 @@ CLI/Octave compatibility code
 
     namespace Encode32
     {     
-        outType32 process (outType x)
+        SampleType32 process (VA::SampleType x)
         {
-            outType32 y;
+            SampleType32 y;
 
-            for (int i = 0; i < outType.size; ++i)
-                y.at(i) = outType32.elementType (x.at(i));
+            for (int i = 0; i < VA::SampleType.size; ++i)
+                y.at(i) = SampleType32.elementType (x.at(i));
             
             return y;
         }
 
         processor Processor()
         {
-            input stream outType in;
-            output stream outType32 out;
+            input stream VA::SampleType in;
+            output stream SampleType32 out;
     
             void run()
             {   

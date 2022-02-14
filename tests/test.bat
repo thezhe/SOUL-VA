@@ -1,8 +1,8 @@
 @echo off
 
-REM Script to run PLUG-QA on 'testEffect.soulpatch' and soul errors on 'errors.soulpatch'
+REM Script to run soul errors on 'errors.soulpatch' and PLUG-QA on 'testEffect.soulpatch'
 REM results and logs in 'results\'
-REM Usage .\runAll.bat 
+REM Usage .\test.bat 
 
 echo running 'soul errors'
 echo:
@@ -22,6 +22,8 @@ call octave qa.m ..\tests\effect.soulpatch > %OUT_DIR%\qa.log
 if %errorlevel% neq 0 exit /b %errorlevel%
 del ..\tests\qa.log /s /f /q > nul
 xcopy results\* %OUT_DIR% /e /h /y /i /q > nul
+
+cd ..\tests
 
 echo DONE!
 echo:
