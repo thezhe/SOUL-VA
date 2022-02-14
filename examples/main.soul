@@ -12,24 +12,24 @@
 namespace main
 {
     //effect namespace definition
-    namespace effect = VA::HighLevel::TheChorus;
+    namespace effect = VA::HighLevel::TheExpressor;
 
     graph Processor [[main]]
     {
-        input stream SampleType32 in; // scIn;
+        input stream SampleType32 in; //, scIn;
         output stream SampleType32 out;
 
-        input 
+        input
         {
-            //expose parameter event endpoints
-            //e.g. e.mixIn
+            //expose input streams
+            //e.g. e.mixIN
         }
 
         let
         { 
             e = effect::Processor; 
 
-            decode33 = Decode32::Processor;
+            decode32 = Decode32::Processor;
            // decode32_1 = Decode32::Processor;
             encode32 = Encode32::Processor;
         }
@@ -105,6 +105,4 @@ CLI/Octave compatibility code
             }
         }
     }
-
-
 }
