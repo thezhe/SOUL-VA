@@ -12,7 +12,7 @@
 namespace main
 {
     //effect namespace definition
-    namespace effect = VA::HighLevel::Chorus;
+    namespace effect = VA::HighLevel::TheChorus;
 
     graph Processor [[main]]
     {
