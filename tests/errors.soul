@@ -35,7 +35,7 @@ namespace main
             e2.out -> e3.in;
             e3.out, e3.out1 -> e4.in;
             e3.out, e3.out1 -> e4.scIn;
-            e4.out -> out;
+            e4.out, e4.guiOut -> out;
         }
     }
 }

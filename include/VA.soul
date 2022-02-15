@@ -44,12 +44,13 @@
     - .soulpatches now run in multichannel mode when using CLI/Octave 
     - More parameters are now smoothed and modulation stable
     - Effects can run at 44.1 to 192 kHz now with internal processing set to 44.1 or 48 kHz
+     (44.1/48kHz native sample rate is still preferred)
 */
 
 /** Task List
     Future Tasks:
+    - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
     - update snippets
-    -TheChorus, TheBass, TheSplit update to 192kHz support and Expressor standard
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
 */
@@ -188,13 +189,10 @@ VA::HighLevel Processors                                                02/12/22
                             float iColor_dB = 24,
                             float iHpfCutoffHz = 1,
                             float iMakeup_dB = 0,
-                            float iMixPercent = 100,
-                            float iFs = 0)
+                            float iMixPercent = 100)
             {
                 input stream SampleType in, scIn;
-                output stream SampleType out;
-
-               // output stream SampleType grOut;
+                output stream SampleType out, guiOut;
         
                 input
                 {
@@ -218,6 +216,8 @@ VA::HighLevel Processors                                                02/12/22
                     internalDS2 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 2;
                     internalDS4 = Internal::Processor (iMode, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 4;
                     mux3To1Fs = Mux3To1Fs::Processor;
+                    mux3To1Fs1 = Mux3To1Fs::Processor;
+
                 }
         
                 connection
@@ -238,10 +238,18 @@ VA::HighLevel Processors                                                02/12/22
 
                     //apply 3 downsampling rates
                     [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
+                    [sinc] scIn -> internalDS0.scIn, internalDS2.scIn, internalDS4.scIn; 
+
                     [sinc] internalDS0.out -> mux3To1Fs.in;
                     [sinc] internalDS2.out -> mux3To1Fs.in1;
                     [sinc] internalDS4.out -> mux3To1Fs.in2;
+
+                    [sinc] internalDS0.guiOut -> mux3To1Fs1.in;
+                    [sinc] internalDS2.guiOut -> mux3To1Fs1.in1;
+                    [sinc] internalDS4.guiOut -> mux3To1Fs1.in2;
+
                     mux3To1Fs.out -> out;
+                    mux3To1Fs1.out -> guiOut;
                 }
             }
             
@@ -261,11 +269,11 @@ VA::HighLevel Processors                                                02/12/22
                                 float iMixPercent)
                 {
                     input stream SampleType in, scIn;
-                    output stream SampleType out;
+                    output stream SampleType out, guiOut;
 
                     input
                     {
-                        mux2To1.idxIn sidechainIn [[ name: "SC", min: 0, max: 1, init: iMode, text:"Off|On" /*UNSMOOTHED*/ ]];   
+                        mux2To1.idxIn sidechainIn;   
 
                         ballisticsFilter.attackIn;
                         ballisticsFilter.releaseIn;
@@ -278,9 +286,9 @@ VA::HighLevel Processors                                                02/12/22
                         ctfColor.softnessIn;
                         ctfColor.colorIn;
 
-                        pSvf.frequencyIn cutoffIn [[ name: "Detector HP", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz"]];
+                        pSvf.frequencyIn cutoffIn;
                     
-                        smoothedVolume.volumeIn makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
+                        smoothedVolume.volumeIn makeupIn;
                         smoothedMixPan.mixIn;
                     }
 
@@ -319,7 +327,7 @@ VA::HighLevel Processors                                                02/12/22
                         pSvf.highpassOut -> ultraBlockerIn1 -> absADAA -> stereoLink.in;
                         stereoLink.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
-                        ctfColor.out -> applyGain.b;
+                        ctfColor.out -> applyGain.b, guiOut;
 
                         applyGain.out -> smoothedVolume.in;
                         smoothedVolume.out -> smoothedMixPan.in1;
@@ -337,9 +345,6 @@ VA::HighLevel Processors                                                02/12/22
         */
         namespace TheChorus
         {
-            using InType = SampleType;
-            using OutType = SampleType;
-
             graph Processor (float iDepthPercent = 50,
                             float iRateHz = 2.f,
                             float iWidthDeg = 180,
@@ -352,8 +357,8 @@ VA::HighLevel Processors                                                02/12/22
                             float iPan = 0,
                             float iMakeup_dB = 0)
             {
-                input stream InType in;
-                output stream OutType out;
+                input stream SampleType in;
+                output stream SampleType out;
         
                 input
                 { 
@@ -410,13 +415,10 @@ VA::HighLevel Processors                                                02/12/22
         */
         namespace TheBass
         {
-            using InType = SampleType;
-            using OutType = SampleType;
-
             graph Processor (float iNonlinearity = 250, float iStereoLinkPercent = 100)
             {
-                input stream InType in;
-                output stream OutType out;
+                input stream SampleType in;
+                output stream SampleType out;
         
                 input
                 {
@@ -497,13 +499,10 @@ VA::HighLevel Processors                                                02/12/22
         */
         namespace TheDummy
         {
-            using InType = SampleType;
-            using OutType = SampleType;
-
             graph Processor()
             {
-                input stream InType in;
-                output stream OutType out;
+                input stream SampleType in;
+                output stream SampleType out;
                 
                 connection
                 {
