@@ -191,7 +191,7 @@ VA::HighLevel Processors                                                02/12/22
                 input
                 {
                     event float sidechainIn [[ name: "Sidechain", init: 0, boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
-                    event float cutoffIn [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", group: "Detector"]];
+                    event float cutoffIn [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
                     event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1, group: "Detector" ]];
 
                     event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Ballistics"]];
@@ -2827,9 +2827,11 @@ Vectorized Helper Functions                                             02/14/22
             xdBmthr, 
             -softnessDiv2
         ) + colorInternal;
-
+        
         //convert to linear gain
-        return vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
+        let y = vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
+        
+        return viflt (ONE, y, xdB, NOISE_FLOOR_DB)
     }
 
     /** Classical compressor transfer function (CTF) that can become 2 compression and 2 expansion transfer functions 
@@ -2848,9 +2850,11 @@ Vectorized Helper Functions                                             02/14/22
 
         let thrlin = vdBtoGain (threshold);
 
-        let y = viflt (vpow (x * (ONE/thrlin), divRatio1m1), vpow (x * (ONE/thrlin), divRatio0m1), x, thrlin);
+        let yInternal = viflt (vpow (x * (ONE/thrlin), divRatio1m1), vpow (x * (ONE/thrlin), divRatio0m1), x, thrlin);
 
-        return vmin (y, MAX_EFFECT_GAIN);
+        let y = vmin (yInternal, MAX_EFFECT_GAIN);
+
+        return viflt (ONE, y, x, NOISE_FLOOR)
     }
 
     /** Bucket Brigade Device static nonlinear mapping
