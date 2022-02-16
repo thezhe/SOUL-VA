@@ -197,9 +197,9 @@ VA::HighLevel Processors                                                02/12/22
                     event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Ballistics"]];
                     event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Ballistics" ]];
                     
-                    event float thresholdIn [[ name: "Thresh", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Gain" ]];
-                    event float ratio0In [[ name: "Ratio (> Thr)", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Gain" ]];
-                    event float ratio1In [[ name: "Ratio (< Thr)", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Gain" ]];
+                    event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Gain" ]];
+                    event float ratio0In [[ name: "Upper Ratio", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Gain" ]];
+                    event float ratio1In [[ name: "Lower Ratio", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Gain" ]];
                     event float softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness_dB, unit: "dB", step: 0.1f, group: "Gain" ]];
                     event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB", step: 0.1f, group: "Gain" ]]; 
                     
@@ -2831,7 +2831,7 @@ Vectorized Helper Functions                                             02/14/22
         //convert to linear gain
         let y = vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
         
-        return viflt (ONE, y, xdB, NOISE_FLOOR_DB);
+        return viflt (ONE, y, x, NOISE_FLOOR);
     }
 
     /** Classical compressor transfer function (CTF) that can become 2 compression and 2 expansion transfer functions 
