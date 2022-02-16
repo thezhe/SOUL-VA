@@ -2831,7 +2831,7 @@ Vectorized Helper Functions                                             02/14/22
         //convert to linear gain
         let y = vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
         
-        return viflt (ONE, y, xdB, NOISE_FLOOR_DB)
+        return viflt (ONE, y, xdB, NOISE_FLOOR_DB);
     }
 
     /** Classical compressor transfer function (CTF) that can become 2 compression and 2 expansion transfer functions 
@@ -2854,7 +2854,7 @@ Vectorized Helper Functions                                             02/14/22
 
         let y = vmin (yInternal, MAX_EFFECT_GAIN);
 
-        return viflt (ONE, y, x, NOISE_FLOOR)
+        return viflt (ONE, y, x, NOISE_FLOOR);
     }
 
     /** Bucket Brigade Device static nonlinear mapping
