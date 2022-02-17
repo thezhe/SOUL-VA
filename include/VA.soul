@@ -2773,7 +2773,7 @@ Parameter Processors                                                    01/26/22
     }
 
 /*==============================================================================
-Vectorized Helper Functions                                             02/14/22
+Vectorized Helper Functions                                             02/16/22
 ==============================================================================*/
 
     /** 'vCTF' with additional color settings to shape the knee 
@@ -2813,7 +2813,7 @@ Vectorized Helper Functions                                             02/14/22
         let softKnee = a  + b * xdB + c * vpow (xdB, 2);
 
         //color
-        let divColorWidth = ONE / vmax (vabs (color), SampleType (3.0));
+        let divColorWidth = ONE / vmax (HALF  * vabs (color), SampleType (1.5));
         let colorInternal = color / (ONE + vpow (xdBmthr * divColorWidth, 2));
 
         //CTF
@@ -2954,9 +2954,9 @@ Vectorized Helper Functions                                             02/14/22
     /** Convert decibels to gain and limit inputs to >= -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
-        let dB = vmax (NOISE_FLOOR_DB, x);
+        let dB = vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0)); 
 
-        return vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0));
+        return vmax (NOISE_FLOOR, dB);
     }
 
     /** Return 1 if x is positive, -1 if negative otherwise */
@@ -3074,12 +3074,8 @@ Vectorized Intrinsic Functions                                          01/18/22
     }
 
 /*==============================================================================
-Constants                                                               02/14/22
+Constants                                                               02/16/22
 ==============================================================================*/
-    
-    //const float
-    let FLOAT_DC_BLOCKER_CUTOFF_HZ = 1.f;
-    let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f);
 
     //soul::filters
     using SampleType = float64<2>;
@@ -3094,13 +3090,15 @@ Constants                                                               02/14/22
     
     let MAX_EFFECT_GAIN = SampleType (1.9);
 
-    let NOISE_FLOOR = SampleType (0.00001);
-    let NOISE_FLOOR_DB = SampleType (-100.0);
+    let NOISE_FLOOR = SampleType (0.00001); //-100 dB
 
     let CHANNEL_ZERO_MASK = SampleType (1.0, 0.0);
     let CHANNEL_ONE_MASK = SampleType (0.0, 1.0);
     
     let DIV_TOL = SampleType (0.0000001); //do not allow division by a number smaller than this
+
+    //const float
+    let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f);
 
     //const int
     let INT_MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
