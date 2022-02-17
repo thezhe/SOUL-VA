@@ -2954,9 +2954,9 @@ Vectorized Helper Functions                                             02/16/22
     /** Convert decibels to gain and limit inputs to >= -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
-        let dB = vpow (SampleType (10.0), dB * SampleType (1.0 / 20.0)); 
+        let b = vpow (SampleType (10.0), x * SampleType (1.0 / 20.0)); 
 
-        return vmax (NOISE_FLOOR, dB);
+        return vmax (NOISE_FLOOR, b);
     }
 
     /** Return 1 if x is positive, -1 if negative otherwise */
