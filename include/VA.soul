@@ -190,18 +190,18 @@ VA::HighLevel Processors                                                02/12/22
         
                 input
                 {
+                    event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Core"]];
+                    event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Core" ]];
+                    event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Core" ]];
+                    event float ratio0In [[ name: "Ratio Above Threshold", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Core" ]];
+                    event float ratio1In [[ name: "Ratio Below Threshold", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Core" ]];
+
                     event float sidechainIn [[ name: "Sidechain", init: 0, boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
                     event float cutoffIn [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
                     event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1, group: "Detector" ]];
 
-                    event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Ballistics"]];
-                    event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Ballistics" ]];
-                    
-                    event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Gain" ]];
-                    event float ratio0In [[ name: "Upper Ratio", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Gain" ]];
-                    event float ratio1In [[ name: "Lower Ratio", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Gain" ]];
-                    event float softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness_dB, unit: "dB", step: 0.1f, group: "Gain" ]];
-                    event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB", step: 0.1f, group: "Gain" ]]; 
+                    event float softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness_dB, unit: "dB", step: 0.1f, group: "Knee" ]];
+                    event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB", step: 0.1f, group: "Knee" ]]; 
                     
                     event float makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Utility" ]];
                     event float mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Utility" ]];
