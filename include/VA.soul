@@ -2813,7 +2813,7 @@ Vectorized Helper Functions                                             02/16/22
         let softKnee = a  + b * xdB + c * vpow (xdB, 2);
 
         //color
-        let divColorWidth = ONE / vmax (TWO  * vabs (color), SampleType (6));
+        let divColorWidth = ONE / vmax (vabs (color), ONE);
         let colorInternal = color / (ONE + vpow (xdBmthr * divColorWidth, 2));
 
         //CTF
