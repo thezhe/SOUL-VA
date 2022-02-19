@@ -305,6 +305,9 @@ VA::HighLevel Processors                                                02/12/22
 
                         applyGain = ApplyGain::Processor;
 
+                        //gui only
+                        ballisticsFilter1 = BallisticsFilterTPT::Processor (FLOAT_MIN_TAU_MS, 300);
+
                         //boilerplate Processors
                         ultraBlockerIn0 = UltraBlocker::Processor;
                         ultraBlockerIn1 = UltraBlocker::Processor;
@@ -325,7 +328,9 @@ VA::HighLevel Processors                                                02/12/22
                         pSvf.highpassOut -> ultraBlockerIn1 -> absADAA -> stereoLink.in;
                         stereoLink.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
-                        ctfColor.out -> applyGain.b, guiOut;
+                        ctfColor.out -> applyGain.b, ballisticsFilter1.in;
+
+                        ballisticsFilter1.out -> guiOut;
 
                         applyGain.out -> smoothedVolume.in;
                         smoothedVolume.out -> smoothedMixPan.in1;
@@ -3099,6 +3104,7 @@ Constants                                                               02/16/22
 
     //const float
     let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f);
+    let FLOAT_MIN_TAU_MS = 1.f / (40.f * float (pi)); //tau in ms which corresponds to a 20kHz cutoff
 
     //const int
     let INT_MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
