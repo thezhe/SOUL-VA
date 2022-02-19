@@ -305,9 +305,6 @@ VA::HighLevel Processors                                                02/12/22
 
                         applyGain = ApplyGain::Processor;
 
-                        //gui only
-                        ballisticsFilter1 = BallisticsFilterTPT::Processor (FLOAT_MIN_TAU_MS, 300);
-
                         //boilerplate Processors
                         ultraBlockerIn0 = UltraBlocker::Processor;
                         ultraBlockerIn1 = UltraBlocker::Processor;
@@ -328,9 +325,7 @@ VA::HighLevel Processors                                                02/12/22
                         pSvf.highpassOut -> ultraBlockerIn1 -> absADAA -> stereoLink.in;
                         stereoLink.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
-                        ctfColor.out -> applyGain.b, ballisticsFilter1.in;
-
-                        ballisticsFilter1.out -> guiOut;
+                        ctfColor.out -> applyGain.b, guiOut;
 
                         applyGain.out -> smoothedVolume.in;
                         smoothedVolume.out -> smoothedMixPan.in1;
