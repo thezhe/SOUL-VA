@@ -48,7 +48,7 @@
 */
 
 /** Task List
-    Future Tasks:
+    - low attack times the split, and compensate attack * 2 for attacks & sustains
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
     - update snippets
     - TheBass boilerplate, abs before stereo link and rectified lan
@@ -58,7 +58,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                02/12/22
+VA::HighLevel Processors                                                02/20/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -72,7 +72,7 @@ VA::HighLevel Processors                                                02/12/22
             Use case: Center/Sides (spatial), Crossover (frequency), Loud/Soft (amplitude), Attack/Sustain (time)
         */
         namespace TheSplit
-        {
+        {            
             namespace Modes
             {
                 let CenterSides = 0;
@@ -83,13 +83,12 @@ VA::HighLevel Processors                                                02/12/22
             }
 
             graph Processor(int iMode = Modes::CenterSides,
-                            int iFlip = 0,
+                            int iSwapOutputsBinary = 0,
                             float iCenterSidesPercent = 100,
                             float iFrequencyHz = 1000,
                             float iAttackMs = 4,
                             float iSustainMs = 30,
                             float iSensitivity_dB = 36,
-                            float iStereoLinkAsPercent = 0,
                             float iThreshold_dB = -30,
                             float iReleaseMs = 30,
                             float iStereoLinkLsPercent = 0)
@@ -97,74 +96,146 @@ VA::HighLevel Processors                                                02/12/22
                 input stream SampleType in;
                 output stream SampleType out, out1;
         
-                input
+                input event 
                 {
-                    event float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "GroupSelect" /*UNSMOOTHED*/ ]];
-                    event float flipIn [[ name: "Flip", min: 0, max: 1, init: iFlip, text: "Off|On" /*UNSMOOTHED*/ ]];
+                    float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "Main" /*UNSMOOTHED*/ ]];
+                    float swapIn [[ name: "Output Swap", init: iSwapOutputsBinary, boolean, group: "Main" /*UNSMOOTHED*/ ]];
 
-                    splitCenterSides.centerSidesIn [[ name: "Sides", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "C&S" ]];
+                    float centerSidesIn [[ name: "Split Amount", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "Centers & Sides" ]];
 
-                    pCrossover.frequencyIn [[ name: "Freq", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "L&H" ]];
+                    float frequencyIn [[ name: "Frequency", min: 20, max: 20000, init: iFrequencyHz, step: 1, unit: "Hz", group: "Lows & Highs" ]];
 
-                    splitAttackSustain.attackIn [[ name: "Attack", min: 4, max: 26, init: iAttackMs, step: 1, unit: "ms", group: "A&S" ]];
-                    splitAttackSustain.sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustainMs, step: 1, unit: "ms", group: "A&S" ]];
-                    splitAttackSustain.sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity_dB, step: 1, unit: "dB", group: "A&S" ]];
-                    splitAttackSustain.stereoLinkIn stereoLinkAsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkAsPercent, unit: "%", step: 1, group: "A&S" ]];
+                    float attackIn [[ name: "Attack", min: 4, max: 26, init: iAttackMs, step: 1, unit: "ms", group: "Attacks & Sustains" ]];
+                    float sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustainMs, step: 1, unit: "ms", group: "Attacks & Sustains" ]];
+                    float sensitivityIn [[ name: "Sensitivity", min: 0, max: 36, init: iSensitivity_dB, step: 1, unit: "dB", group: "Attacks & Sustains" ]];
 
-                    splitLoudSoft.thresholdIn [[ name: "Thresh", min: -50.f, max: -12.f, init: iThreshold_dB, unit: "dB", step: 1, group: "L&S" ]];
-                    splitLoudSoft.releaseIn [[ name: "Release", min: 30, max: 999, init: iReleaseMs, unit: "ms", step: 1, group: "L&S" ]];
-                    splitLoudSoft.stereoLinkIn stereoLinkLsIn [[ name: "Link", min: 0, max: 100, init: iStereoLinkLsPercent, unit: "%", step: 1, group: "L&S" ]];
+                    float thresholdIn [[ name: "Threshold", min: -50, max: 0, init: iThreshold_dB, unit: "dB", step: 1, group: "Louds & Softs" ]];
+                    float releaseIn [[ name: "Release", min: 30, max: 999, init: iReleaseMs, unit: "ms", step: 1, group: "Louds & Softs" ]];
+                    float stereoLinkLsIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLinkLsPercent, unit: "%", step: 1, group: "Louds & Softs" ]];
                 }
         
                 let
                 {
-                    //non-boilerplate Processors
-                    splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
-                    pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
-                    splitAttackSustain = SplitAttackSustain::Processor (iAttackMs, iSustainMs, iSensitivity_dB, iStereoLinkAsPercent);
-                    splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
-                    
-                    mux4To1_0 = Mux4To1::Processor (iMode);
-                    mux4To1_1 = Mux4To1::Processor (iMode);
-
-                    mux2To1_0 = Mux2To1::Processor (iFlip);
-                    mux2To1_1 = Mux2To1::Processor (iFlip);
-
-                    //boilerplate Processors
-                    dcBlockerIn = DC_Blocker::Processor;
-                    dcBlockerOut0 = DC_Blocker::Processor;
-                    dcBlockerOut1 = DC_Blocker::Processor;
+                    internalDS0 = Internal::Processor (iMode, iSwapOutputsBinary, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
+                    internalDS2 = Internal::Processor (iMode, iSwapOutputsBinary, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent) / 2;
+                    internalDS4 = Internal::Processor (iMode, iSwapOutputsBinary, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent) / 4;
+                    mux3To1Fs = Mux3To1Fs::Processor;
+                    mux3To1Fs1 = Mux3To1Fs::Processor;
                 }
         
                 connection
                 {
-                    modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
-                    flipIn -> mux2To1_0.idxIn, mux2To1_1.idxIn;
+                    //shared input events
+                    modeIn -> internalDS0.modeIn, internalDS2.modeIn, internalDS4.modeIn;
+                    swapIn -> internalDS0.swapIn, internalDS2.swapIn, internalDS4.swapIn;  
+                    frequencyIn -> internalDS0.frequencyIn, internalDS2.frequencyIn, internalDS4.frequencyIn;
+                    attackIn -> internalDS0.attackIn, internalDS2.attackIn, internalDS4.attackIn;
+                    releaseIn -> internalDS0.releaseIn, internalDS2.releaseIn, internalDS4.releaseIn;
+                    sensitivityIn -> internalDS0.sensitivityIn, internalDS2.sensitivityIn, internalDS4.sensitivityIn;
+                    thresholdIn -> internalDS0.thresholdIn, internalDS2.thresholdIn, internalDS4.thresholdIn;
+                    releaseIn -> internalDS0.releaseIn, internalDS2.releaseIn, internalDS4.releaseIn;
+                    stereoLinkLsIn -> internalDS0.stereoLinkLsIn, internalDS2.stereoLinkLsIn, internalDS4.stereoLinkLsIn;
 
-                    in -> dcBlockerIn -> splitCenterSides.in, pCrossover.in, splitLoudSoft.in, splitAttackSustain.in;
+                    //dynamically downsample to 44.1/48 kHz
+                    [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
+        
+                    [sinc] internalDS0.out -> mux3To1Fs.in;
+                    [sinc] internalDS2.out -> mux3To1Fs.in1;
+                    [sinc] internalDS4.out -> mux3To1Fs.in2;
 
-                    splitCenterSides.centerOut -> mux4To1_0.in;
-                    splitCenterSides.sidesOut -> mux4To1_1.in;
+                    [sinc] internalDS0.out1 -> mux3To1Fs1.in;
+                    [sinc] internalDS2.out1 -> mux3To1Fs1.in1;
+                    [sinc] internalDS4.out1 -> mux3To1Fs1.in2;
+        
+                    mux3To1Fs.out -> out;
+                    mux3To1Fs1.out -> out1;
+                }
+            }
+            
+            namespace Internal
+            {
+                graph Processor(int iMode,
+                                int iSwapOutputsBinary,
+                                float iCenterSidesPercent,
+                                float iFrequencyHz,
+                                float iAttackMs,
+                                float iSustainMs,
+                                float iSensitivity_dB,
+                                float iThreshold_dB,
+                                float iReleaseMs,
+                                float iStereoLinkLsPercent)
+                {
+                    input stream SampleType in;
+                    output stream SampleType out, out1;
+            
+                    input
+                    {
+                        event float modeIn;
+                        event float swapIn;
 
-                    pCrossover.lowOut -> mux4To1_0.in1;
-                    pCrossover.highOut -> mux4To1_1.in1;
-                    
-                    splitAttackSustain.attackOut -> mux4To1_0.in2;
-                    splitAttackSustain.sustainOut -> mux4To1_1.in2;
+                        splitCenterSides.centerSidesIn;
 
-                    splitLoudSoft.loudOut -> mux4To1_0.in3;
-                    splitLoudSoft.softOut -> mux4To1_1.in3;
+                        pCrossover.frequencyIn;
 
-                    mux4To1_0.out -> mux2To1_0.in, mux2To1_1.in1;
-                    mux4To1_1.out -> mux2To1_0.in1, mux2To1_1.in;
+                        splitAttackSustain.attackIn;
+                        splitAttackSustain.sustainIn;
+                        splitAttackSustain.sensitivityIn;
 
-                    mux2To1_0.out -> dcBlockerOut0 -> out;
-                    mux2To1_1.out -> dcBlockerOut1 -> out1;
+                        splitLoudSoft.thresholdIn;
+                        splitLoudSoft.releaseIn;
+                        splitLoudSoft.stereoLinkIn stereoLinkLsIn;
+                    }
+            
+                    let
+                    {
+                        //non-boilerplate Processors
+                        splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
+                        pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
+                        splitAttackSustain = SplitAttackSustain::Processor (iAttackMs, iSustainMs, iSensitivity_dB, 100);
+                        splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
+                        
+                        mux4To1_0 = Mux4To1::Processor (iMode);
+                        mux4To1_1 = Mux4To1::Processor (iMode);
+
+                        mux2To1_0 = Mux2To1::Processor (iSwapOutputsBinary);
+                        mux2To1_1 = Mux2To1::Processor (iSwapOutputsBinary);
+
+                        //boilerplate Processors
+                        dcBlockerIn = DC_Blocker::Processor;
+                        dcBlockerOut = DC_Blocker::Processor;
+                        dcBlockerOut1 = DC_Blocker::Processor;
+                    }
+            
+                    connection
+                    {
+                        modeIn -> mux4To1_0.idxIn, mux4To1_1.idxIn;
+                        swapIn -> mux2To1_0.idxIn, mux2To1_1.idxIn;
+
+                        in -> dcBlockerIn -> splitCenterSides.in, pCrossover.in, splitLoudSoft.in, splitAttackSustain.in;
+
+                        splitCenterSides.centerOut -> mux4To1_0.in;
+                        splitCenterSides.sidesOut -> mux4To1_1.in;
+
+                        pCrossover.lowOut -> mux4To1_0.in1;
+                        pCrossover.highOut -> mux4To1_1.in1;
+                        
+                        splitAttackSustain.attackOut -> mux4To1_0.in2;
+                        splitAttackSustain.sustainOut -> mux4To1_1.in2;
+
+                        splitLoudSoft.loudOut -> mux4To1_0.in3;
+                        splitLoudSoft.softOut -> mux4To1_1.in3;
+
+                        mux4To1_0.out -> mux2To1_0.in, mux2To1_1.in1;
+                        mux4To1_1.out -> mux2To1_0.in1, mux2To1_1.in;
+
+                        mux2To1_0.out -> dcBlockerOut -> out;
+                        mux2To1_1.out -> dcBlockerOut1 -> out1;
+                    }
                 }
             }
         }
 
-        /** Upwards/Downwards Ex(pander)/(com)pressor with a colored knee
+        /** Upwards/Downwards (Ex)pander/Com(pressor) with a colored knee
 
             Notes:
             - Use case: limiter, attack/release emphasis/de-emphasis, general dynamics processor, parallel/ny compression
@@ -190,14 +261,14 @@ VA::HighLevel Processors                                                02/12/22
         
                 input
                 {
-                    event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Core"]];
-                    event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Core" ]];
-                    event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Core" ]];
+                    event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Main"]];
+                    event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Main" ]];
+                    event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Main" ]];
 
                     event float ratio0In [[ name: "Post-Threshold", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Ratios" ]];
                     event float ratio1In [[ name: "Pre-Threshold", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Ratios" ]];
 
-                    event float sidechainIn [[ name: "Sidechain", init: 0, boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
+                    event float sidechainIn [[ name: "Sidechain", init: iSidechainBinary, boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
                     event float cutoffIn [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
                     event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1, group: "Detector" ]];
 
@@ -215,7 +286,6 @@ VA::HighLevel Processors                                                02/12/22
                     internalDS4 = Internal::Processor (iSidechainBinary, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 4;
                     mux3To1Fs = Mux3To1Fs::Processor;
                     mux3To1Fs1 = Mux3To1Fs::Processor;
-
                 }
         
                 connection
@@ -299,7 +369,7 @@ VA::HighLevel Processors                                                02/12/22
 
                         absADAA = AbsADAA::Processor;     
 
-                        ballisticsFilter = BallisticsFilterTPT::Processor (iAttackMs, iReleaseMs);
+                        ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                         stereoLink = StereoLink::Processor (iStereoLinkPercent);
                         ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB);
 
@@ -342,67 +412,125 @@ VA::HighLevel Processors                                                02/12/22
             - Loosely based on Boss CE-3 Chorus Pedal
         */
         namespace TheChorus
-        {
-            graph Processor (float iDepthPercent = 50,
+        {            
+            graph Processor(float iDepthPercent = 50,
                             float iRateHz = 2.f,
                             float iWidthDeg = 180,
                             int iMode = Lfo::Modes::Triangle,
                             float iDelayMs = 3,
-                            float iNonlinearity = 0.5f,
-                            float iResonance = 1,
                             float iCutoffHz = 3000,
+                            float iMakeup_dB = 0,
                             float iMixPercent = 50,
-                            float iPan = 0,
-                            float iMakeup_dB = 0)
+                            float iPan = 0)
             {
                 input stream SampleType in;
                 output stream SampleType out;
         
-                input
-                { 
-                    lfo.depthIn [[ name: "Depth", min: 0, max: 100, init: iDepthPercent, unit: "%", step: 1 ]];
-                    lfo.rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1 ]];
-                    lfo.widthIn; //UNSMOOTHED
-                    lfo.modeIn; //UNSMOOTHED
+                input event
+                {
+                    float depthIn [[ name: "Depth", min: 0, max: 100, init: iDepthPercent, unit: "%", step: 1, group: "Main" ]];
+                    float rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1, group: "Main" ]];
+                    float widthIn [[ name: "Width", min: -180, max: 180, init: iWidthDeg, unit: "deg", step: 1, group: "Main" /*UNSMOOTHED*/ ]];
+                    
+                    float modeIn [[ name: "Waveform", init: iMode, boolean, text: "Tri|Sine", group: "LFO" /*UNSMOOTHED*/ ]];
+                    float delayIn [[ name: "Min Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, group: "LFO" /*UNSMOOTHED*/ ]];
+                    float cutoffIn [[ name: "Cutoff", min: 3000, max: 18000, init: iCutoffHz, unit: "Hz", step: 1, group: "BBD Ladder" ]];
 
-                    delayLine.delayIn [[ name: "Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1 /*UNSMOOTHED*/ ]];
-
-                    ladderLpfS.nonlinearityIn;
-                    ladderLpfS.resonanceIn;
-                    ladderLpfS.cutoffIn;
-
-                    smoothedMixPan.mixIn;
-                    smoothedMixPan.panIn;
-                    smoothedVolume.volumeIn makeupIn [[ name: "Makeup", min: -12, max: 12, init: iMakeup_dB, step: 0.1f, unit: "dB" ]];
+                    float makeupIn [[ name: "Makeup", min: -12, max: 12, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Utility" ]];
+                    float mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Utility" ]];
+                    float panIn [[ name: "Pan", min: -1, max: 1, init: iPan, step: 0.01f, group: "Utility" ]];
                 }
         
                 let
                 {
-                    //non-boilerplate Processors
-                    lfo = Lfo::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode);
-                    delayLine = DelayLine::Processor (iDelayMs, 35, 4);
-
-                    ladderLpfS = LadderLpfS::Processor (iCutoffHz, iResonance, iNonlinearity);
-
-                    //boilerplate Processors
-                    dcBlockerIn = DC_Blocker::Processor;
-                    dcBlockerOut = DC_Blocker::Processor;
-
-                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
-                    smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
+                    internalDS0 = Internal::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode, iDelayMs, iCutoffHz, iMakeup_dB, iMixPercent, iPan);
+                    internalDS2 = Internal::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode, iDelayMs, iCutoffHz, iMakeup_dB, iMixPercent, iPan) / 2;
+                    internalDS4 = Internal::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode, iDelayMs, iCutoffHz, iMakeup_dB, iMixPercent, iPan) / 4;
+                    mux3To1Fs = Mux3To1Fs::Processor;
                 }
         
                 connection
                 {
-                    lfo.out -> delayLine.lfoIn;
-                    
-                    in -> dcBlockerIn -> delayLine.in, smoothedMixPan.in;
-                    
-                    delayLine.out -> ladderLpfS.in;
-                    ladderLpfS.out -> smoothedMixPan.in1;
-                    
-                    smoothedMixPan.out -> smoothedVolume.in;
-                    smoothedVolume.out -> dcBlockerOut -> out;
+                    //shared input events
+                    depthIn -> internalDS0.depthIn, internalDS2.depthIn, internalDS4.depthIn;
+                    rateIn -> internalDS0.rateIn, internalDS2.rateIn, internalDS4.rateIn;
+                    widthIn -> internalDS0.widthIn, internalDS2.widthIn, internalDS4.widthIn;
+                    modeIn -> internalDS0.modeIn, internalDS2.modeIn, internalDS4.modeIn;
+                    delayIn -> internalDS0.delayIn, internalDS2.delayIn, internalDS4.delayIn;
+                    cutoffIn -> internalDS0.cutoffIn, internalDS2.cutoffIn, internalDS4.cutoffIn;
+                    makeupIn -> internalDS0.makeupIn, internalDS2.makeupIn, internalDS4.makeupIn;
+                    mixIn -> internalDS0.mixIn, internalDS2.mixIn, internalDS4.mixIn;
+                    panIn -> internalDS0.panIn, internalDS2.panIn, internalDS4.panIn;
+        
+                    //dynamically downsample to 44.1/48 kHz
+                    [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
+        
+                    [sinc] internalDS0.out -> mux3To1Fs.in;
+                    [sinc] internalDS2.out -> mux3To1Fs.in1;
+                    [sinc] internalDS4.out -> mux3To1Fs.in2;
+        
+                    mux3To1Fs.out -> out;
+                }
+            }
+            
+            namespace Internal
+            {
+                graph Processor (float iDepthPercent,
+                                float iRateHz,
+                                float iWidthDeg,
+                                int iMode,
+                                float iDelayMs,
+                                float iCutoffHz,
+                                float iMakeup_dB,
+                                float iMixPercent,
+                                float iPan)
+                {
+                    input stream SampleType in;
+                    output stream SampleType out;
+            
+                    input
+                    { 
+                        lfo.depthIn;
+                        lfo.rateIn;
+                        lfo.widthIn;
+
+                        lfo.modeIn; 
+                        delayLine.delayIn;
+                        ladderLpfS.cutoffIn;
+
+                        smoothedVolume.volumeIn makeupIn;
+                        smoothedMixPan.mixIn;
+                        smoothedMixPan.panIn;
+                    }
+            
+                    let
+                    {
+                        //non-boilerplate Processors
+                        lfo = Lfo::Processor (iDepthPercent, iRateHz, iWidthDeg, iMode);
+                        delayLine = DelayLine::Processor (iDelayMs, 35, 4);
+
+                        ladderLpfS = LadderLpfS::Processor (iCutoffHz, 1, 0.5f);
+
+                        //boilerplate Processors
+                        dcBlockerIn = DC_Blocker::Processor;
+                        dcBlockerOut = DC_Blocker::Processor;
+
+                        smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
+                        smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);
+                    }
+            
+                    connection
+                    {
+                        lfo.out -> delayLine.lfoIn;
+                        
+                        in -> dcBlockerIn -> delayLine.in, smoothedMixPan.in;
+                        
+                        delayLine.out -> ladderLpfS.in;
+                        ladderLpfS.out -> smoothedVolume.in;
+                        smoothedVolume.out -> smoothedMixPan.in1;
+                        
+                        smoothedMixPan.out -> dcBlockerOut -> out;
+                    }
                 }
             }
         }
@@ -796,7 +924,7 @@ Filter Processors                                                       02/14/22
     
             let
             {
-                absADAA = AbsADAA::Processor * 2;
+                absADAA = AbsADAA::Processor;
                 stereoLink = StereoLink::Processor (iStereoLink);
 
                 det = DET::Processor (4, iSustain, 4, iAttack);
@@ -848,7 +976,7 @@ Filter Processors                                                       02/14/22
     
             let
             {
-                absADAA = AbsADAA::Processor * 2;
+                absADAA = AbsADAA::Processor;
                 stereoLink = StereoLink::Processor (iStereoLink);
                 ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
                 ctf = CTF::Processor (iThreshold, iRatio0, iRatio1);
@@ -915,8 +1043,13 @@ Filter Processors                                                       02/14/22
         }
     }
 
-    /** BallisticsFilter without any unit delays in fb loop */
-    namespace BallisticsFilterTPT
+    /** Low pass filter with attack and release controls
+    
+        Notes:
+        - TPT; all feedback loops are zero delay
+        - Equivalent to 'OnepoleC' with differing cutoff depending on rising/falling instantaneous output vs input
+    */
+    namespace BallisticsFilter
     {   
         struct Coeffs
         {
@@ -985,107 +1118,6 @@ Filter Processors                                                       02/14/22
                         out << s.process (in, c);
     
                         advance();
-                    }
-                }
-            }
-        }
-    }
-    
-
-    /** Low pass filter with attack and release controls
-    
-        'OnepoleC' with differing cutoff depending on rising/falling output relative to stored output (feedback)
-    */
-    namespace BallisticsFilter
-    {
-        graph Processor (float iAttack,
-                        float iRelease)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                internal.attackIn;
-                internal.releaseIn;
-            }
-    
-            let
-            {
-                internal = Internal::Processor (iAttack, iRelease);
-                onepoleC = OnepoleC::Processor;
-            }
-    
-            connection
-            {
-                in -> internal.x, onepoleC.in;
-
-                onepoleC.lowpassOut -> [1] -> internal.y;
-                internal.Omega -> onepoleC.Omega;
-
-                onepoleC.lowpassOut -> out;
-            }
-        }
-
-        namespace Internal
-        {
-            struct Coeffs 
-            {
-                SampleType OmegaA;
-                SampleType OmegaR;
-            }
-
-            void update (Coeffs& c, float attack, float release) 
-            {
-                c.OmegaA = SampleType (1000.f / attack);
-                c.OmegaR = SampleType (1000.f / release);
-            }
-
-            SampleType process (SampleType x, SampleType y, const Coeffs& c) 
-            {
-                return viflt (c.OmegaR, c.OmegaA, x, y);  
-            }
-
-            processor Processor(float iAttack,
-                                float iRelease)
-            {
-                input stream SampleType x, y;
-                output stream SampleType Omega;
-        
-                input event
-                { 
-                    float attackIn [[ name: "Attack", min: 0.1f, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
-                    float releaseIn [[ name: "Release", min: 30, max: 3000, init: iRelease, unit: "ms", step: 1 ]];
-                }
-
-                event attackIn (float v) { attack = v; recalc = true; }
-                event releaseIn (float v) { release = v; recalc = true; }
-
-                float attack = iAttack;
-                float release = iRelease;
-                bool recalc = true;
-        
-                void run()
-                {
-                    Coeffs c;
-
-                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-        
-                    loop
-                    {
-                        if (recalc)
-                        {
-                            recalc = false;
-        
-                            c.update (attack, release);
-                        }
-        
-                        loop (updateIntervalSamples)
-                        {
-                            Omega << process (x, y, c);
-
-                            advance();
-                        }
                     }
                 }
             }
@@ -1224,7 +1256,7 @@ Filter Processors                                                       02/14/22
 
     /** Modified version of https://soul.dev/lab/?id=Delay 
     
-        For feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> add your effects here -> DelayLine.in)
+        For feedback make a loop with a unit delay (i.e. DelayLine.out -> [1] -> ${1:add your effects here} -> DelayLine.in)
     */
     namespace DelayLine
     {   
@@ -1232,7 +1264,7 @@ Filter Processors                                                       02/14/22
         {
             static_assert ((maxDelayMs + maxDepthMs) < float (INT_MAX_BUFFER_SIZE_MS), "DelayLine::M [[Filter Processors]]");
             
-            let maxBufferSize = int (((maxDelayMs + maxDepthMs) / float (INT_MAX_BUFFER_SIZE_MS)) * float (INT_MAX_BUFFER_SIZE));
+            let maxBufferSize = int (ceil (((maxDelayMs + maxDepthMs) / float (INT_MAX_BUFFER_SIZE_MS)) * float (INT_MAX_BUFFER_SIZE)));
 
             struct State 
             {
@@ -1288,20 +1320,23 @@ Filter Processors                                                       02/14/22
                 m::State s;
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
 
-                loop
+                if (processor.frequency < 48001)
                 {
-                    if (recalc)
+                    loop
                     {
-                        recalc = false;
-    
-                        m::update (s, delayMs, processor.frequency);
-                    }
-    
-                    loop (updateIntervalSamples)
-                    {
-                        out << m::process (s, in, lfoIn, processor.frequency);
+                        if (recalc)
+                        {
+                            recalc = false;
+        
+                            m::update (s, delayMs, processor.frequency);
+                        }
+        
+                        loop (updateIntervalSamples)
+                        {
+                            out << m::process (s, in, lfoIn, processor.frequency);
 
-                        advance();
+                            advance();
+                        }
                     }
                 }
             }
@@ -1497,7 +1532,7 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
     
             input
             {
-                stereoLink.stereoLinkIn centerSidesIn [[ name: "C/S", min: 0, max: 100, init: iCenterSides, unit: "%", step: 1 ]];
+                stereoLink.stereoLinkIn centerSidesIn [[ name: "Split Amount", min: 0, max: 100, init: iCenterSides, unit: "%", step: 1 ]];
             }
     
             let
@@ -1746,18 +1781,11 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
         {
             return vSgn (x) * SampleType (1.0 / 6.0) * vpow (x, 3);
         }
-
-        SampleType F3 (SampleType x, const Coeffs& c)
-        {
-            return vSgn(x) * SampleType (1.0 / 24.0) * vpow (x, 4);
-        }
     
         struct State
         {
-            SampleType x_3;
             SampleType x_2;
             SampleType x_1;
-            SampleType F3_1;
             SampleType F2_1;
             SampleType F1_1;
         }
@@ -1768,55 +1796,6 @@ Vectorized Instrinsic/Helper Processors                                 01/26/22
             s.x_1 = ZERO;
             s.F2_1 = ZERO;
             s.F1_1 = ZERO;
-        }
-    
-        SampleType processADAA3 (State& s, SampleType x, const Coeffs& c)
-        {
-            //F2_0
-            let x_0mx_1 = x - s.x_1;
-            let F3_0 = F3 (x, c);
-
-            let F2_0 = viflt (
-                F2 (HALF * (x + s.x_1), c), 
-                (F3_0 - s.F3_1) / x_0mx_1,
-                vabs (x_0mx_1), 
-                DIV_TOL
-            );
-
-            //Find F1_0
-            let x_0mx_2 = x - s.x_2;
-    
-            let xBar = HALF * (x + s.x_2);
-            let delta = xBar - s.x_1;
-    
-            let F1_0 = viflt (
-                viflt (
-                    F1 (HALF * (xBar + s.x_1), c),
-                    (TWO / delta) * (F2 (xBar, c) + (s.F3_1 - F3 (xBar, c)) / delta),
-                    vabs (delta), DIV_TOL
-                ),
-                (TWO / (x_0mx_2)) * (F2_0 - s.F2_1),
-                vabs (x_0mx_2), 
-                DIV_TOL
-            );
-
-            //Find f_0
-            let x_1mx_2 = s.x_1 - s.x_2;
-    
-            let f_0 = viflt (f (HALF * (s.x_1 + s.x_2), c), 
-                (F1_0 - s.F1_1) / x_1mx_2,
-                vabs (x_1mx_2), 
-                DIV_TOL);
-
-            //update s
-            s.x_3 = s.x_2;
-            s.x_2 = s.x_1;
-            s.x_1 = x;
-            s.F3_1 = F3_0;
-            s.F2_1 = F2_0;
-            s.F1_1 = F1_0;
-
-            return f_0;
         }
 
         SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
@@ -2927,13 +2906,22 @@ Vectorized Helper Functions                                             02/16/22
         return gOnepole / (ONE + gOnepole);
     }
 
-    /** Convert Omega (rad/s) to the cutoff gain of a TPT Onepole filter 
+    /** vOmegaToG_Onepole without prewarping
     
         Notes:
-        - Optimized for 'updatePerSample'
-        - NOT prewarped
+        - Optimized for per-sample calculations
         - Use with 2x oversampling if using for frequency effects
     */
+    SampleType vOmegaToG_OnepoleUnwarped (SampleType x, float64 fs)
+    {
+        let Tdiv2 = SampleType (1.0 / (2.0 * fs));
+
+        let gOnepole = x * Tdiv2;
+
+        return gOnepole / (ONE + gOnepole);
+    }
+
+    /** Convert Omega (rad/s) to the cutoff gain of a TPT Onepole filter */
     SampleType vOmegaToG_Onepole (SampleType x, float64 fs)
     {
         let Tdiv2 = SampleType (1.0 / (2.0 * fs));
@@ -3074,7 +3062,7 @@ Vectorized Intrinsic Functions                                          01/18/22
     }
 
 /*==============================================================================
-Constants                                                               02/16/22
+Constants                                                               02/19/22
 ==============================================================================*/
 
     //soul::filters
@@ -3102,9 +3090,8 @@ Constants                                                               02/16/22
     let FLOAT_MIN_TAU_MS = 1.f / (40.f * float (pi)); //tau in ms which corresponds to a 20kHz cutoff
 
     //const int
-    let INT_MAX_BUFFER_SIZE = 22050; //for arrays of SampleType
-    let INT_MAX_BUFFER_SIZE_MS = 225; //INT_MAX_BUFFER_SIZE in ms @ 96kHz floored to nearest multiple of 25
-
+    let INT_MAX_BUFFER_SIZE = 48000; //for arrays of SampleType, 1 second of samples
+    let INT_MAX_BUFFER_SIZE_MS = 999; //INT_MAX_BUFFER_SIZE minus 1 ms
 } //namespace VA
 
 
@@ -3120,18 +3107,6 @@ namespace VA::Experimental
     // SampleType vSigmoidC2S (SampleType x, SampleType b) 
     // {
     //     return vSigmoidC2 (b * x) * (ONE / b); 
-    // }
-
-    /** Decode mid/side to stereo */
-    // SampleType vDecodeMidSide (SampleType x)
-    // {
-    //     return SampleType (0.5 * x.sum , 0.5 * (x[0] - x[1]));
-    // }
-
-    /** Encode stereo to mid/side */
-    // SampleType vEncodeMidSide (SampleType x)
-    // {
-    //     return SampleType (x.sum(), x[0] - x[1]);
     // }
 
     /** soul::tpt::svf modified for cutoff/resonance modulation via input streams
