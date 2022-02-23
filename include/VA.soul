@@ -50,9 +50,11 @@
 /** Task List
     - low attack times the split, and compensate attack * 2 for attacks & sustains
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
+    - TheSlew
     - update snippets
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
+    - improved smoothing: linear in gain, exponential in ratio
 */
 
 namespace VA 
@@ -1343,6 +1345,7 @@ Filter Processors                                                       02/14/22
         }
     }
     
+
 /*==============================================================================
 Vectorized Instrinsic/Helper Processors                                 01/26/22
 ==============================================================================*/
@@ -2597,7 +2600,7 @@ Parameter Processors                                                    01/26/22
     {
         let DOUBLE_SLEW_RATE_SECONDS_GAIN = 100.0; //1 unit unipolar sine period is approx 2 units of movement (i.e. the sine modulates b/w 0 and 1); 100/2 = 50 Hz 
         let DOUBLE_SLEW_RATE_SECONDS_DECIBEL = 5000.0; //1 unit unipolar sine period is approx 100dBs of movement; 5000/100 = 50 Hz  
-        let DOUBLE_SLEW_RATE_SECONDS_RATIO = 2000.0; //1 unit unipolar sine period is approx 40 units of movement; 2000/40 = 50 Hz
+        let DOUBLE_SLEW_RATE_SECONDS_RATIO = 500.0; //1 unit unipolar sine period is approx 20 units of movement; 1000/20 = 50 Hz
 
         namespace Modes
         {
@@ -2654,7 +2657,9 @@ Parameter Processors                                                    01/26/22
             {
                 c.target = decodeParameter (parameter, fs);
 
-                if const (mode != Modes::MixPanToGains)
+                if const (mode == Modes::RatioToRatio)
+                    s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
+                else if const (mode != Modes::MixPanToGains)
                     s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
                 else if const (mode == Modes::MixPanToGains)
                 {
@@ -3098,6 +3103,82 @@ Constants                                                               02/19/22
 /** Very unstable and random snippets */
 namespace VA::Experimental
 {
+    // /** A TDF-II Integrator */
+    // namespace Integrator
+    // {   
+    //     struct State
+    //     {
+    //         SampleType s;
+    //     }
+
+    //     SampleType process (State& s, SampleType x, float64 fs)
+    //     {
+    //         let Tdiv2 =  SampleType (1.0 / (2.0 * fs));
+    //         let v = x * Tdiv2;
+            
+    //         let y = v + s.s;
+
+    //         s.s = v + y;
+
+    //         return y;
+    //     }
+
+    //     processor Processor
+    //     {
+    //         input stream SampleType in;
+    //         output stream SampleType out;
+
+    //         void run()
+    //         {   
+    //             State s;
+
+    //             loop
+    //             {
+    //                 out << s.process (in, processor.frequency);
+
+    //                 advance();
+    //             }
+    //         }
+    //     }
+    // }
+
+    // /** A TDF-II Differentiator (Inverse of 'Integrator') */
+    // namespace Differentiator
+    // {   
+    //     struct State
+    //     {
+    //         SampleType s;
+    //     }
+
+    //     SampleType process (State& s, SampleType x, float64 fs)
+    //     {
+    //         let fs2 = SampleType (2.0 * fs);
+    //         let v = x - s.s;
+
+    //         s.s = x + v;
+
+    //         return fs2 * v;
+    //     }
+
+    //     processor Processor
+    //     {
+    //         input stream SampleType in;
+    //         output stream SampleType out;
+
+    //         void run()
+    //         {   
+    //             State s;
+
+    //             loop
+    //             {
+    //                 out << s.process (in, processor.frequency);
+
+    //                 advance();
+    //             }
+    //         }
+    //     }
+    // }
+
     /** vSigmoidC2 with a gain of 1 at the origin and drive (linear gain) of b
     
         Notes:
