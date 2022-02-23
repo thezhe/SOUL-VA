@@ -249,11 +249,11 @@ VA::HighLevel Processors                                                02/20/22
                             float iAttackMs = 1,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
-                            float iThreshold_dB = -50,
+                            float iThreshold_dB = -20,
                             float iRatio0 = 20,
-                            float iRatio1 = 1,
-                            float iSoftness_dB = 24,
-                            float iColor_dB = 24,
+                            float iRatio1 = 0.5f,
+                            float iSoftness_dB = 0,
+                            float iColor_dB = 18,
                             float iHpfCutoffHz = 1,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100)
@@ -3081,7 +3081,7 @@ Constants                                                               02/19/22
     let ONE = SampleType (1.0);
     let TWO = SampleType (2.0);
     
-    let MAX_EFFECT_GAIN = SampleType (1.9);
+    let MAX_EFFECT_GAIN = SampleType (1.8);
 
     let NOISE_FLOOR = SampleType (0.00001); //-100 dB
 

@@ -1,7 +1,7 @@
 /** VSCode snippets (https://code.visualstudio.com/docs/editor/userdefinedsnippets) */
 {	
 	"VA::graph": {
-		"prefix": "VA::graph",
+		"prefix": ["VA::graph", "graph"],
 		"body": [
 			"/** ${2:Description} */",
 			"namespace ${1:Name}",
@@ -34,66 +34,98 @@
 		"description": "Create a 'Processor' in the 'VA' namespace using a 'graph'."
 	},
 
-    "VA::graphHighLevel": {
-        "prefix": "VA::graphHighLevel",
+    "VA::HighLevel::graph": {
+        "prefix": ["VA::HighLevel::graph", "graphHighLevel"],
         "body": [
             "/** ${2:Description}",
             "",
             "    Use case: ${3:Use Case}",
             "*/",
             "namespace ${1:Name}",
-            "{",
-            "    using InType = SampleType;",
-            "    using OutType = SampleType;",
-            "    let oversampling = 1;",
-            "",
-            "    graph Processor(${4:Initial Params},",
-            "                    float iMixPercent = 100,",
-            "                    float iPan = 0,",
-            "                    float iMakeupVolume_dB = 0)",
+            "{            ",
+            "    graph Processor(${4:Initial Params}",
+            "                    float iMakeup_dB = 0,",
+            "                    float iMixPercent = 100)",
             "    {",
-            "        input stream InType in;",
-            "        output stream OutType out;",
+            "        input stream SampleType in ${7:Extra Input Streams};",
+            "        output stream SampleType out ${8:Extra Output Streams};",
             "",
-            "        input",
+            "        input event",
             "        {",
-            "            ${5:Non-Boilerplate Input Events}",
-            "",
-            "            smoothedMixPan.mixIn;",
-            "            smoothedMixPan.panIn;",
-            "            smoothedVolume.volumeIn makeupVolumeIn [[ name: \"Makeup Volume\", min: -12, max: 12, init: iMakeupVolume_dB, step: 0.1f, unit: \"dB\" ]];",
+            "            ${6:Shared Input Events}",
             "        }",
             "",
             "        let",
             "        {",
-            "            //non-boilerplate Processors",
-            "            ${6:Non-Boilerplate Processors}",
-            "",
-            "            //boilerplate Processors",
-            "            dcBlockerIn = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);",
-            "            dcBlockerOut = filt::dc_blocker::Processor (FLOAT_DC_BLOCKER_CUTOFF_HZ);",
-            "",
-            "            smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, iPan);",
-            "            smoothedVolume = SmoothedVolume::Processor (iMakeupVolume_dB);",
+            "            internalDS0 = Internal::Processor (${5:Pass Initial Params});",
+            "            internalDS2 = Internal::Processor (${5:Pass Initial Params}) / 2;",
+            "            internalDS4 = Internal::Processor (${5:Pass Initial Params}) / 4;",
+            "            mux3To1Fs = Mux3To1Fs::Processor;",
             "        }",
             "",
             "        connection",
             "        {",
-            "            in -> dcBlockerIn -> smoothedMixPan.in0, ${7:Non-Boilerplate Input(s)};",
-            "            ",
+            "            //shared input events",
+            "            ${9:Connect DS Input Events}",
             "",
-            "            ${8:Non-Boilerplate Output(s)} -> smoothedMixPan.in1;",
-            "            smoothedMixPan.out -> smoothedVolume.in;",
-            "            smoothedVolume.out -> dcBlockerOut -> out;",
+            "            //dynamically downsample to 44.1/48 kHz",
+            "            [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;",
+            "",
+            "            [sinc] internalDS0.out -> mux3To1Fs.in;",
+            "            [sinc] internalDS2.out -> mux3To1Fs.in1;",
+            "            [sinc] internalDS4.out -> mux3To1Fs.in2;",
+            "",
+            "            mux3To1Fs.out -> out;",
+            "        }",
+            "    }",
+            "    ",
+            "    namespace Internal",
+            "    {",
+            "        graph Processor(${4:Initial Params}",
+            "                        float iMakeup_dB,",
+            "                        float iMixPercent)",
+            "        {",
+            "            input stream SampleType in ${7:Extra Input Streams};",
+            "            output stream SampleType out ${8:Extra Output Streams};",
+            "",
+            "            input",
+            "            {",
+            "                ${10:Non-Boilerplate Input Events}",
+            "            ",
+            "                smoothedVolume.volumeIn makeupIn;",
+            "                smoothedMixPan.mixIn;",
+            "            }",
+            "",
+            "            let",
+            "            {",
+            "                //non-boilerplate Processors",
+            "                ${11:Non-Boilerplate Processors}",
+            "",
+            "                //boilerplate Processors",
+            "                dcBlockerIn = DC_Blocker::Processor;",
+            "                dcBlockerOut = DC_Blocker::Processor;",
+            "",
+            "                smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);",
+            "                smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);",
+            "            }",
+            "",
+            "            connection",
+            "            {",
+            "                in -> dcBlockerIn -> smoothedMixPan.in, ${12:Non-Boilerplate Input(s)};",
+            "",
+            "                ${13:Non-Boilerplate Output(s)} -> smoothedVolume.in;",
+            "                smoothedVolume.out -> smoothedMixPan.in1;",
+            "                smoothedMixPan.out -> dcBlockerOut -> out;",
+            "            }",
             "        }",
             "    }",
             "}"
         ],
-        "description": "Create a 'Processor' in the 'VA::HighLevel' using a 'graph'."
+        "description": "Create a 'Processor' in the 'VA' namespace using a 'graph'"
     },
 
     "VA::processor": {
-		"prefix": "VA::processor",
+		"prefix": ["VA::processor", "processor"],
 		"body": [
 			"/** ${2:Description} */",
 			"namespace ${1:Name}",
@@ -178,7 +210,7 @@
 	},
 
 	"VA::processorADAA": {
-        "prefix": "VA::processorADAA",
+        "prefix": ["VA::processorADAA", "processorADAA"],
         "body": [
             "/** ${2:Description of STATELESS function 'f'}",
             "",
@@ -345,7 +377,7 @@
     },
 
     "VA::Modes": {
-        "prefix": "VA::Modes",
+        "prefix": ["VA::Modes", "Modes"],
         "body": [
             "namespace Modes",
             "{",
@@ -374,15 +406,15 @@
     },
 
     "VA::EventParam": {
-        "prefix": "VA::EventParam",
+        "prefix": ["VA::EventParam", "EventParam"],
         "body": [
             "input event float ${1:Endpoint Name}In [[ name: \"${2:Name}\", min: ${3:Min}, max: ${4:Max}, init: ${5:Init}, step: ${6:Step}, unit: \"${7:Unit}\" ]];"
         ],
         "description": "An endpoint of type 'input event float'; this is updated internally every updateInterval."
     },
 
-    "VA::ConnectDS": {
-        "prefix": "VA::ConnectDS",
+    "VA::HighLevel::ConnectDS": {
+        "prefix": ["VA::HighLevel::ConnectDS", "ConnectDS"],
         "body": [
             "${1:Endpoint Name}In -> internalDS0.${1:Endpoint Name}In, internalDS2.${1:Endpoint Name}In, internalDS4.${1:Endpoint Name}In;"
         ],
