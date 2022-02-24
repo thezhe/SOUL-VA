@@ -22,7 +22,6 @@
     The interface is nearly identical to soul::filters EXCEPT:
     - Effects are 'Processors' under 'VA::HighLevel'
     - Each effect has at least input and output SampleType streams called 'in' and an 'out'
-    - The last 'input event float' is always 'fsIn'. Set this to the current sampling rate.
     - No user-defined types:
         *'SampleType' is float64<2>
         *The internal 'CoeffType' is float64<2>
@@ -34,7 +33,9 @@
     - Algebraic operations are preferred to avoid expensive transcendentals while providing superior
     accuracy and modulate-ability than look up tables
     See: https://en.wikipedia.org/wiki/Algebraic_function
-    - 44.1 and 48kHz are the recommended sampling rates, but rates up through 192kHz are officially supported
+    - Common sampling rates from 44.1 to 192 kHz are supported, but the internal sampling rate will always be either 
+    44.1 or 48 kHz. This allows for consistent rendering and antialiasing of all effects, including ones that behave 
+    differently depending on sample rate.
     - Each section is marked with a date of last stable update (MM/DD/YYYY)
 */
 
