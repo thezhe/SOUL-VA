@@ -54,6 +54,7 @@
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
     - TheSlew
     - update snippets
+    - more Processors, include integrator processors, more modularity and oversampling/ADAA granularity
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
     - improved smoothing: linear in gain, exponential in ratio
@@ -373,7 +374,7 @@ VA::HighLevel Processors                                                02/24/22
 
                         absADAA = AbsADAA::Processor;     
 
-                        ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs) * 8;
+                        ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                         stereoLink = StereoLink::Processor (iStereoLinkPercent);
                         ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB);
 
@@ -1056,6 +1057,8 @@ Filter Processors                                                       02/24/22
     */
     namespace BallisticsFilter
     {
+        let oversampling = 2;
+
         graph Processor(float iAttack,
                         float iRelease)
         {
@@ -1064,22 +1067,51 @@ Filter Processors                                                       02/24/22
     
             input
             {
-                branchingCutoff.attackIn;
-                branchingCutoff.releaseIn;
+                smoothedParameter.in attackIn [[ name: "Attack", min: 0.5f, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
+                smoothedParameter1.in releaseIn [[ name: "Release", min: 30, max: 3000, init: iRelease, unit: "ms", step: 1 ]];
             }
     
             let
             {
-                branchingCutoff = BranchingCutoff::Processor(iAttack, iRelease);
-                onepoleC = OnepoleC::Processor;
+                smoothedParameter = SmoothedParameter::Processor(float[] (iAttack), SmoothedParameter::Modes::TauToOmega);
+                smoothedParameter1 = SmoothedParameter::Processor(float[] (iRelease), SmoothedParameter::Modes::TauToOmega);
+                
+                internal = Internal::Processor * oversampling;
             }
     
             connection
             {
-                in -> onepoleC.in, branchingCutoff.in;
-                onepoleC.stateOut -> [1] -> branchingCutoff.stateIn;
-                branchingCutoff.OmegaOut -> onepoleC.Omega;
-                onepoleC.lowpassOut -> out;
+                smoothedParameter.out -> internal.attackIn;
+                smoothedParameter1.out -> internal.releaseIn;
+
+                in -> internal.in;
+                internal.out -> out;
+            }
+        }
+        
+        namespace Internal
+        {
+            graph Processor()
+            {
+                input stream SampleType in, attackIn, releaseIn;
+                output stream SampleType out;
+
+                let
+                {
+                    branchingCutoff = BranchingCutoff::Processor;
+                    onepoleC = OnepoleC::Processor;
+                }
+        
+                connection
+                {
+                    attackIn -> branchingCutoff.attackIn;
+                    releaseIn -> branchingCutoff.releaseIn;
+
+                    in -> onepoleC.in, branchingCutoff.in;
+                    onepoleC.stateOut -> [1] -> branchingCutoff.stateIn;
+                    branchingCutoff.OmegaOut -> onepoleC.Omega;
+                    onepoleC.lowpassOut -> out;
+                }
             }
         }
     }
@@ -1312,248 +1344,40 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
     /** Branching Cutoff for TPT Ballistics Filter */
     namespace BranchingCutoff
     {
-        graph Processor(float iAttack,
-                        float iRelease)
+        graph Processor()
         {
-            input stream SampleType in, stateIn;
+            input stream SampleType in, stateIn, attackIn, releaseIn;
             output stream SampleType OmegaOut;
-    
-            input
-            {
-                smoothedParameter.in attackIn [[ name: "Attack", min: 1, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
-                smoothedParameter1.in releaseIn [[ name: "Release", min: 30, max: 3000, init: iRelease, unit: "ms", step: 1 ]];
-            }
     
             let
             {
-                smoothedParameter = SmoothedParameter::Processor(float[] (iAttack), SmoothedParameter::Modes::TauToOmega);
-                smoothedParameter1 = SmoothedParameter::Processor(float[] (iRelease), SmoothedParameter::Modes::TauToOmega);
                 sum = Sum::Processor;
                 difference = Difference::Processor;
                 difference1 = Difference::Processor;
                 applyGain = ApplyGain::Processor;
+
                 step = Step::Processor;
             }
     
             connection
             {
+                //apply branching via step
                 in -> difference.in;
                 stateIn -> difference.in1;
-
                 difference.out -> step.in;
 
-                smoothedParameter.out -> difference1.in;
-                smoothedParameter1.out -> difference1.in1, sum.in1;
+                //scale and bias step
+                attackIn -> difference1.in;
+                releaseIn -> difference1.in1, sum.in;
                 difference1.out -> applyGain.b;
                 step.out -> applyGain.in;
-
-                applyGain.out -> sum.in;
+                applyGain.out -> sum.in1;
                 sum.out -> OmegaOut;
-
             }
         }
     }
 
-    /** Unit Step function derived from the derivative of AbsADAA
-    
-        Notes:
-        - ADAA specifically optimized for signal rectification (see 'TheExpressor' and 'ExpressorClassical')
-    */
-    namespace StepADAA (int ORDER = 2)
-    {   
-        struct Coeffs
-        {
-        }
-
-        SampleType f (SampleType x, const Coeffs& c)
-        {
-            return viflt (-ONE, ONE, x, ZERO);
-        }
-
-        SampleType F1 (SampleType x, const Coeffs& c)
-        {
-            return vabs(x);
-        }
-    
-        SampleType F2 (SampleType x, const Coeffs& c)
-        {
-            return vSgn(x) * HALF * vpow (x, 2);
-        }
-    
-        SampleType F3 (SampleType x, const Coeffs& c)
-        {
-            return vSgn (x) * SampleType (1.0 / 6.0) * vpow (x, 3);
-        }
-
-        SampleType F (int o, SampleType x, const Coeffs& c)
-        {
-            if (o == 0)
-                return f (x, c);
-            else if (o == 1)
-                return F1 (x, c);
-            else if (o == 2)
-                return F2 (x, c);
-            else if (o == 3)
-                return F3 (x, c);
-            else
-                return ZERO;
-        }
-
-        //max order is currently 3
-        struct State
-        {
-            SampleType [4] x; //x.at(i) <-> x*z^-i
-            SampleType [4] F_0; //F.at(i) <-> F(i, x, c)
-            SampleType [4] F_1; //F_1.at(i) <-> F(i + 1, x, c)*z^-1
-        }
-
-        void reset (State& s)
-        {
-            s.x = s.x.type();
-            s.F_0 = s.F_0.type();
-            s.F_1 = s.F_1.type();
-        }
-    
-        //Differential operator for ADAA of order 'o' 
-        //i is iteration number 
-        //e.g., for 2nd order run D(1, 2, s, x, c) and then D(2, 2, s, x, c)
-        void D (int i, int o, State& s, SampleType x, const Coeffs& c)
-        {
-            let n = (i - 1)/2; //each 2 orders adds a sample delay
-            let co = o - i + 1; //current order
-            
-            if (i == 1)
-            {
-                s.x.at(0) = x;
-                s.F_0.at(co) = F (co, s.x.at(n), c);
-            }
-            
-            if ((i & 1) == 1) //odd derivative
-            {
-                let div = s.x.at(n) - s.x.at(n+1);
-
-                s.F_0.at(co-1) = viflt (
-                    F(co-1, HALF * (s.x.at(n) + s.x.at(n + 1)), c), 
-                    (s.F_0.at(co) - s.F_1.at(co)) / div,
-                    vabs (div), 
-                    DIV_TOL
-                );
-
-              
-            }
-            else //even iteration
-            {
-                let div2 = s.x.at(n) - s.x.at(n+2);
-        
-                let xBar = HALF * (s.x.at(n) + s.x.at(n+2));
-                let delta = xBar - s.x.at(n+1);
-        
-                s.F_0.at(co-1) = viflt (
-                    viflt (
-                        F (co-1, HALF * (xBar + s.x.at(n+1)), c),
-                        (TWO / delta) * (F (co ,xBar, c) + (s.F_1.at(co+1) - F (co+1, xBar, c)) / delta),
-                        vabs (delta),
-                        DIV_TOL
-                    ),
-                    (TWO / div2) * (s.F_0.at(co) - s.F_1.at(co)),
-                    vabs (div2), 
-                    DIV_TOL
-                );
-            }
-
-            //update state
-            if (i == o)
-            {
-                s.x.at(3) = s.x.at(2);
-                s.x.at(2) = s.x.at(1);
-                s.x.at(1) = x;
-                s.F_1.at(3) = s.F_0.at(3);
-                s.F_1.at(2) = s.F_0.at(2);
-                s.F_1.at(1) = s.F_0.at(1);
-            }
-        }
-
-        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
-        {
-            //Find F1_0
-            let div = x - s.x.at(1);
-            s.F_0.at(2) = F2 (x, c);
-    
-            s.F_0.at(1) = viflt (F1 (HALF * (x + s.x.at(1)), c), 
-                (s.F_0.at(2) - s.F_1.at(2)) / div,
-                vabs (div), DIV_TOL);
-    
-            //Find f_0
-            let div2 = x - s.x.at(2);
-    
-            let xBar = HALF * (x + s.x.at(2));
-            let delta = xBar - s.x.at(1);
-    
-            s.F_0.at(0) = viflt (
-                viflt (
-                    f (HALF * (xBar + s.x.at(1)), c),
-                    (TWO / delta) * (F1 (xBar, c) + (s.F_1.at(2) - F2 (xBar, c)) / delta),
-                    vabs (delta), DIV_TOL
-                ),
-                (TWO / div2) * (s.F_0.at(1) - s.F_1.at(1)),
-                vabs (div2), DIV_TOL
-            );
-    
-            //update s
-            s.x.at(2) = s.x.at(1);
-            s.x.at(1) = x;
-            s.F_1.at(2) = s.F_0.at(2);
-            s.F_1.at(1) = s.F_0.at(1);
-    
-            return s.F_0.at(0);
-        }
-    
-        // SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)
-        // {
-        //     //Find f_0
-        //     let x_0mx_1 = x - s.x_1;
-        //     let F1_0 = F1 (x, c);
-    
-        //     let f_0 = viflt (f (HALF * (x + s.x_1), c), 
-        //         (F1_0 - s.F1_1) / x_0mx_1,
-        //         vabs (x_0mx_1), DIV_TOL);
-    
-        //     //update s
-        //     s.x_1 = x;
-        //     s.F1_1 = F1_0;
-    
-        //     return f_0;
-        // }
-    
-        SampleType process (State& s, SampleType x, const Coeffs& c)
-        {
-            for (int i = 1; i < ORDER + 1; ++i)
-                D (i, ORDER, s, x, c);
-            
-            return (s.F_0.at(0) + ONE) * HALF;
-           //return processADAA2(s, x, c);
-        }
-    
-        processor Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            void run()
-            {
-                State s;
-                Coeffs c;
-    
-                loop
-                {
-                    out << s.process (in, c);
-
-                    advance();
-                }
-            }
-        }
-    }
-
+    /** 'vStep' wrapper */
     namespace Step
     {
         processor Processor()
