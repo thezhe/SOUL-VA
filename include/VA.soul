@@ -1073,8 +1073,8 @@ Filter Processors                                                       02/24/22
     
             let
             {
-                unsmoothedParameter = UnsmoothedParameter::Processor(iAttack);
-                unsmoothedParameter1 = UnsmoothedParameter::Processor(iRelease);
+                unsmoothedParameter = UnsmoothedParameter::Processor(iAttack, UnsmoothedParameter::Modes::TauToOmega);
+                unsmoothedParameter1 = UnsmoothedParameter::Processor(iRelease, UnsmoothedParameter::Modes::TauToOmega);
                 
                 internal = Internal::Processor * oversampling;
             }
@@ -2889,18 +2889,39 @@ Parameter Processors                                                    02/24/22
 
     /** Map a float event directly to a SampleType stream */
     namespace UnsmoothedParameter
-    {                       
-        processor Processor (float iParameter)
+    {     
+        namespace Modes
+        {
+            let TauToOmega = 0;
+            let NumModes = 1;
+        }
+
+        namespace M (int mode = Modes::TauToOmega)
+        {
+            static_assert ((mode > -1) && (mode < Modes::NumModes), "UnsmoothedParameter::M [[Parameter Processors]]");
+
+            SampleType decodeParameter (float parameter)
+            {
+                if const (mode == Modes::TauToOmega)
+                    return vTauToOmega (parameter);
+                else 
+                    return ZERO;
+            }
+        }
+
+        processor Processor (float iParameter, int mode)
         {              
             output stream SampleType out;
 
             input event float in;
-            event in (float v) { param = SampleType (v); }
-    
-            SampleType param = SampleType (iParameter);
+            event in (float v) { param = M(mode)::decodeParameter (v); }
+
+            SampleType param;
 
             void run()
             {   
+                param = M(mode)::decodeParameter (iParameter);
+
                 loop
                 {
                     out << param;
