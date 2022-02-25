@@ -1,11 +1,11 @@
 
 # Octave Examples
-The following sections explain the outputs placed in `results/` after running `test.(bat/sh)` on different `VA::HighLevel` effects (instantiated in `effects.soul`). 
+The following sections explain the outputs placed in `results/` after running `test.(bat/sh)` on different `VA::HighLevel` effects (instantiated in `effects.soul`). Note that the script runs at 44.1, 96, and 192 kHz; this combined with SOUL's speed may be slow.
 
 ## Parameters
-Each effect is tested with approximately the most aliasing-prone parameter values within the valid set of parameter values. This does NOT mean that the plugin will be alias-free (up to -60dB) for all input signal.parameter combinations; nonetheless, this is still an ambitious goal and ensures that aliasing is virtually inaudible under all circumstances. Below are the parameter values in the order of the Processor's instance declarations.
+Each effect is tested with approximately the most aliasing-prone parameter values within the valid set of parameter values. This does NOT mean that the plugin will be alias-free (up to -60dB, assuming parameters are not being modulated) for all input signal.parameter combinations; nonetheless, this is still an ambitious goal and ensures that aliasing is virtually inaudible under all circumstances. Below are the parameter values in the order of the Processor's instance declarations.
 
-- TheExpressor: 0, 1, 30, 0 , -20, 20, 0.5, 0, 18, 1, 0, 100
+- TheExpressor: 0, 0.5f, 30, 0 , -20, 20, 0.5f, 0, 18, 1, 0, 100
 
 ### Example Effect 1: `TheDummy`
 The system is trivial (and linear) and simply passes signals through unmodified. Notice how the step response input is actually a pulse signal with values 0.5 and 0.25 so that the test can measure overshoot (up towards 1) and undershoot (down towards -1). The DC IO plot is the same as the decibel mapping of a dynamic range compressor with a ratio of 1 and SinRamp IO plot shows what the system would look like as a waveshaper (may not always be a function). 
