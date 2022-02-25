@@ -252,11 +252,11 @@ VA::HighLevel Processors                                                02/24/22
                             float iAttackMs = 0.5f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
-                            float iThreshold_dB = -20,
+                            float iThreshold_dB = -50,
                             float iRatio0 = 20,
-                            float iRatio1 = 0.5f,
+                            float iRatio1 = 1,
                             float iSoftness_dB = 0,
-                            float iColor_dB = 18,
+                            float iColor_dB = 0,
                             float iHpfCutoffHz = 1,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100)
@@ -1067,22 +1067,22 @@ Filter Processors                                                       02/24/22
     
             input
             {
-                smoothedParameter.in attackIn [[ name: "Attack", min: 0.5f, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
-                smoothedParameter1.in releaseIn [[ name: "Release", min: 30, max: 3000, init: iRelease, unit: "ms", step: 1 ]];
+                unsmoothedParameter.in attackIn [[ name: "Attack", min: 0.5f, max: 50, init: iAttack, unit: "ms", step: 0.1 ]];
+                unsmoothedParameter1.in releaseIn [[ name: "Release", min: 30, max: 3000, init: iRelease, unit: "ms", step: 1 ]];
             }
     
             let
             {
-                smoothedParameter = SmoothedParameter::Processor(float[] (iAttack), SmoothedParameter::Modes::TauToOmega);
-                smoothedParameter1 = SmoothedParameter::Processor(float[] (iRelease), SmoothedParameter::Modes::TauToOmega);
+                unsmoothedParameter = UnsmoothedParameter::Processor(iAttack);
+                unsmoothedParameter1 = UnsmoothedParameter::Processor(iRelease);
                 
                 internal = Internal::Processor * oversampling;
             }
     
             connection
             {
-                smoothedParameter.out -> internal.attackIn;
-                smoothedParameter1.out -> internal.releaseIn;
+                unsmoothedParameter.out -> internal.attackIn;
+                unsmoothedParameter1.out -> internal.releaseIn;
 
                 in -> internal.in;
                 internal.out -> out;
@@ -2717,7 +2717,7 @@ Parameter Processors                                                    02/24/22
         }
     }
 
-    /** Maps float event(s) to smoothed SampleType stream(s); heavily modified version of soul::gain::SmoothedGainParameter
+    /** Map float event(s) to smoothed SampleType stream(s); heavily modified version of soul::gain::SmoothedGainParameter
 
         Note:
         - float event(s) are smoothed s.t. their maximum sine modulation frequency that preserves their amplitude is 50 Hz
@@ -2886,6 +2886,31 @@ Parameter Processors                                                    02/24/22
             }
         }
     }
+
+    /** Map a float event directly to a SampleType stream */
+    namespace UnsmoothedParameter
+    {                       
+        processor Processor (float iParameter)
+        {              
+            output stream SampleType out;
+
+            input event float in;
+            event in (float v) { param = SampleType (v); }
+    
+            SampleType param = SampleType (iParameter);
+
+            void run()
+            {   
+                loop
+                {
+                    out << param;
+
+                    advance();
+                }
+            }
+        }
+    }
+    
 
 /*==============================================================================
 Vectorized Helper Functions                                             02/24/22
