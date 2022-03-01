@@ -53,11 +53,14 @@
     - low attack times the split, and compensate attack * 2 for attacks & sustains
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
     - TheSlew
+    - Mux2To1 make annotation bool
+    - phase inverts group as wet and output
     - update snippets
+    - true bypass via dry mix
     - more Processors, include integrator processors, more modularity and oversampling/ADAA granularity
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
-    - improved smoothing: linear in gain, exponential in ratio
+    - improved smoothing: linear in gain, exponential in ratio, *ToOmega modes decide if smoothing based on Omega or integrator gain
 */
 
 namespace VA 
@@ -72,6 +75,66 @@ VA::HighLevel Processors                                                02/24/22
     */
     namespace HighLevel
     {  
+        /** Utility Processor
+        
+            Use case: Mix, Pan, Makeup, and Complement
+            Note: This is a common Processor and will be used in all other Processors in this namespace
+        */
+        namespace TheUtility
+        {                        
+            graph Processor(bool iWetComplement_Bool = false,
+                            bool iInvertWetL_Bool = false,
+                            bool iInvertWetR_Bool = false,
+                            float iMakeup_dB = 0,
+                            float iMixPercent = 100,
+                            float iPanDry = 0,
+                            float iPanWet = 0,
+                            float iInvertOutL_Bool = false,
+                            float iInvertOutR_Bool = false)
+            {
+                input stream SampleType in, wetIn;
+                output stream SampleType out;
+    
+                input
+                {
+                    mux2To1.idxIn;                    
+
+                    phaseInverts.invertL_In invertWetL_In;
+                    phaseInverts.invertR_In invertWetR_In;
+
+                    smoothedMakeupMixPans.makeupIn;
+                    smoothedMakeupMixPans.mixIn;
+                    smoothedMakeupMixPans.panDryIn;
+                    smoothedMakeupMixPans.panWetIn;
+
+                    phaseInverts1.invertL_In invertOutL_In;
+                    phaseInverts1.invertR_In invertOutR_In;
+                }
+    
+                let
+                {
+                    smoothedMakeupMixPans = SmoothedMakeupMixPans::Processor (iMakeup_dB, iMixPercent, iPanDry, iPanWet);
+                    phaseInverts = PhaseInverts::Processor (iInvertWetL_Bool, iInvertWetR_Bool);
+                    phaseInverts1 = PhaseInverts::Processor (iInvertOutL_Bool, iInvertOutR_Bool);
+
+                    mux2To1 = Mux2To1::Processor;
+                    difference = Difference::Processor;
+                }
+    
+                connection
+                {
+                    in -> difference.in, smoothedMakeupMixPans.in;
+                    wetIn -> difference.in1, mux2To1.in;
+                    difference.out -> mux2To1.in1;
+                    mux2To1.out -> phaseInverts.in;
+
+                    phaseInverts.out -> smoothedMakeupMixPans.wetIn;
+                    smoothedMakeupMixPans.out -> phaseInverts1.in;
+                    phaseInverts1.out -> out;
+                }
+            }
+        }
+
         /** Signal splitter
     
             Use case: Center/Sides (spatial), Crossover (frequency), Loud/Soft (amplitude), Attack/Sustain (time)
@@ -674,8 +737,8 @@ Filter Processors                                                       02/24/22
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (iCutoff), SmoothedParameter::Modes::G_OnepoleToGain, oversampling);
-                smoothedParameter1 = SmoothedParameter::Processor (float[] (iResonance), SmoothedParameter::Modes::GainToGain);
+                smoothedParameter0 = UnsmoothedParameter::Processor (float[] (iCutoff), UnsmoothedParameter::Mode::Identity);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (iResonance), SmoothedParameter::ModeIdx::GainToGain);
                 
                 internal = Internal::Processor (iNonlinearity) * oversampling;
             }
@@ -1073,8 +1136,8 @@ Filter Processors                                                       02/24/22
     
             let
             {
-                unsmoothedParameter = UnsmoothedParameter::Processor(iAttack, UnsmoothedParameter::Modes::TauToOmega);
-                unsmoothedParameter1 = UnsmoothedParameter::Processor(iRelease, UnsmoothedParameter::Modes::TauToOmega);
+                unsmoothedParameter = UnsmoothedParameter::Processor(float[] (iAttack), UnsmoothedParameter::Mode::TauToOmega);
+                unsmoothedParameter1 = UnsmoothedParameter::Processor(float[] (iRelease), UnsmoothedParameter::Mode::TauToOmega);
                 
                 internal = Internal::Processor * oversampling;
             }
@@ -1420,11 +1483,11 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (iThreshold), SmoothedParameter::Modes::DecibelToDecibel);
-                smoothedParameter1 = SmoothedParameter::Processor (float[] (iRatio0), SmoothedParameter::Modes::RatioToRatio);
-                smoothedParameter2 = SmoothedParameter::Processor (float[] (iRatio1), SmoothedParameter::Modes::RatioToRatio);
-                smoothedParameter3 = SmoothedParameter::Processor (float[] (iSoftness), SmoothedParameter::Modes::DecibelToDecibel);
-                smoothedParameter4 = SmoothedParameter::Processor (float[] (iColor), SmoothedParameter::Modes::DecibelToDecibel);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iThreshold), SmoothedParameter::ModeIdx::DecibelToDecibel);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (iRatio0), SmoothedParameter::ModeIdx::RatioToRatio);
+                smoothedParameter2 = SmoothedParameter::Processor (float[] (iRatio1), SmoothedParameter::ModeIdx::RatioToRatio);
+                smoothedParameter3 = SmoothedParameter::Processor (float[] (iSoftness), SmoothedParameter::ModeIdx::DecibelToDecibel);
+                smoothedParameter4 = SmoothedParameter::Processor (float[] (iColor), SmoothedParameter::ModeIdx::DecibelToDecibel);
 
                 internal = Internal::Processor;
             }
@@ -1510,9 +1573,9 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (iThreshold), SmoothedParameter::Modes::DecibelToDecibel);
-                smoothedParameter1 = SmoothedParameter::Processor (float[] (iRatio0), SmoothedParameter::Modes::RatioToRatio);
-                smoothedParameter2 = SmoothedParameter::Processor (float[] (iRatio1), SmoothedParameter::Modes::RatioToRatio);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iThreshold), SmoothedParameter::ModeIdx::DecibelToDecibel);
+                smoothedParameter1 = SmoothedParameter::Processor (float[] (iRatio0), SmoothedParameter::ModeIdx::RatioToRatio);
+                smoothedParameter2 = SmoothedParameter::Processor (float[] (iRatio1), SmoothedParameter::ModeIdx::RatioToRatio);
 
                 internal = Internal::Processor;
             }
@@ -2025,6 +2088,36 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
         }
     }
 
+    namespace PhaseInverts
+    {
+        graph Processor(bool iInvertL, bool iInvertR)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                unsmoothedParameter.in invertR_In;
+                unsmoothedParameter.in1 invertL_In;
+            }
+    
+            let
+            {
+                unsmoothedParameter = UnsmoothedParameter::Processor (boolToFloat (iInvertL), boolToFloat (iInvertR));
+                applyGain = ApplyGain::Processor;
+            }
+    
+            connection
+            {
+                unsmoothedParameter.out -> applyGain.b;
+
+                in -> applyGain.in;
+
+                applyGain -> out;
+            }
+        }
+    }
+
     /** out = b * in */
     namespace ApplyGain
     {
@@ -2341,54 +2434,9 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             }
         }
     }
-    
-    namespace Constant
-    {
-        processor Processor(float iConstant)
-        {
-            output stream SampleType out;
-
-            let constant = SampleType (iConstant);
-
-            void run()
-            {
-                loop
-                {
-                    out << constant;
-
-                    advance();
-                }
-            }
-        }
-    }
-
-    namespace Variable
-    {   
-        processor Processor (float iVariable)
-        {
-            output stream SampleType out;
-
-            input event float variableIn [[ name: "Variable", min: 0, max: 1, init: initialVariable, step: 0.01 ]];
-    
-            event variableIn (float v) { variable = SampleType (v); }
-    
-            SampleType variable = SampleType (iVariable);
-            bool recalc = true;
-    
-            void run()
-            {   
-                loop
-                {
-                    out << variable;
-
-                    advance();
-                }
-            }
-        }
-    }
 
 /*==============================================================================
-Mix Processors                                                          01/18/22
+Mix Processors                                                          03/01/22
 ==============================================================================*/
     
     /** Apply a volume via 'AutoParameter' and 'SmoothedVolume' */
@@ -2437,7 +2485,7 @@ Mix Processors                                                          01/18/22
 
             let
             {
-                smoothedGains = SmoothedParameter::Processor (float[2] (iMix, iPan), SmoothedParameter::Modes::MixPanToGains);
+                smoothedGains = SmoothedParameter::Processor (float[2] (iMix, iPan), SmoothedParameter::ModeIdx::MixPanToGains);
                 applyGains = ApplyGains::Processor;
             }
     
@@ -2454,6 +2502,41 @@ Mix Processors                                                          01/18/22
         }
     }
     
+    /** Apply makeup, mixing and panning via 'SmoothedParameter' */
+    namespace SmoothedMakeupMixPans
+    {
+        graph Processor(float iMakeup, float iMix, float iPanDry, float iPanWet)
+        {
+            input stream SampleType in, wetIn;
+            output stream SampleType out;
+    
+            input
+            {
+                smoothedParameter.in makeupIn [[ name: "Makeup", min: -24, max: 24, init: iMakeup, unit: "dB", step: 0.1 ]];
+                smoothedParameter.in1 mixIn [[ name: "Mix", min: 0, max: 100, init: iMix, unit: "%", step: 1 ]];
+                smoothedParameter.in2 panDryIn [[ name: "Dry Pan", min: -1, max: 1, init: iPanDry, step: 0.01f ]];
+                smoothedParameter.in3 panWetIn [[ name: "Wet Pan", min: -1, max: 1, init: iPanWet, step: 0.01f ]];
+            }
+
+            let
+            {
+                smoothedParameter = SmoothedParameter::Processor (float[] (iMakeup, iMix, iPanDry, iPanWet), SmoothedParameter::ModeIdx::MakeupMixPansToGains);
+                applyGains = ApplyGains::Processor;
+            }
+    
+            connection
+            {
+                smoothedParameter.out -> applyGains.b;
+                smoothedParameter.out1 -> applyGains.b1;
+
+                in -> applyGains.in;
+                wetIn -> applyGains.in1;
+
+                applyGains.out -> out;
+            }
+        }
+    }
+
     /** Apply a volume via 'SmoothedParameter' */
     namespace SmoothedVolume
     {
@@ -2466,7 +2549,7 @@ Mix Processors                                                          01/18/22
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (float[] (iVolume), SmoothedParameter::Modes::DecibelToGain);
+                smoothedGain = SmoothedParameter::Processor (float[] (iVolume), SmoothedParameter::ModeIdx::DecibelToGain);
                 applyGain = ApplyGain::Processor;
             }
     
@@ -2483,7 +2566,7 @@ Mix Processors                                                          01/18/22
     }
 
 /*==============================================================================
-Parameter Processors                                                    02/24/22
+Parameter Processors                                                    03/01/22
 ==============================================================================*/
 
     /** Modified version of soul::oscillators::lfo 
@@ -2519,7 +2602,7 @@ Parameter Processors                                                    02/24/22
     
             let
             {
-                smoothedParameter0 = SmoothedParameter::Processor (float[] (iDepth), SmoothedParameter::Modes::PercentToGain);
+                smoothedParameter0 = SmoothedParameter::Processor (float[] (iDepth), SmoothedParameter::ModeIdx::PercentToGain);
                 
                 internal = Internal::Processor (iRate, iWidth, iMode);
             }
@@ -2726,124 +2809,143 @@ Parameter Processors                                                    02/24/22
     */       
     namespace SmoothedParameter
     {
+        //Only gains and gain-related metrics need smoothed. TPT filters intrinsically smooth their cutoff gains. The slew rates for 
+        //Decibel and Ratio are PLACEHOLDERS for until a gain-based implementation is coded.
         let DOUBLE_SLEW_RATE_SECONDS_GAIN = 100.0; //1 unit unipolar sine period is approx 2 units of movement (i.e. the sine modulates b/w 0 and 1); 100/2 = 50 Hz 
         let DOUBLE_SLEW_RATE_SECONDS_DECIBEL = 5000.0; //1 unit unipolar sine period is approx 100dBs of movement; 5000/100 = 50 Hz  
         let DOUBLE_SLEW_RATE_SECONDS_RATIO = 500.0; //1 unit unipolar sine period is approx 20 units of movement; 1000/20 = 50 Hz
 
-        namespace Modes
+        namespace ModeIdx
         {
             let GainToGain = 0;
             let DecibelToGain = 1;
             let MixPanToGains = 2;
-            let G_OnepoleToGain = 3;
-            let PercentToGain = 4;
-            let DecibelToDecibel = 5;
-            let RatioToRatio = 6;
-            let TauToOmega = 7;
-            let NumModes = 8;
+            let PercentToGain = 3;
+            let DecibelToDecibel = 4;
+            let RatioToRatio = 5;
+            let MakeupMixPansToGains = 6;
+            let NumIdxs = 7;
         }
 
-        namespace M (int mode)
+        namespace Func
         {
-            static_assert ((mode > -1) && (mode < Modes::NumModes), "SmoothedParameter::M [[Parameter Processors]]");
+            let Identity = 0;
+            let DecibelToGain = 1; 
+            let MixPanToGains = 2;
+            let PercentToGain = 3;
+            let MakeupMixPansToGains = 4;
+        }   
 
-            let SlewRateSeconds = (mode == Modes::DecibelToDecibel? DOUBLE_SLEW_RATE_SECONDS_DECIBEL: (mode== Modes::RatioToRatio ? DOUBLE_SLEW_RATE_SECONDS_RATIO : DOUBLE_SLEW_RATE_SECONDS_GAIN));
-            
-            let NumIn = (mode == Modes::MixPanToGains ? 2 : 1);
-            let NumOut = (mode == Modes::MixPanToGains ? 2 : 1);
-
-            struct Coeffs
-            {
-                SampleType[NumOut] target;
-                SampleType[NumOut] increment;
-            }
-
-            struct State
-            {
-                SampleType[NumOut] current;
-                int remainingRampSamples;
-            }
-
-            SampleType[NumOut] decodeParameter (float[] parameter, float64 fs)
-            {
-                SampleType[NumOut] y;
-
-                if const (mode == Modes::GainToGain || mode == Modes::DecibelToDecibel || mode == Modes::RatioToRatio)
-                    y.at(0) = SampleType (parameter.at(0));
-                else if const (mode ==  Modes::DecibelToGain)
-                    y.at(0) = vdBtoGain (SampleType (parameter.at(0)));
-                else if const (mode == Modes::MixPanToGains)
-                    y = vMixPanToGains (parameter.at(0), parameter.at(1));
-                else if const (mode == Modes::G_OnepoleToGain)
-                    y.at(0) = vCutoffToG_Onepole (parameter.at(0), fs); 
-                else if const (mode == Modes::PercentToGain)
-                    y.at(0) = parameter.at(0) * 0.01;
-                else if const (mode == Modes::TauToOmega)
-                    y.at(0) = vTauToOmega (parameter.at(0));
-
-                return y;
-            }
-
-            void update (Coeffs& c, float[] parameter, State& s, SampleType divMaxDelta, float64 fs)
-            {
-                c.target = decodeParameter (parameter, fs);
-
-                if const (mode == Modes::RatioToRatio)
-                    s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
-                else if const (mode != Modes::MixPanToGains)
-                    s.remainingRampSamples = int (vmax (ONE, vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta) [0]);
-                else if const (mode == Modes::MixPanToGains)
-                {
-                    let r0 = int (vmaxr (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta));
-                    let r1 = int (vmaxr (vabs (c.target.at(1) - s.current.at(1)) * divMaxDelta));
-                    s.remainingRampSamples = max (1, max (r0, r1));
-                }
-
-                for (int i = 0; i < NumOut; ++i)
-                    c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingRampSamples);
-            }
-
-            void updateUnsmoothed (Coeffs& c, float[] parameter, State& s, float64 fs)
-            {
-                c.target = decodeParameter (parameter, fs);
-
-                s.remainingRampSamples = 1;
-            }
-
-            SampleType[NumOut] process (State& s, const Coeffs& c)
-            {
-                if (s.remainingRampSamples != 0)
-                {
-                    if (--(s.remainingRampSamples) == 0)
-                    {
-                        for (int i = 0; i < s.current.size; ++i)
-                            s.current.at(i) = c.target.at(i);
-                    }
-                    else
-                    {
-                        for (int i = 0; i < s.current.size; ++i)
-                            s.current.at(i) += c.increment.at(i);
-                    }
-                }
-
-                return s.current;
-            }
+        struct Mode
+        {
+            int idx, numIn, numOut, func;
+            float64 slewRateSeconds;
         }
 
-        processor Processor (float[] iParameter, int mode, int oversampling = 1)
+        let Modes = Mode[ModeIdx::NumIdxs] (
+            Mode (ModeIdx::GainToGain, 1, 1, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
+            Mode (ModeIdx::DecibelToGain, 1, 1, Func::DecibelToGain, DOUBLE_SLEW_RATE_SECONDS_GAIN),
+            Mode (ModeIdx::MixPanToGains, 2, 2, Func::MixPanToGains, DOUBLE_SLEW_RATE_SECONDS_GAIN),
+            Mode (ModeIdx::PercentToGain, 1, 1, Func::PercentToGain, DOUBLE_SLEW_RATE_SECONDS_GAIN),
+            Mode (ModeIdx::DecibelToDecibel, 1, 1, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_DECIBEL),
+            Mode (ModeIdx::RatioToRatio, 1, 1, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_RATIO),
+            Mode (ModeIdx::MakeupMixPansToGains, 4, 2, Func::MakeupMixPansToGains, DOUBLE_SLEW_RATE_SECONDS_GAIN)
+        );
+
+        let MAX_NUM_IN = 4;
+        let MAX_NUM_OUT = 2;
+
+        struct Coeffs
+        {
+            SampleType[MAX_NUM_OUT] target;
+            SampleType[MAX_NUM_OUT] increment;
+        }
+
+        struct State
+        {
+            SampleType[MAX_NUM_OUT] current;
+            int remainingSamples;
+        }
+
+        SampleType[MAX_NUM_OUT] decodeParameter (float[] parameter, int modeIdx)
+        {
+            let mode = Modes.at(modeIdx);
+
+            SampleType[MAX_NUM_OUT] y;
+
+            if (mode.func == Func::Identity)
+                y.at(0) = SampleType (parameter.at(0));
+            else if (mode.func ==  Func::DecibelToGain)
+                y.at(0) = vdBtoGain (SampleType (parameter.at(0)));
+            else if (mode.func == Func::MixPanToGains)
+            {
+                let y2 = vMixPanToGains (parameter.at(0), parameter.at(1));
+
+                for (int i = 0; i < y2.size; ++i)
+                    y.at(i) = y2.at(i);
+            }
+            else if (mode.func == Func::PercentToGain)
+                y.at(0) = parameter.at(0) * 0.01;
+            else //if (mode.func == Func::MakeupMixPansToGains)
+            {
+                let y2 = vMakeupMixPansToGains (parameter.at(0), parameter.at(1), parameter.at(2), parameter.at(3));
+                
+                for (int i = 0; i < y2.size; ++i)
+                    y.at(i) = y2.at(i);
+            }
+
+            return y;
+        }
+
+        void update (Coeffs& c, float[] parameter, State& s, int modeIdx, float64 fs)
+        {
+            let mode = Modes.at(modeIdx);
+            let divMaxDelta = fs / mode.slewRateSeconds;
+
+            c.target = decodeParameter (parameter, modeIdx);
+
+            for (int i = 0; i < mode.numOut; ++i)
+                s.remainingSamples = max (s.remainingSamples, int (vmaxr (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
+            s.remainingSamples = max (1, s.remainingSamples);
+
+            for (int i = 0; i < mode.numOut; ++i)
+                c.increment.at(i) = (c.target.at(i) - s.current.at(i)) / SampleType (s.remainingSamples);
+        }
+
+        void updateUnsmoothed (Coeffs& c, float[] parameter, State& s, int modeIdx)
+        {
+            c.target = decodeParameter (parameter, modeIdx);
+
+            s.remainingSamples = 1;
+        }
+
+        SampleType[2] process (State& s, const Coeffs& c)
+        {
+            if (s.remainingSamples != 0)
+            {
+                if (--(s.remainingSamples) == 0)
+                    for (int i = 0; i < s.current.size; ++i)
+                        s.current.at(i) = c.target.at(i);
+                else
+                    for (int i = 0; i < s.current.size; ++i)
+                        s.current.at(i) += c.increment.at(i);
+            }
+
+            return s.current;
+        }
+
+        processor Processor (float[] iParameter, int modeIdx)
         {
             output stream SampleType out, out1;
-
-            input event float in, in1;
+            input event float in, in1, in2, in3;
 
             event in (float v) { parameter.at(0) = v; recalc = true; }
             event in1 (float v) { parameter.at(1) = v; recalc = true; }
+            event in2 (float v) { parameter.at(2) = v; recalc = true; }
+            event in3 (float v) { parameter.at(3) = v; recalc = true; }
 
-            float[2] parameter;
+            float[4] parameter;
             bool recalc = false;
-
-            static_assert (iParameter.size <= parameter.size, "SmoothedParameter::Processor [[Parameter Processors]]");
-            static_assert (oversampling > 0, "SmoothedParameter::Processor [[ParameterProcessors]]");
 
             void init()
             {
@@ -2853,14 +2955,12 @@ Parameter Processors                                                    02/24/22
 
             void run()
             {   
-                M(mode)::State s;
-                M(mode)::Coeffs c;
+                State s;
+                Coeffs c;
 
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-                let divMaxDelta = SampleType (processor.frequency / M(mode)::SlewRateSeconds);
-                let fs = processor.frequency * float64 (oversampling);
-    
-                M(mode)::updateUnsmoothed (c, parameter, s, fs);
+
+                c.updateUnsmoothed (parameter, s, modeIdx);
             
                 loop
                 {
@@ -2868,17 +2968,15 @@ Parameter Processors                                                    02/24/22
                     {
                         recalc = false;
     
-                        M(mode)::update (c, parameter, s, divMaxDelta, fs);
+                        c.update (parameter, s, modeIdx, processor.frequency);
                     }
     
                     loop (updateIntervalSamples)
                     {
-                        let y = M(mode)::process (s, c);
+                        let y = s.process (c);
 
                         out << y.at(0);
-
-                        if const (M(mode)::NumOut > 1)
-                            out1 << y.at(1);
+                        out1 << y.at(1);
 
                         advance();
                     }
@@ -2890,48 +2988,86 @@ Parameter Processors                                                    02/24/22
     /** Map a float event directly to a SampleType stream */
     namespace UnsmoothedParameter
     {     
-        namespace Modes
+        namespace Mode
         {
             let TauToOmega = 0;
-            let NumModes = 1;
+            let Identity = 1;
+            let PhaseInverts = 2;
+            let NumIdxs = 3;
         }
 
-        namespace M (int mode = Modes::TauToOmega)
-        {
-            static_assert ((mode > -1) && (mode < Modes::NumModes), "UnsmoothedParameter::M [[Parameter Processors]]");
+        let MAX_NUM_IN = 2;
 
-            SampleType decodeParameter (float parameter)
+        namespace M (int mode)
+        {
+            SampleType decodeParameter (float[] parameter) //do this per sample
             {
-                if const (mode == Modes::TauToOmega)
-                    return vTauToOmega (parameter);
-                else 
-                    return ZERO;
+                if const (mode == Mode::TauToOmega)
+                    return vTauToOmega (parameter.at(0));
+                else if const (mode == Mode::Identity)
+                    return SampleType (parameter.at(0));
+                else //if const (mode == Mode::PhaseInverts)
+                    return vPhaseInvertsToGain (parameter.at(0), parameter.at(1)); 
             }
         }
 
-        processor Processor (float iParameter, int mode)
+        processor Processor (float[] iParameter, int mode)
         {              
             output stream SampleType out;
+            input event float in, in1;
 
-            input event float in;
-            event in (float v) { param = M(mode)::decodeParameter (v); }
+            event in (float v) { parameter.at(0) = v; recalc = true; }
+            event in1 (float v) { parameter.at(1) = v; recalc = true; }
 
-            SampleType param;
+            float[MAX_NUM_IN] parameter;
+            SampleType y;
+            bool recalc = true;
+
+            void init()
+            {
+                for (int i = 0; i < iParameter.size; ++i)
+                    parameter.at(i) = iParameter.at(i);
+            }
 
             void run()
             {   
-                param = M(mode)::decodeParameter (iParameter);
-
                 loop
                 {
-                    out << param;
+                    if (recalc)
+                    {
+                        recalc = false;
+
+                        y = M(mode)::decodeParameter(parameter);
+                    }
+                    
+                    out << y;
 
                     advance();
                 }
             }
         }
     }
-    
+
+    /** Map a compile-time constant float  to a SampleType stream */
+    namespace ConstantParameter
+    {
+        processor Processor (float iConstant)
+        {
+            output stream SampleType out;
+
+            let constant = SampleType (iConstant);
+
+            void run()
+            {
+                loop
+                {
+                    out << constant;
+
+                    advance();
+                }
+            }
+        }
+    }
 
 /*==============================================================================
 Vectorized Helper Functions                                             02/24/22
@@ -3151,6 +3287,21 @@ Vectorized Helper Functions                                             02/24/22
         return SampleType (x[0] > 0 ? 1 : -1, x[1] > 0 ? 1 : -1);
     }
 
+    SampleType vPhaseInvertsToGain (float invertL, float invertR)
+    {
+        return SampleType (floatToBool (invertL) ? -1.0 : 1.0, floatToBool (invertR) ? -1.0 : 1.0);
+    }
+
+    /** Convert makeup volume, mix, and pan values to a gain for applying to dry and wet SampleType streams (indicies 0 and 1 respectively) */
+    SampleType[2] vMakeupMixPansToGains (float makeup, float mix, float panDry, float panWet)
+    {
+        let bMakeup = SampleType[2] (ONE, vdBtoGain(makeup));
+        let bMix = vMixToGains (mix);
+        let bPans = SampleType[2](vPanToGain (panDry), vPanToGain(panWet));
+
+        return SampleType[2] (bMakeup.at(0) * bMix.at(0) *  bPans.at(0), bMakeup.at(1) * bMix.at(1) *  bPans.at(1));
+    }
+
     /** Convert a mix and a pan to a SampleType[2] gain array
     
         Use case: mix and pan 2 SampleType streams simultaneously
@@ -3257,6 +3408,20 @@ Vectorized Intrinsic Functions                                          01/18/22
     SampleType viflt (SampleType trueStatement, SampleType falseStatement, SampleType a, SampleType b)
     {
         return SampleType (a[0] < b[0] ? trueStatement [0] : falseStatement [0], a[1] < b[1] ? trueStatement [1] : falseStatement [1]);
+    }
+
+/*==============================================================================
+Vectorized Intrinsic Functions                                          03/01/22
+==============================================================================*/
+
+    bool floatToBool (float x)
+    {
+        return (x < 0.5f ? false : true); 
+    }
+
+    float boolToFloat (bool x)
+    {
+        return (x ? 1.f : 0.f);
     }
 
 /*==============================================================================
