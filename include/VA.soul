@@ -108,7 +108,7 @@ VA::HighLevel Processors                                                03/03/22
     
                 input
                 {
-                    mux2To1.idxIn [[ name: "Complement", init: float (iWetComplementBool), boolean, group: "Wet" ]];                   
+                    mux2To1.idxIn complementIn [[ name: "Complement", init: float (iWetComplementBool), boolean, group: "Wet" ]];                   
 
                     phaseInverts.invertL_In invertWetL_In [[ name: "Invert L", init: float (iInvertWetL_Bool), boolean, group: "Wet Phase" ]];
                     phaseInverts.invertR_In invertWetR_In [[ name: "Invert R", init: float (iInvertWetR_Bool), boolean, group: "Wet Phase" ]];
