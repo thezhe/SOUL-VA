@@ -25,6 +25,7 @@ namespace main
             e2 = va::TheChorus::Processor;
             e3 = va::TheSplit::Processor;
             e4 = va::TheExpressor::Processor;
+            e5 = va::TheUtility::Processor;
         }
 
         connection
@@ -35,7 +36,9 @@ namespace main
             e2.out -> e3.in;
             e3.out, e3.out1 -> e4.in;
             e3.out, e3.out1 -> e4.scIn;
-            e4.out, e4.guiOut -> out;
+            e4.out, e4.guiOut -> e5.in;
+            e4.out, e4.guiOut -> e5.wetIn;
+            e5.out -> out;
         }
     }
 }

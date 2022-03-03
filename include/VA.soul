@@ -22,19 +22,20 @@
     Effects are 'Processors' under 'VA::HighLevel'
 
     The interface is nearly identical to soul::filters EXCEPT:
-        - Each effect has at least input and output SampleType streams called 'in' and an 'out'
+        - Each effect has at least input and output SampleType streams named 'in' and 'out'
+        - All input events are of type 'float'
         - Max gain applied via an effect (excluding Makeup) is set to 1.5 or about +3.52 dB. 
-        In practice, depending on the sampling rate, signals may be boosted up to about 6dB.
+        In practice (depending on sampling rate), signals may be boosted up to approximately +6 dB.
         - No user-defined types:
             *'SampleType' is float64<2>
             *The internal 'CoeffType' is float64<2>
             *Coefficient 'updateInterval' is every 256 samples at 44.1kHz 
-            or scaled as needed (i.e. every 512 samples at 88.2kHz)
-            *Each effect's namespace defines an 'InType' and 'OutType' 
-        - Parameters not suitable for modulation are commented as 'UNSMOOTHED' in their annotations
+            or every 278 samples at 48 kHz (linearly scaled with sample rate)
+        - Parameters not suitable for modulation are commented as 'UNSMOOTHED' in their annotations. 
+        Annotations with "boolean" and "text" values are assumed to be unsuitable for modulation.
         - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
         - Algebraic operations are preferred to avoid expensive transcendentals while providing superior
-        accuracy and modulate-ability than look up tables
+        accuracy and click-free modulation when compared to lookup tables
         See: https://en.wikipedia.org/wiki/Algebraic_function
         - Common sampling rates from 44.1 to 192 kHz are supported, but the internal sampling rate will always be either 
         44.1 or 48 kHz. This allows for consistent rendering and antialiasing of all effects, including ones that behave 
@@ -43,20 +44,18 @@
 */
 
 /** Next version (1.1.0) changelog
-    - New Effects: TheExpressor, TheSplit
+    - New Effects: TheExpressor, TheSplit, TheUtility
     - Tests now use Octave via PLUG-QA and support multichannel IO
     - More parameters are now smoothed and modulation stable
-    - Effects can run at 44.1 to 192 kHz now with internal processing set to 44.1/48 kHz
+    - Effects can now run at common sample rates from 44.1 to 192 kHz
 */
 
 /** Task List
     - low attack times the split, and compensate attack * 2 for attacks & sustains
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
     - TheSlew
-    - Mux2To1 make annotation bool
     - phase inverts group as wet and output
     - update snippets
-    - true bypass via dry mix
     - more Processors, include integrator processors, more modularity and oversampling/ADAA granularity
     - TheBass boilerplate, abs before stereo link and rectified lan
     - small dx approximation for hysteretic L  
@@ -66,7 +65,7 @@
 namespace VA 
 {
 /*==============================================================================
-VA::HighLevel Processors                                                02/24/22
+VA::HighLevel Processors                                                03/03/22
 ==============================================================================*/
 
     /** High-level Processors made of components from 'VA' and 'soul' namespaces 
@@ -78,47 +77,63 @@ VA::HighLevel Processors                                                02/24/22
         /** Utility Processor
         
             Use case: Mix, Pan, Makeup, and Complement
-            Note: This is a common Processor and will be used in all other Processors in this namespace
+
+            Notes: 
+            - This is a common Processor and may be used in other Processors in this namespace
+            - Use directly; DO NOT over/undersample or add additional filtering.
         */
         namespace TheUtility
-        {                        
-            graph Processor(bool iWetComplement_Bool = false,
+        {                   
+            namespace PanModeIdx
+            {
+                let Unlinked = 0;
+                let Linked = 1;
+                let Inverted = 2;
+                let NumIdxs = 3;
+            }
+
+            graph Processor(bool iWetComplementBool = false,
                             bool iInvertWetL_Bool = false,
                             bool iInvertWetR_Bool = false,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100,
                             float iPanDry = 0,
                             float iPanWet = 0,
-                            float iInvertOutL_Bool = false,
-                            float iInvertOutR_Bool = false)
+                            int iPanModeIdx = PanModeIdx::Unlinked,
+                            bool iInvertOutL_Bool = false,
+                            bool iInvertOutR_Bool = false)
             {
                 input stream SampleType in, wetIn;
                 output stream SampleType out;
     
                 input
                 {
-                    mux2To1.idxIn;                    
+                    mux2To1.idxIn [[ name: "Complement", init: float (iWetComplementBool), boolean, group: "Wet" ]];                   
 
-                    phaseInverts.invertL_In invertWetL_In;
-                    phaseInverts.invertR_In invertWetR_In;
+                    phaseInverts.invertL_In invertWetL_In [[ name: "Invert L", init: float (iInvertWetL_Bool), boolean, group: "Wet Phase" ]];
+                    phaseInverts.invertR_In invertWetR_In [[ name: "Invert R", init: float (iInvertWetR_Bool), boolean, group: "Wet Phase" ]];
 
-                    smoothedMakeupMixPans.makeupIn;
-                    smoothedMakeupMixPans.mixIn;
-                    smoothedMakeupMixPans.panDryIn;
-                    smoothedMakeupMixPans.panWetIn;
+                    smoothedMakeupMixPans.makeupIn [[ name: "Makeup", min: -24, max: 24, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
+                    smoothedMakeupMixPans.mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
 
-                    phaseInverts1.invertL_In invertOutL_In;
-                    phaseInverts1.invertR_In invertOutR_In;
+                    smoothedMakeupMixPans.panDryIn [[ name: "Dry", min: -1, max: 1, init: iPanDry, step: 0.01f, group: "Pan" ]];
+                    smoothedMakeupMixPans.panWetIn [[ name: "Wet", min: -1, max: 1, init: iPanWet, step: 0.01f, group: "Pan" ]];
+                    event float panModeIn [[ name: "Mode", min: 0, max: PanModeIdx::NumIdxs - 1, init: iPanModeIdx, text: "Unlinked|Linked|Inverted", group: "Pan" ]]; //this doesn't do anything
+
+                    phaseInverts1.invertL_In invertOutL_In [[ name: "Invert L", init: float (iInvertOutL_Bool), boolean, group: "Output Phase" ]];
+                    phaseInverts1.invertR_In invertOutR_In [[ name: "Invert R", init: float (iInvertOutR_Bool), boolean, group: "Output Phase" ]];
                 }
     
                 let
                 {
-                    smoothedMakeupMixPans = SmoothedMakeupMixPans::Processor (iMakeup_dB, iMixPercent, iPanDry, iPanWet);
-                    phaseInverts = PhaseInverts::Processor (iInvertWetL_Bool, iInvertWetR_Bool);
-                    phaseInverts1 = PhaseInverts::Processor (iInvertOutL_Bool, iInvertOutR_Bool);
-
-                    mux2To1 = Mux2To1::Processor;
+                    mux2To1 = Mux2To1::Processor (iWetComplementBool);
                     difference = Difference::Processor;
+
+                    phaseInverts = PhaseInverts::Processor (iInvertWetL_Bool, iInvertWetR_Bool);
+
+                    smoothedMakeupMixPans = SmoothedMakeupMixPans::Processor (iMakeup_dB, iMixPercent, iPanDry, iPanWet);
+                    
+                    phaseInverts1 = PhaseInverts::Processor (iInvertOutL_Bool, iInvertOutR_Bool);
                 }
     
                 connection
@@ -126,10 +141,12 @@ VA::HighLevel Processors                                                02/24/22
                     in -> difference.in, smoothedMakeupMixPans.in;
                     wetIn -> difference.in1, mux2To1.in;
                     difference.out -> mux2To1.in1;
-                    mux2To1.out -> phaseInverts.in;
 
+                    mux2To1.out -> phaseInverts.in;
                     phaseInverts.out -> smoothedMakeupMixPans.wetIn;
+
                     smoothedMakeupMixPans.out -> phaseInverts1.in;
+                    
                     phaseInverts1.out -> out;
                 }
             }
@@ -151,7 +168,7 @@ VA::HighLevel Processors                                                02/24/22
             }
 
             graph Processor(int iMode = Modes::CenterSides,
-                            int iSwapOutputsBinary = 0,
+                            bool iSwapOutputsBool = false,
                             float iCenterSidesPercent = 100,
                             float iFrequencyHz = 1000,
                             float iAttackMs = 4,
@@ -167,7 +184,7 @@ VA::HighLevel Processors                                                02/24/22
                 input event 
                 {
                     float modeIn [[ name: "Mode", min: 0, max: Modes::NumModes - 1, init: iMode, text: "C&S|L&H|A&S|L&S", group: "Main" /*UNSMOOTHED*/ ]];
-                    float swapIn [[ name: "Output Swap", init: iSwapOutputsBinary, boolean, group: "Main" /*UNSMOOTHED*/ ]];
+                    float swapIn [[ name: "Output Swap", init: float (iSwapOutputsBool), boolean, group: "Main" /*UNSMOOTHED*/ ]];
 
                     float centerSidesIn [[ name: "Split Amount", min: 0, max: 100, init: iCenterSidesPercent, unit: "%", step: 1, group: "Centers & Sides" ]];
 
@@ -184,9 +201,9 @@ VA::HighLevel Processors                                                02/24/22
         
                 let
                 {
-                    internalDS0 = Internal::Processor (iMode, iSwapOutputsBinary, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
-                    internalDS2 = Internal::Processor (iMode, iSwapOutputsBinary, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent) / 2;
-                    internalDS4 = Internal::Processor (iMode, iSwapOutputsBinary, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent) / 4;
+                    internalDS0 = Internal::Processor (iMode, iSwapOutputsBool, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
+                    internalDS2 = Internal::Processor (iMode, iSwapOutputsBool, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent) / 2;
+                    internalDS4 = Internal::Processor (iMode, iSwapOutputsBool, iCenterSidesPercent, iFrequencyHz, iAttackMs, iSustainMs, iSensitivity_dB, iThreshold_dB, iReleaseMs, iStereoLinkLsPercent) / 4;
                     mux3To1Fs = Mux3To1Fs::Processor;
                     mux3To1Fs1 = Mux3To1Fs::Processor;
                 }
@@ -223,7 +240,7 @@ VA::HighLevel Processors                                                02/24/22
             namespace Internal
             {
                 graph Processor(int iMode,
-                                int iSwapOutputsBinary,
+                                bool iSwapOutputsBool,
                                 float iCenterSidesPercent,
                                 float iFrequencyHz,
                                 float iAttackMs,
@@ -265,8 +282,8 @@ VA::HighLevel Processors                                                02/24/22
                         mux4To1_0 = Mux4To1::Processor (iMode);
                         mux4To1_1 = Mux4To1::Processor (iMode);
 
-                        mux2To1_0 = Mux2To1::Processor (iSwapOutputsBinary);
-                        mux2To1_1 = Mux2To1::Processor (iSwapOutputsBinary);
+                        mux2To1_0 = Mux2To1::Processor (iSwapOutputsBool);
+                        mux2To1_1 = Mux2To1::Processor (iSwapOutputsBool);
 
                         //boilerplate Processors
                         dcBlockerIn = DC_Blocker::Processor;
@@ -311,7 +328,7 @@ VA::HighLevel Processors                                                02/24/22
         */
         namespace TheExpressor
         {            
-            graph Processor(int iSidechainBinary = 0,
+            graph Processor(bool iSidechainBool = false,
                             float iAttackMs = 0.5f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
@@ -336,7 +353,7 @@ VA::HighLevel Processors                                                02/24/22
                     event float ratio0In [[ name: "Post-Threshold", min: 0.5f, max: 20.f, init: iRatio0, step: 0.1f, group: "Ratios" ]];
                     event float ratio1In [[ name: "Pre-Threshold", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Ratios" ]];
 
-                    event float sidechainIn [[ name: "Sidechain", init: iSidechainBinary, boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
+                    event float sidechainIn [[ name: "Sidechain", init: float (iSidechainBool), boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
                     event float cutoffIn [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
                     event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1, group: "Detector" ]];
 
@@ -349,9 +366,9 @@ VA::HighLevel Processors                                                02/24/22
         
                 let
                 {
-                    internalDS0 = Internal::Processor (iSidechainBinary, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent);
-                    internalDS2 = Internal::Processor (iSidechainBinary, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 2;
-                    internalDS4 = Internal::Processor (iSidechainBinary, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 4;
+                    internalDS0 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent);
+                    internalDS2 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 2;
+                    internalDS4 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 4;
                     mux3To1Fs = Mux3To1Fs::Processor;
                     mux3To1Fs1 = Mux3To1Fs::Processor;
                 }
@@ -391,7 +408,7 @@ VA::HighLevel Processors                                                02/24/22
             
             namespace Internal
             {
-                graph Processor(int iSidechainBinary,
+                graph Processor(bool iSidechainBool,
                                 float iAttackMs,
                                 float iReleaseMs, 
                                 float iStereoLinkPercent,
@@ -431,7 +448,7 @@ VA::HighLevel Processors                                                02/24/22
                     let
                     {
                         //non-boilerplate Processors
-                        mux2To1 = Mux2To1::Processor (iSidechainBinary);
+                        mux2To1 = Mux2To1::Processor (iSidechainBool);
                         
                         pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
@@ -737,7 +754,7 @@ Filter Processors                                                       02/24/22
     
             let
             {
-                smoothedParameter0 = UnsmoothedParameter::Processor (float[] (iCutoff), UnsmoothedParameter::Mode::Identity);
+                smoothedParameter0 = UnsmoothedParameter::Processor (float[] (iCutoff), UnsmoothedParameter::ModeIdx::Identity);
                 smoothedParameter1 = SmoothedParameter::Processor (float[] (iResonance), SmoothedParameter::ModeIdx::GainToGain);
                 
                 internal = Internal::Processor (iNonlinearity) * oversampling;
@@ -1136,8 +1153,8 @@ Filter Processors                                                       02/24/22
     
             let
             {
-                unsmoothedParameter = UnsmoothedParameter::Processor(float[] (iAttack), UnsmoothedParameter::Mode::TauToOmega);
-                unsmoothedParameter1 = UnsmoothedParameter::Processor(float[] (iRelease), UnsmoothedParameter::Mode::TauToOmega);
+                unsmoothedParameter = UnsmoothedParameter::Processor(float[] (iAttack), UnsmoothedParameter::ModeIdx::TauToOmega);
+                unsmoothedParameter1 = UnsmoothedParameter::Processor(float[] (iRelease), UnsmoothedParameter::ModeIdx::TauToOmega);
                 
                 internal = Internal::Processor * oversampling;
             }
@@ -2090,7 +2107,7 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
 
     namespace PhaseInverts
     {
-        graph Processor(bool iInvertL, bool iInvertR)
+        graph Processor(bool iInvertL_Bool, bool iInvertR_Bool)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -2103,7 +2120,7 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
     
             let
             {
-                unsmoothedParameter = UnsmoothedParameter::Processor (boolToFloat (iInvertL), boolToFloat (iInvertR));
+                unsmoothedParameter = UnsmoothedParameter::Processor (UnsmoothedParameter::ParameterType (float (iInvertL_Bool), float (iInvertR_Bool)), UnsmoothedParameter::ModeIdx::PhaseInverts);
                 applyGain = ApplyGain::Processor;
             }
     
@@ -2340,12 +2357,12 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             return x.at (c.idx);
         }
     
-        processor Processor (int iIdx)
+        processor Processor (bool iIdx)
         {
             input stream SampleType in, in1;
             output stream SampleType out;
     
-            input event float idxIn [[ name: "idx", min: 0, max: 1, init: iIdx, step: 1 /*UNSMOOTHED*/ ]];
+            input event float idxIn [[ name: "idx", init: float (iIdx), boolean /*UNSMOOTHED*/ ]];
     
             event idxIn (float v) { idx = v; recalc = true; }
     
@@ -2353,7 +2370,7 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             bool recalc = true;
     
             void run()
-            {   
+            {    
                 Coeffs c;
     
                 let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
@@ -2520,7 +2537,7 @@ Mix Processors                                                          03/01/22
 
             let
             {
-                smoothedParameter = SmoothedParameter::Processor (float[] (iMakeup, iMix, iPanDry, iPanWet), SmoothedParameter::ModeIdx::MakeupMixPansToGains);
+                smoothedParameter = SmoothedParameter::Processor (SmoothedParameter::ParameterType (iMakeup, iMix, iPanDry, iPanWet), SmoothedParameter::ModeIdx::MakeupMixPansToGains);
                 applyGains = ApplyGains::Processor;
             }
     
@@ -2841,7 +2858,7 @@ Parameter Processors                                                    03/01/22
             int idx, numIn, numOut, func;
             float64 slewRateSeconds;
         }
-
+        
         let Modes = Mode[ModeIdx::NumIdxs] (
             Mode (ModeIdx::GainToGain, 1, 1, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
             Mode (ModeIdx::DecibelToGain, 1, 1, Func::DecibelToGain, DOUBLE_SLEW_RATE_SECONDS_GAIN),
@@ -2854,6 +2871,8 @@ Parameter Processors                                                    03/01/22
 
         let MAX_NUM_IN = 4;
         let MAX_NUM_OUT = 2;
+
+        using ParameterType = float[MAX_NUM_IN];
 
         struct Coeffs
         {
@@ -2988,7 +3007,7 @@ Parameter Processors                                                    03/01/22
     /** Map a float event directly to a SampleType stream */
     namespace UnsmoothedParameter
     {     
-        namespace Mode
+        namespace ModeIdx
         {
             let TauToOmega = 0;
             let Identity = 1;
@@ -2997,21 +3016,22 @@ Parameter Processors                                                    03/01/22
         }
 
         let MAX_NUM_IN = 2;
+        using ParameterType = float[MAX_NUM_IN];
 
-        namespace M (int mode)
+        namespace M (int modeIdx)
         {
             SampleType decodeParameter (float[] parameter) //do this per sample
             {
-                if const (mode == Mode::TauToOmega)
+                if const (modeIdx == ModeIdx::TauToOmega)
                     return vTauToOmega (parameter.at(0));
-                else if const (mode == Mode::Identity)
+                else if const (modeIdx == ModeIdx::Identity)
                     return SampleType (parameter.at(0));
-                else //if const (mode == Mode::PhaseInverts)
+                else //if const (modeIdx == ModeIdx::PhaseInverts)
                     return vPhaseInvertsToGain (parameter.at(0), parameter.at(1)); 
             }
         }
 
-        processor Processor (float[] iParameter, int mode)
+        processor Processor (float[] iParameter, int modeIdx)
         {              
             output stream SampleType out;
             input event float in, in1;
@@ -3020,8 +3040,9 @@ Parameter Processors                                                    03/01/22
             event in1 (float v) { parameter.at(1) = v; recalc = true; }
 
             float[MAX_NUM_IN] parameter;
-            SampleType y;
             bool recalc = true;
+
+            SampleType y;
 
             void init()
             {
@@ -3037,7 +3058,7 @@ Parameter Processors                                                    03/01/22
                     {
                         recalc = false;
 
-                        y = M(mode)::decodeParameter(parameter);
+                        y = M(modeIdx)::decodeParameter (parameter);
                     }
                     
                     out << y;
@@ -3423,6 +3444,13 @@ Vectorized Intrinsic Functions                                          03/01/22
     {
         return (x ? 1.f : 0.f);
     }
+
+    int floatToInt (float x)
+    {
+        return int (floor (x));
+    }
+
+
 
 /*==============================================================================
 Constants                                                               02/24/22
