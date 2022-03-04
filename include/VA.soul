@@ -51,10 +51,12 @@
 */
 
 /** Task List
+    -invert l wet, invert all output (only 2 params needed for 2^2 combinations)
+    - smoothing for makeupmixpan doesnt smooth wet input properly (b1)
+
     - low attack times the split, and compensate attack * 2 for attacks & sustains
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
     - TheSlew
-    - phase inverts group as wet and output
     - update snippets
     - more Processors, include integrator processors, more modularity and oversampling/ADAA granularity
     - TheBass boilerplate, abs before stereo link and rectified lan
@@ -109,8 +111,8 @@ VA::HighLevel Processors                                                03/03/22
                 input
                 {
                     mux2To1.idxIn complementIn [[ name: "Complement", init: float (iWetComplementBool), boolean, group: "Wet" ]];                   
-                    phaseInverts.invertL_In invertWetL_In [[ name: "Phase L", init: float (iInvertWetL_Bool), boolean, text: "Normal|Inverted", group: "Wet" ]];
-                    phaseInverts.invertR_In invertWetR_In [[ name: "Phase R", init: float (iInvertWetR_Bool), boolean, text: "Normal|Inverted", group: "Wet" ]];
+                    phaseInverts.invertL_In invertWetL_In [[ name: "Invert L", init: float (iInvertWetL_Bool), boolean, group: "Wet" ]];
+                    phaseInverts.invertR_In invertWetR_In [[ name: "Invert R", init: float (iInvertWetR_Bool), boolean, group: "Wet" ]];
 
                     smoothedMakeupMixPans.makeupIn [[ name: "Makeup", min: -24, max: 24, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
                     smoothedMakeupMixPans.mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
@@ -119,8 +121,8 @@ VA::HighLevel Processors                                                03/03/22
                     smoothedMakeupMixPans.panWetIn [[ name: "Wet", min: -1, max: 1, init: iPanWet, step: 0.01f, group: "Pan" ]];
                     event float panModeIn [[ name: "Mode", min: 0, max: PanModeIdx::NumIdxs - 1, init: iPanModeIdx, text: "Unlinked|Linked|Inverted", group: "Pan" ]]; //this doesn't do anything
 
-                    phaseInverts1.invertL_In invertOutL_In [[ name: "Phase L", init: float (iInvertOutL_Bool), boolean, text: "Normal|Inverted", group: "Output" ]];
-                    phaseInverts1.invertR_In invertOutR_In [[ name: "Phase R", init: float (iInvertOutR_Bool), boolean, text: "Normal|Inverted", group: "Output" ]];
+                    phaseInverts1.invertL_In invertOutL_In [[ name: "Invert L", init: float (iInvertOutL_Bool), boolean, group: "Output" ]];
+                    phaseInverts1.invertR_In invertOutR_In [[ name: "Invert R", init: float (iInvertOutR_Bool), boolean, group: "Output" ]];
                 }
     
                 let
