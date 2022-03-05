@@ -112,7 +112,6 @@ VA::HighLevel Processors                                                03/03/22
                 {
                     mux2To1.idxIn complementIn [[ name: "Complement", init: float (iWetComplementBool), boolean, group: "Wet" ]];                   
                     phaseInverts.invertL_In invertWetL_In [[ name: "Invert L", init: float (iInvertWetL_Bool), boolean, group: "Wet" ]];
-                    phaseInverts.invertR_In invertWetR_In [[ name: "Invert R", init: float (iInvertWetR_Bool), boolean, group: "Wet" ]];
 
                     smoothedMakeupMixPans.makeupIn [[ name: "Makeup", min: -24, max: 24, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
                     smoothedMakeupMixPans.mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
@@ -121,8 +120,7 @@ VA::HighLevel Processors                                                03/03/22
                     smoothedMakeupMixPans.panWetIn [[ name: "Wet", min: -1, max: 1, init: iPanWet, step: 0.01f, group: "Pan" ]];
                     event float panModeIn [[ name: "Mode", min: 0, max: PanModeIdx::NumIdxs - 1, init: iPanModeIdx, text: "Unlinked|Linked|Inverted", group: "Pan" ]]; //this doesn't do anything
 
-                    phaseInverts1.invertL_In invertOutL_In [[ name: "Invert L", init: float (iInvertOutL_Bool), boolean, group: "Output" ]];
-                    phaseInverts1.invertR_In invertOutR_In [[ name: "Invert R", init: float (iInvertOutR_Bool), boolean, group: "Output" ]];
+                    phaseInverts1.invertL_In invertOutL_In [[ name: "Invert", init: float (iInvertOutL_Bool), boolean, group: "Output" ]];
                 }
     
                 let
@@ -2925,7 +2923,7 @@ Parameter Processors                                                    03/01/22
             c.target = decodeParameter (parameter, modeIdx);
 
             for (int i = 0; i < mode.numOut; ++i)
-                s.remainingSamples = max (s.remainingSamples, int (vmaxr (vabs (c.target.at(0) - s.current.at(0)) * divMaxDelta)));
+                s.remainingSamples = max (s.remainingSamples, int (vmaxr (vabs (c.target.at(i) - s.current.at(i)) * divMaxDelta)));
             s.remainingSamples = max (1, s.remainingSamples);
 
             for (int i = 0; i < mode.numOut; ++i)
