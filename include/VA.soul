@@ -33,6 +33,7 @@
             or every 278 samples at 48 kHz (linearly scaled with sample rate)
         - Parameters not suitable for modulation are commented as 'UNSMOOTHED' in their annotations. 
         Annotations with "boolean" and "text" values are assumed to be unsuitable for modulation.
+        - Meta parameters will have "Meta" in their event endpoint names.
         - Expanded set of vector-friendly functions (see 'Vectorized Intrinsic/Helper' sections)
         - Algebraic operations are preferred to avoid expensive transcendentals while providing superior
         accuracy and click-free modulation when compared to lookup tables
@@ -212,7 +213,7 @@ VA::HighLevel Processors                                                03/10/22
 
                     smoothedMakeupMixPans.panDryIn [[ name: "Dry", min: -1, max: 1, init: iPanDry, step: 0.01f, group: "Pan" ]];
                     smoothedMakeupMixPans.panWetIn [[ name: "Wet", min: -1, max: 1, init: iPanWet, step: 0.01f, group: "Pan" ]];
-                    event float panModeIn [[ name: "Mode", min: 0, init: iPanModeIdx, text: "Unlinked|Linked|Inverted", group: "Pan" ]]; //this doesn't do anything
+                    event float panModeMetaIn [[ name: "Mode", min: 0, init: iPanModeIdx, text: "Unlinked|Linked|Inverted", group: "Pan" ]];
                 }
     
                 let
