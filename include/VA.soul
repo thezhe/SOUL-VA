@@ -190,8 +190,8 @@ VA::HighLevel Processors                                                03/10/22
             }
 
             graph Processor(bool iWetComplementBool = false,
-                            bool iInvertWetL_Bool = false,
-                            bool iInvertWetR_Bool = false,
+                            bool iInvertL_Bool = false,
+                            bool iInvertR_Bool = false,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100,
                             float iPanDry = 0,
@@ -204,8 +204,8 @@ VA::HighLevel Processors                                                03/10/22
                 input
                 {
                     mux2To1.idxIn complementIn [[ name: "Complement", init: float (iWetComplementBool), boolean, group: "Wet" ]];                   
-                    phaseInverts.invertL_In [[ name: "Invert L", init: float (iInvertWetL_Bool), boolean, group: "Wet" ]];
-                    phaseInverts.invertR_In [[ name: "Invert R", init: float (iInvertWetR_Bool), boolean, group: "Wet" ]];
+                    phaseInverts.invertL_In [[ name: "Invert L", init: float (iInvertL_Bool), boolean, group: "Wet" ]];
+                    phaseInverts.invertR_In [[ name: "Invert R", init: float (iInvertR_Bool), boolean, group: "Wet" ]];
 
                     smoothedMakeupMixPans.makeupIn [[ name: "Makeup", min: -24, max: 24, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
                     smoothedMakeupMixPans.mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
@@ -220,7 +220,7 @@ VA::HighLevel Processors                                                03/10/22
                     mux2To1 = Mux2To1::Processor (iWetComplementBool);
                     difference = Difference::Processor;
 
-                    phaseInverts = PhaseInverts::Processor (iInvertWetL_Bool, false);
+                    phaseInverts = PhaseInverts::Processor (iInvertL_Bool, iInvertR_Bool);
 
                     smoothedMakeupMixPans = SmoothedMakeupMixPans::Processor (iMakeup_dB, iMixPercent, iPanDry, iPanWet);
                 }
@@ -2281,42 +2281,13 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
     
             input
             {
-                unsmoothedParameter.in invertR_In;
-                unsmoothedParameter.in1 invertL_In;
+                unsmoothedParameter.in invertL_In;
+                unsmoothedParameter.in1 invertR_In;
             }
     
             let
             {
                 unsmoothedParameter = UnsmoothedParameter::Processor (UnsmoothedParameter::ParameterType (float (iInvertL_Bool), float (iInvertR_Bool)), UnsmoothedParameter::ModeIdx::PhaseInverts);
-                applyGain = ApplyGain::Processor;
-            }
-    
-            connection
-            {
-                unsmoothedParameter.out -> applyGain.b;
-
-                in -> applyGain.in;
-
-                applyGain -> out;
-            }
-        }
-    }
-
-    namespace PhaseInvert
-    {
-        graph Processor(bool iInvert_Bool)
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            input
-            {
-                unsmoothedParameter.in invertIn;
-            }
-    
-            let
-            {
-                unsmoothedParameter = UnsmoothedParameter::Processor (UnsmoothedParameter::ParameterType (float (iInvert_Bool), 0), UnsmoothedParameter::ModeIdx::PhaseInvert);
                 applyGain = ApplyGain::Processor;
             }
     
@@ -3292,8 +3263,7 @@ Parameter Processors                                                    03/04/22
             let TauToOmega = 0;
             let Identity = 1;
             let PhaseInverts = 2;
-            let PhaseInvert = 3;
-            let NumIdxs = 4;
+            let NumIdxs = 3;
         }
 
         let MAX_NUM_IN = 2;
@@ -3307,10 +3277,8 @@ Parameter Processors                                                    03/04/22
                     return vTauToOmega (parameter.at(0));
                 else if const (modeIdx == ModeIdx::Identity)
                     return SampleType (parameter.at(0));
-                else if const (modeIdx == ModeIdx::PhaseInverts)
+                else //if const (modeIdx == ModeIdx::PhaseInverts)
                     return vPhaseInvertsToGain (parameter.at(0), parameter.at(1)); 
-                else //if const (modeIdx == ModeIdx::PhaseInvert)
-                    return vPhaseInvertToGain (parameter.at(0));
             }
         }
 
@@ -3594,11 +3562,6 @@ Vectorized Helper Functions                                             02/24/22
     SampleType vPhaseInvertsToGain (float invertL, float invertR)
     {
         return SampleType (bool (invertL) ? -1.0 : 1.0, bool (invertR) ? -1.0 : 1.0);
-    }
-
-    SampleType vPhaseInvertToGain (float invert)
-    {
-        return (bool (invert) ? -ONE : ONE);
     }
 
     /** Convert makeup volume, mix, and pan values to a gain for applying to dry and wet SampleType streams (indicies 0 and 1 respectively) */
