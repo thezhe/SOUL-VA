@@ -204,8 +204,8 @@ VA::HighLevel Processors                                                03/10/22
                 input
                 {
                     mux2To1.idxIn complementIn [[ name: "Complement", init: float (iWetComplementBool), boolean, group: "Wet" ]];                   
-                    phaseInverts.invertL_In invertWetL_In [[ name: "Invert L", init: float (iInvertWetL_Bool), boolean, group: "Wet" ]];
-                    phaseInverts.invertR_In invertWetR_In [[ name: "Invert R", init: float (iInvertWetR_Bool), boolean, group: "Wet" ]];
+                    phaseInverts.invertL_In [[ name: "Invert L", init: float (iInvertWetL_Bool), boolean, group: "Wet" ]];
+                    phaseInverts.invertR_In [[ name: "Invert R", init: float (iInvertWetR_Bool), boolean, group: "Wet" ]];
 
                     smoothedMakeupMixPans.makeupIn [[ name: "Makeup", min: -24, max: 24, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
                     smoothedMakeupMixPans.mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
@@ -425,6 +425,7 @@ VA::HighLevel Processors                                                03/10/22
                             float iSoftness_dB = 0,
                             float iColor_dB = 0,
                             float iHpfCutoffHz = 1,
+                            float iLpfCutoffHz = 20000,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100)
             {
@@ -441,41 +442,47 @@ VA::HighLevel Processors                                                03/10/22
                     event float ratio1In [[ name: "Pre-Threshold", min: 0.5f, max: 1.5f, init: iRatio1, step: 0.1f, group: "Ratios" ]];
 
                     event float sidechainIn [[ name: "Sidechain", init: float (iSidechainBool), boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
-                    event float cutoffIn [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
+                    event float cutoffHP_In [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
+                    event float cutoffLP_In [[ name: "Low Pass", min: 500, max: 20000, init: iLpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
                     event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1, group: "Detector" ]];
 
                     event float softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness_dB, unit: "dB", step: 0.1f, group: "Knee" ]];
                     event float colorIn [[ name: "Color", min: -24, max: 24, init: iColor_dB, unit: "dB", step: 0.1f, group: "Knee" ]]; 
-                    
-                    event float makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Utility" ]];
-                    event float mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Utility" ]];
+                                  
+                    smoothedVolume.volumeIn makeupIn [[ name: "Makeup", min: -6, max: 50, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Utility" ]];
+                    smoothedMixPan.mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Utility" ]];
                 }
         
                 let
                 {
-                    internalDS0 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent);
-                    internalDS2 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 2;
-                    internalDS4 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iMakeup_dB, iMixPercent) / 4;
+                    internalDS0 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iLpfCutoffHz);
+                    internalDS2 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iLpfCutoffHz) / 2;
+                    internalDS4 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iLpfCutoffHz) / 4;
                     mux3To1Fs = Mux3To1Fs::Processor;
                     mux3To1Fs1 = Mux3To1Fs::Processor;
+
+                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
+                    smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
                 }
         
                 connection
                 {
                     //input event float
-                    sidechainIn -> internalDS0.sidechainIn, internalDS2.sidechainIn, internalDS4.sidechainIn;
                     attackIn -> internalDS0.attackIn, internalDS2.attackIn, internalDS4.attackIn;   
                     releaseIn -> internalDS0.releaseIn, internalDS2.releaseIn, internalDS4.releaseIn;
-                    stereoLinkIn -> internalDS0.stereoLinkIn, internalDS2.stereoLinkIn, internalDS4.stereoLinkIn;
                     thresholdIn -> internalDS0.thresholdIn, internalDS2.thresholdIn, internalDS4.thresholdIn;
+                    
                     ratio0In -> internalDS0.ratio0In, internalDS2.ratio0In, internalDS4.ratio0In;
                     ratio1In -> internalDS0.ratio1In, internalDS2.ratio1In, internalDS4.ratio1In;
+
+                    sidechainIn -> internalDS0.sidechainIn, internalDS2.sidechainIn, internalDS4.sidechainIn;
+                    cutoffHP_In -> internalDS0.cutoffHP_In, internalDS2.cutoffHP_In, internalDS4.cutoffHP_In;
+                    cutoffLP_In -> internalDS0.cutoffLP_In, internalDS2.cutoffLP_In, internalDS4.cutoffLP_In;
+                    stereoLinkIn -> internalDS0.stereoLinkIn, internalDS2.stereoLinkIn, internalDS4.stereoLinkIn;
+
                     softnessIn -> internalDS0.softnessIn, internalDS2.softnessIn, internalDS4.softnessIn;
                     colorIn -> internalDS0.colorIn, internalDS2.colorIn, internalDS4.colorIn;
-                    cutoffIn -> internalDS0.cutoffIn, internalDS2.cutoffIn, internalDS4.cutoffIn;
-                    makeupIn -> internalDS0.makeupIn, internalDS2.makeupIn, internalDS4.makeupIn;
-                    mixIn -> internalDS0.mixIn, internalDS2.mixIn, internalDS4.mixIn;
-
+                    
                     //apply 3 downsampling rates
                     [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
                     [sinc] scIn -> internalDS0.scIn, internalDS2.scIn, internalDS4.scIn; 
@@ -488,8 +495,13 @@ VA::HighLevel Processors                                                03/10/22
                     [sinc] internalDS2.guiOut -> mux3To1Fs1.in1;
                     [sinc] internalDS4.guiOut -> mux3To1Fs1.in2;
 
-                    mux3To1Fs.out -> out;
                     mux3To1Fs1.out -> guiOut;
+
+                    //utility
+                    in -> smoothedMixPan.dryIn;
+                    mux3To1Fs.out -> smoothedVolume.in;
+                    smoothedVolume.out -> smoothedMixPan.wetIn;
+                    smoothedMixPan.out -> out;
                 }
             }
             
@@ -505,8 +517,7 @@ VA::HighLevel Processors                                                03/10/22
                                 float iSoftness_dB,
                                 float iColor_dB,
                                 float iHpfCutoffHz,
-                                float iMakeup_dB,
-                                float iMixPercent)
+                                float iLpfCutoffHz)
                 {
                     input stream SampleType in, scIn;
                     output stream SampleType out, guiOut;
@@ -526,18 +537,19 @@ VA::HighLevel Processors                                                03/10/22
                         ctfColor.softnessIn;
                         ctfColor.colorIn;
 
-                        pSvf.frequencyIn cutoffIn;
-                    
-                        smoothedVolume.volumeIn makeupIn;
-                        smoothedMixPan.mixIn;
+                        pSvf.frequencyIn cutoffHP_In;
+                        pSvf1.frequencyIn cutoffLP_In;
                     }
 
                     let
                     {
-                        //non-boilerplate Processors
+                        dcBlocker = DC_Blocker::Processor;
+                        ultraBlocker = UltraBlocker::Processor;
+
                         mux2To1 = Mux2To1::Processor (iSidechainBool);
                         
                         pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
+                        pSvf1 = filt::tpt::svf::Processor (iLpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
                         absADAA = AbsADAA::Processor;     
 
@@ -546,32 +558,22 @@ VA::HighLevel Processors                                                03/10/22
                         ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio0, iRatio1, iSoftness_dB, iColor_dB);
 
                         applyGain = ApplyGain::Processor;
-
-                        //boilerplate Processors
-                        ultraBlockerIn0 = UltraBlocker::Processor;
-                        ultraBlockerIn1 = UltraBlocker::Processor;
-                        dcBlockerIn = DC_Blocker::Processor;
-                        dcBlockerOut = DC_Blocker::Processor;
-
-                        smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
-                        smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
                     }
 
                     connection
                     {
-                        in -> dcBlockerIn -> ultraBlockerIn0 -> smoothedMixPan.dryIn, applyGain.in;
+                        in -> dcBlocker -> ultraBlocker -> applyGain.in;
 
                         in -> mux2To1.in;
                         scIn -> mux2To1.in1;
                         mux2To1.out -> pSvf.in; 
-                        pSvf.highpassOut -> ultraBlockerIn1 -> absADAA -> stereoLink.in;
+                        pSvf.highpassOut -> pSvf1.in;
+                        pSvf1.lowpassOut -> absADAA -> stereoLink.in;
                         stereoLink.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
                         ctfColor.out -> applyGain.b, guiOut;
 
-                        applyGain.out -> smoothedVolume.in;
-                        smoothedVolume.out -> smoothedMixPan.wetIn;
-                        smoothedMixPan.out -> dcBlockerOut -> out;                    
+                        applyGain.out -> out;                    
                     }
                 }
             }
@@ -2045,8 +2047,11 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
         Notes:
         - ADAA specifically optimized for signal rectification (see 'TheExpressor' and 'ExpressorClassical')
     */
-    namespace AbsADAA (int ORDER = 2)
+    namespace AbsADAA (int order = 2)
     {   
+        static_assert (order > -1 && order < 4, "AbsADAA [[ Vectorized Instrinsic/Helper Processors ]]");
+        let oversampling = (order < 3 ? 2 : 4); 
+
         struct Coeffs
         {
         }
@@ -2071,128 +2076,62 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             return vSgn(x) * SampleType (1.0 / 24.0) * vpow (x, 4);
         }
 
-        SampleType F (int o, SampleType x, const Coeffs& c)
+        graph Processor()
         {
-            if (o == 0)
-                return f (x, c);
-            else if (o == 1)
-                return F1 (x, c);
-            else if (o == 2)
-                return F2 (x, c);
-            else if (o == 3)
-                return F3 (x, c);
-            else
-                return ZERO;
-        }
-
-        //max order is currently 3
-        struct State
-        {
-            SampleType [4] x; //x.at(i) <-> x*z^-i
-            SampleType [4] F_0; //F.at(i) <-> F(i, x, c)
-            SampleType [4] F_1; //F_1.at(i) <-> F(i + 1, x, c)*z^-1
-        }
-
-        void reset (State& s)
-        {
-            s.x = s.x.type();
-            s.F_0 = s.F_0.type();
-            s.F_1 = s.F_1.type();
-        }
+            input stream SampleType in;
+            output stream SampleType out;
     
-        //Differential operator for ADAA of order 'o' 
-        //i is iteration number 
-        //e.g., for 2nd order run D(1, 2, s, x, c) and then D(2, 2, s, x, c)
-        void D (int i, int o, State& s, SampleType x, const Coeffs& c)
-        {
-            let n = (i - 1)/2; //each 2 orders adds a sample delay
-            let co = o - i + 1; //current order
-            
-            if (i == 1)
+            input
             {
-                s.x.at(0) = x;
-                s.F_0.at(co) = F (co, s.x.at(n), c);
+                //Endpoint declarations
             }
-            
-            if ((i & 1) == 1) //odd derivative
+    
+            let
             {
-                let div = s.x.at(n) - s.x.at(n+1);
-
-                s.F_0.at(co-1) = viflt (
-                    F(co-1, HALF * (s.x.at(n) + s.x.at(n + 1)), c), 
-                    (s.F_0.at(co) - s.F_1.at(co)) / div,
-                    vabs (div), 
-                    DIV_TOL
-                );
-
-              
+                internal = Internal::Processor * oversampling;
             }
-            else //even iteration
+    
+            connection
             {
-                let div2 = s.x.at(n) - s.x.at(n+2);
-        
-                let xBar = HALF * (s.x.at(n) + s.x.at(n+2));
-                let delta = xBar - s.x.at(n+1);
-        
-                s.F_0.at(co-1) = viflt (
-                    viflt (
-                        F (co-1, HALF * (xBar + s.x.at(n+1)), c),
-                        (TWO / delta) * (F (co ,xBar, c) + (s.F_1.at(co+1) - F (co+1, xBar, c)) / delta),
-                        vabs (delta),
-                        DIV_TOL
-                    ),
-                    (TWO / div2) * (s.F_0.at(co) - s.F_1.at(co)),
-                    vabs (div2), 
-                    DIV_TOL
-                );
-            }
-
-            //update state
-            if (i == o)
-            {
-                s.x.at(3) = s.x.at(2);
-                s.x.at(2) = s.x.at(1);
-                s.x.at(1) = x;
-                s.F_1.at(3) = s.F_0.at(3);
-                s.F_1.at(2) = s.F_0.at(2);
-                s.F_1.at(1) = s.F_0.at(1);
+                in -> internal -> out;
             }
         }
 
-        SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
-        {
-            //Find F1_0
-            let div = x - s.x.at(1);
-            s.F_0.at(2) = F2 (x, c);
+
+        // SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
+        // {
+        //     //Find F1_0
+        //     let div = x - s.x.at(1);
+        //     s.F_0.at(2) = F2 (x, c);
     
-            s.F_0.at(1) = viflt (F1 (HALF * (x + s.x.at(1)), c), 
-                (s.F_0.at(2) - s.F_1.at(2)) / div,
-                vabs (div), DIV_TOL);
+        //     s.F_0.at(1) = viflt (F1 (HALF * (x + s.x.at(1)), c), 
+        //         (s.F_0.at(2) - s.F_1.at(2)) / div,
+        //         vabs (div), DIV_TOL);
     
-            //Find f_0
-            let div2 = x - s.x.at(2);
+        //     //Find f_0
+        //     let div2 = x - s.x.at(2);
     
-            let xBar = HALF * (x + s.x.at(2));
-            let delta = xBar - s.x.at(1);
+        //     let xBar = HALF * (x + s.x.at(2));
+        //     let delta = xBar - s.x.at(1);
     
-            s.F_0.at(0) = viflt (
-                viflt (
-                    f (HALF * (xBar + s.x.at(1)), c),
-                    (TWO / delta) * (F1 (xBar, c) + (s.F_1.at(2) - F2 (xBar, c)) / delta),
-                    vabs (delta), DIV_TOL
-                ),
-                (TWO / div2) * (s.F_0.at(1) - s.F_1.at(1)),
-                vabs (div2), DIV_TOL
-            );
+        //     s.F_0.at(0) = viflt (
+        //         viflt (
+        //             f (HALF * (xBar + s.x.at(1)), c),
+        //             (TWO / delta) * (F1 (xBar, c) + (s.F_1.at(2) - F2 (xBar, c)) / delta),
+        //             vabs (delta), DIV_TOL
+        //         ),
+        //         (TWO / div2) * (s.F_0.at(1) - s.F_1.at(1)),
+        //         vabs (div2), DIV_TOL
+        //     );
     
-            //update s
-            s.x.at(2) = s.x.at(1);
-            s.x.at(1) = x;
-            s.F_1.at(2) = s.F_0.at(2);
-            s.F_1.at(1) = s.F_0.at(1);
+        //     //update s
+        //     s.x.at(2) = s.x.at(1);
+        //     s.x.at(1) = x;
+        //     s.F_1.at(2) = s.F_0.at(2);
+        //     s.F_1.at(1) = s.F_0.at(1);
     
-            return s.F_0.at(0);
-        }
+        //     return s.F_0.at(0);
+        // }
     
         // SampleType processADAA1 (State& s, SampleType x, const Coeffs& c)
         // {
@@ -2210,31 +2149,105 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
     
         //     return f_0;
         // }
-    
-        SampleType process (State& s, SampleType x, const Coeffs& c)
+        
+        namespace Internal
         {
-            for (int i = 1; i < ORDER + 1; ++i)
-                D (i, ORDER, s, x, c);
-            
-            return s.F_0.at(0);
-           //return processADAA2(s, x, c);
-        }
-    
-        processor Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-
-            void run()
+            SampleType F (int o, SampleType x, const Coeffs& c)
             {
-                State s;
-                Coeffs c;
-    
-                loop
-                {
-                    out << s.process (in, c);
+                if (o == 0)
+                    return f (x, c);
+                else if (o == 1)
+                    return F1 (x, c);
+                else if (o == 2)
+                    return F2 (x, c);
+                else if (o == 3)
+                    return F3 (x, c);
+                else
+                    return ZERO;
+            }
 
-                    advance();
+            struct State
+            {
+                SampleType[order + 1] x; //x.at(i) <-> x*z^-i
+                SampleType[order + 1] F_0; //F.at(i) <-> F(i, x, c)
+                SampleType[order + 1] F_1; //F_1.at(i) <-> F(i + 1, x, c)*z^-1
+            }
+
+            void reset (State& s)
+            {
+                s = State();
+            }
+        
+            SampleType process (State& s, SampleType x, const Coeffs& c)
+            {
+                let o = order;
+
+                s.x.at(0) = x;
+                s.F_0.at(o) = F (o, s.x.at(0), c);
+
+                //derive 'order' times starting with antiderivative of order 'order'
+                for (int i = 1; i < order + 1; ++i)
+                {
+                    let n = (i - 1)/2; //each 2 orders adds a sample delay
+                    let co = o - i + 1; //current order
+                    
+                    if ((i & 1) == 1) //odd derivative
+                    {
+                        let div = s.x.at(n) - s.x.at(n+1);
+
+                        s.F_0.at(co-1) = viflt (
+                            F(co-1, HALF * (s.x.at(n) + s.x.at(n + 1)), c), 
+                            (s.F_0.at(co) - s.F_1.at(co)) / div,
+                            vabs (div), 
+                            DIV_TOL
+                        ); 
+                    }
+                    else //even iteration
+                    {
+                        let div2 = s.x.at(n) - s.x.at(n+2);
+                
+                        let xBar = HALF * (s.x.at(n) + s.x.at(n+2));
+                        let delta = xBar - s.x.at(n+1);
+                
+                        s.F_0.at(co-1) = viflt (
+                            viflt (
+                                F (co-1, HALF * (xBar + s.x.at(n+1)), c),
+                                (TWO / delta) * (F (co ,xBar, c) + (s.F_1.at(co+1) - F (co+1, xBar, c)) / delta),
+                                vabs (delta),
+                                DIV_TOL
+                            ),
+                            (TWO / div2) * (s.F_0.at(co) - s.F_1.at(co)),
+                            vabs (div2), 
+                            DIV_TOL
+                        );
+                    }
+                }
+
+                //update state
+                for (int i = int (s.x.size - 1); i > 0; --i)
+                    s.x.at(i) = s.x.at(i - 1);
+
+                s.F_1 = s.F_0;
+
+                return s.F_0.at(0);
+            }
+
+            processor Processor()
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+
+                void run()
+                {
+                    State s;
+                    Coeffs c;
+        
+                    loop
+                    {
+                        out << s.process (in, c);
+
+                        advance();
+                    }
                 }
             }
         }
