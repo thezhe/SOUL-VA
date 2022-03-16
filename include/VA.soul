@@ -434,7 +434,7 @@ VA::HighLevel Processors                                                03/17/22
         
                 input
                 {
-                    event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Main"]];
+                    event float attackIn [[ name: "Attack", min: 0.1f, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Main"]];
                     event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Main" ]];
                     event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Main" ]];
 
