@@ -417,7 +417,7 @@ VA::HighLevel Processors                                                03/17/22
         namespace TheExpressor
         {            
             graph Processor(bool iSidechainBool = false,
-                            float iAttackMs = 1,
+                            float iAttackMs = 0.1f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
                             float iThreshold_dB = -20,
@@ -426,7 +426,6 @@ VA::HighLevel Processors                                                03/17/22
                             float iSoftness_dB = 0,
                             float iColor_dB = 18,
                             float iHpfCutoffHz = 1,
-                            float iLpfCutoffHz = 20000,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100)
             {
@@ -435,7 +434,7 @@ VA::HighLevel Processors                                                03/17/22
         
                 input
                 {
-                    event float attackIn [[ name: "Attack", min: 0.5f, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Main"]];
+                    event float attackIn [[ name: "Attack", min: 1, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Main"]];
                     event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Main" ]];
                     event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Main" ]];
 
@@ -444,7 +443,6 @@ VA::HighLevel Processors                                                03/17/22
 
                     event float sidechainIn [[ name: "Sidechain", init: float (iSidechainBool), boolean, group: "Detector" /*UNSMOOTHED*/ ]];   
                     event float cutoffHP_In [[ name: "High Pass", min: 1, max: 500, init: iHpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
-                    event float cutoffLP_In [[ name: "Low Pass", min: 500, max: 20000, init: iLpfCutoffHz, unit: "Hz", step: 1, group: "Detector"]];
                     event float stereoLinkIn [[ name: "Stereo Link", min: 0, max: 100, init: iStereoLinkPercent, unit: "%", step: 1, group: "Detector" ]];
 
                     event float softnessIn [[ name: "Softness", min: 0, max: 24, init: iSoftness_dB, unit: "dB", step: 0.1f, group: "Knee" ]];
@@ -456,9 +454,9 @@ VA::HighLevel Processors                                                03/17/22
         
                 let
                 {
-                    internalDS0 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iLpfCutoffHz);
-                    internalDS2 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iLpfCutoffHz) / 2;
-                    internalDS4 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz, iLpfCutoffHz) / 4;
+                    internalDS0 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz);
+                    internalDS2 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz) / 2;
+                    internalDS4 = Internal::Processor (iSidechainBool, iAttackMs, iReleaseMs, iStereoLinkPercent, iThreshold_dB, iRatio, iRatio1, iSoftness_dB, iColor_dB, iHpfCutoffHz) / 4;
                     mux3To1Fs = Mux3To1Fs::Processor;
                     mux3To1Fs1 = Mux3To1Fs::Processor;
 
@@ -478,7 +476,6 @@ VA::HighLevel Processors                                                03/17/22
 
                     sidechainIn -> internalDS0.sidechainIn, internalDS2.sidechainIn, internalDS4.sidechainIn;
                     cutoffHP_In -> internalDS0.cutoffHP_In, internalDS2.cutoffHP_In, internalDS4.cutoffHP_In;
-                    cutoffLP_In -> internalDS0.cutoffLP_In, internalDS2.cutoffLP_In, internalDS4.cutoffLP_In;
                     stereoLinkIn -> internalDS0.stereoLinkIn, internalDS2.stereoLinkIn, internalDS4.stereoLinkIn;
 
                     softnessIn -> internalDS0.softnessIn, internalDS2.softnessIn, internalDS4.softnessIn;
@@ -517,8 +514,7 @@ VA::HighLevel Processors                                                03/17/22
                                 float iRatio1,
                                 float iSoftness_dB,
                                 float iColor_dB,
-                                float iHpfCutoffHz,
-                                float iLpfCutoffHz)
+                                float iHpfCutoffHz)
                 {
                     input stream SampleType in, scIn;
                     output stream SampleType out, guiOut;
@@ -549,9 +545,12 @@ VA::HighLevel Processors                                                03/17/22
                         mux2To1 = Mux2To1::Processor (iSidechainBool);
                         
                         pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
-                        pSvf1 = filt::tpt::svf::Processor (iLpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
-                        absADAA = AbsADAA::Processor;     
+                        //minimum attack is 0.1 ms or a cutoff of approx. 1592 Hz
+                        //a low pass with a cutoff that's approx. a decade higher
+                        //reduces aliasing without affecting attack speed
+                        pSvf1 = filt::tpt::svf::Processor (10000, FLOAT_DIV_SQRT_TWO); 
+                        absADAA = AbsADAA(1)::Processor;     
 
                         ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                         stereoLink = StereoLink::Processor (iStereoLinkPercent);
@@ -567,8 +566,8 @@ VA::HighLevel Processors                                                03/17/22
                         in -> mux2To1.in;
                         scIn -> mux2To1.in1;
                         mux2To1.out -> pSvf.in; 
-                        pSvf.highpassOut -> pSvf1.in;
-                        pSvf1.lowpassOut -> absADAA -> stereoLink.in;
+                        pSvf.highpassOut -> absADAA -> pSvf1.in;
+                        pSvf1.lowpassOut ->  stereoLink.in;
                         stereoLink.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
                         ctfColor.out -> applyGain.b, guiOut;
@@ -2023,10 +2022,10 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
         Notes:
         - ADAA specifically optimized for signal rectification (see 'TheExpressor' and 'ExpressorClassical')
     */
-    namespace AbsADAA (int order = 3)
+    namespace AbsADAA (int order = 2)
     {   
         static_assert (order > -1 && order < 4, "AbsADAA [[ Vectorized Instrinsic/Helper Processors ]]");
-        let oversampling = 2; 
+        let oversampling = order < 3 ? 2 : 4; 
 
         struct Coeffs
         {
@@ -2052,10 +2051,11 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             return vSgn(x) * SampleType (1.0 / 24.0) * vpow (x, 4);
         }
 
-        // SampleType F4 (SampleType x, const Coeffs& c)
-        // {
+        SampleType F4 (SampleType x, const Coeffs& c)
+        {
+            return vSgn(x) * SampleType (1.0 / 120.0) * vpow (x, 5);
+        }
 
-        // }
         graph Processor()
         {
             input stream SampleType in;
@@ -2141,8 +2141,8 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
                     return F2 (x, c);
                 else if (o == 3)
                     return F3 (x, c);
-                else
-                    return ZERO;
+                else //if (o == 4)
+                    return F4 (x, c);
             }
 
             struct State
