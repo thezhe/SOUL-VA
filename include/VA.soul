@@ -417,7 +417,7 @@ VA::HighLevel Processors                                                03/10/22
         namespace TheExpressor
         {            
             graph Processor(bool iSidechainBool = false,
-                            float iAttackMs = 0.5f,
+                            float iAttackMs = 0.01f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
                             float iThreshold_dB = -50,
@@ -435,7 +435,7 @@ VA::HighLevel Processors                                                03/10/22
         
                 input
                 {
-                    event float attackIn [[ name: "Attack", min: 0.5f, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Main"]];
+                    event float attackIn [[ name: "Attack", min: 0.01f, max: 50, init: iAttackMs, unit: "ms", step: 0.1, group: "Main"]];
                     event float releaseIn [[ name: "Release", min: 30, max: 3000, init: iReleaseMs, unit: "ms", step: 1, group: "Main" ]];
                     event float thresholdIn [[ name: "Threshold", min: -50.f, max: 0.f, init: iThreshold_dB, unit: "dB", step: 0.1f, group: "Main" ]];
 
@@ -462,8 +462,8 @@ VA::HighLevel Processors                                                03/10/22
                     mux3To1Fs = Mux3To1Fs::Processor;
                     mux3To1Fs1 = Mux3To1Fs::Processor;
 
-                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
                     smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
+                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
                 }
         
                 connection
@@ -545,14 +545,13 @@ VA::HighLevel Processors                                                03/10/22
                     let
                     {
                         dcBlocker = DC_Blocker::Processor;
-                        ultraBlocker = UltraBlocker::Processor;
 
                         mux2To1 = Mux2To1::Processor (iSidechainBool);
                         
                         pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
                         pSvf1 = filt::tpt::svf::Processor (iLpfCutoffHz, FLOAT_DIV_SQRT_TWO);
 
-                        absADAA = AbsADAA::Processor;     
+                        absADAA = AbsADAA(1)::Processor;     
 
                         ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
                         stereoLink = StereoLink::Processor (iStereoLinkPercent);
@@ -563,7 +562,7 @@ VA::HighLevel Processors                                                03/10/22
 
                     connection
                     {
-                        in -> dcBlocker -> ultraBlocker -> applyGain.in;
+                        in -> dcBlocker -> applyGain.in;
 
                         in -> mux2To1.in;
                         scIn -> mux2To1.in1;
@@ -1001,30 +1000,6 @@ Filter Processors                                                       02/24/22
         }
     }
 
-    /** Ultrasonic blocker using a slightly over-damped svf 
-    
-        No overshoot
-    */
-    namespace UltraBlocker
-    {
-        graph Processor()
-        {
-            input stream SampleType in;
-            output stream SampleType out;
-    
-            let
-            {
-                pSvf = filt::tpt::svf::Processor (16000, 0.4f);
-            }
-    
-            connection
-            {
-                in -> pSvf.in;
-                pSvf.lowpassOut -> out;
-            }
-        }
-    }
-    
     /** Split into high/low amplitude via downward compression or downward expansion */
     namespace SplitLoudSoft
     {
@@ -2097,7 +2072,6 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
                 in -> internal -> out;
             }
         }
-
 
         // SampleType processADAA2 (State& s, SampleType x, const Coeffs& c)
         // {

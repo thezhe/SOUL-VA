@@ -5,7 +5,7 @@ The following sections explain the outputs placed in `results/` after running `t
 ## Parameters
 Each effect is tested with approximately the most aliasing-prone parameter values within the valid set of parameter values. This does NOT mean that the plugin will be alias-free (up to -60dB, assuming parameters are not being modulated) for all input signal.parameter combinations; nonetheless, this is still an ambitious goal and ensures that aliasing is virtually inaudible under all circumstances. Below are the parameter values in the order of the Processor's instance declarations.
 
-- TheExpressor: 0, 0.5f, 30, 0 , -20, 20, 0.5f, 0, 18, 1, 0, 100
+- TheExpressor: 0, 0.5f, 30, 0 , -30, 20, 0.5f, 0, 18, 1, 0, 100
 
 ### Example Effect 1: `TheDummy`
 The system is trivial (and linear) and simply passes signals through unmodified. Notice how the step response input is actually a pulse signal with values 0.5 and 0.25 so that the test can measure overshoot (up towards 1) and undershoot (down towards -1). The DC IO plot is the same as the decibel mapping of a dynamic range compressor with a ratio of 1 and SinRamp IO plot shows what the system would look like as a waveshaper (may not always be a function). 
