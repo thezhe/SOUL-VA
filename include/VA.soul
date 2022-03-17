@@ -3026,7 +3026,7 @@ Parameter Processors                                                    03/04/22
         //Only gains and gain-related metrics need smoothed. TPT filters intrinsically smooth their cutoff gains.
         let DOUBLE_SLEW_RATE_SECONDS_GAIN = 100.0; //1 unit unipolar sine period is approx 2 units of movement (i.e. the sine modulates b/w 0 and 1); 100/2 = 50 Hz 
         let DOUBLE_SLEW_RATE_SECONDS_DECIBEL = 5000.0; //1 unit unipolar sine period is approx 100dBs of movement; 5000/100 = 50 Hz  
-        let DOUBLE_SLEW_RATE_SECONDS_RATIO = 100.0; //1 unit unipolar sine period is approx 20 units of movement; 1000/20 = 50 Hz
+        let DOUBLE_SLEW_RATE_SECONDS_RATIO = 10.0; //1 unit unipolar sine period is approx 20 units of movement; 1000/20 = 50 Hz
 
         namespace ModeIdx
         {
