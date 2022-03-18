@@ -420,11 +420,11 @@ VA::HighLevel Processors                                                03/17/22
                             float iAttackMs = 0.1f,
                             float iReleaseMs = 30, 
                             float iStereoLinkPercent = 0,
-                            float iThreshold_dB = -20,
+                            float iThreshold_dB = -50,
                             float iRatio = 20,
-                            float iRatio1 = 0.5f,
+                            float iRatio1 = 1,
                             float iSoftness_dB = 0,
-                            float iColor_dB = 18,
+                            float iColor_dB = 0,
                             float iHpfCutoffHz = 1,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100)
@@ -3385,7 +3385,7 @@ Vectorized Helper Functions                                             02/24/22
         //convert to linear gain
         let y = vmin (vdBtoGain (ydB) / x, MAX_EFFECT_GAIN);
         
-        return viflt (ONE, y, x, NOISE_FLOOR);
+        return viflt (ONE, y, x, MIN_EFFECT_GAIN);
     }
 
     /** Classical compressor transfer function (CTF) that can become 2 compression and 2 expansion transfer functions 
@@ -3408,7 +3408,7 @@ Vectorized Helper Functions                                             02/24/22
 
         let y = vmin (yInternal, MAX_EFFECT_GAIN);
 
-        return viflt (ONE, y, x, NOISE_FLOOR);
+        return viflt (ONE, y, x, MIN_EFFECT_GAIN);
     }
 
     /** Bucket Brigade Device static nonlinear mapping
@@ -3515,20 +3515,20 @@ Vectorized Helper Functions                                             02/24/22
         return gOnepole / (ONE + gOnepole);
     }
 
-    /** Convert gain to decibels and limit to >= -100.0 dB */
+    /** Convert gain to decibels and limit input to >= -100.0 dB */
     SampleType vGainTodB (SampleType x)
     {
-        let b = vmax (NOISE_FLOOR, x);
+        let b = vmax (MIN_EFFECT_GAIN, x);
 
         return SampleType (20.0) * log10 (b);
     }
 
-    /** Convert decibels to gain and limit inputs to >= -100.0 dB */
+    /** Convert decibels to gain and limit output to >= -100.0 dB */
     SampleType vdBtoGain (SampleType x)
     {
         let b = vpow (SampleType (10.0), x * SampleType (1.0 / 20.0)); 
 
-        return viflt (ZERO, b, x, NOISE_FLOOR_DB);
+        return vmax (MIN_EFFECT_GAIN, b);
     }
 
     /** Return 1 if x is positive, -1 if negative otherwise */
@@ -3660,7 +3660,7 @@ Vectorized Intrinsic Functions                                          03/16/22
     }
 
 /*==============================================================================
-Constants                                                               03/06/22
+Constants                                                               03/18/22
 ==============================================================================*/
 
     //soul::filters
@@ -3675,9 +3675,7 @@ Constants                                                               03/06/22
     let TWO = SampleType (2.0);
     
     let MAX_EFFECT_GAIN = SampleType (1.5); // about +3.52 dB
-
-    let NOISE_FLOOR = SampleType (0.00001); // -100 dB
-    let NOISE_FLOOR_DB = SampleType (-100.0);
+    let MIN_EFFECT_GAIN = SampleType (0.00001); // -100 dB
 
     let CHANNEL_ZERO_MASK = SampleType (1.0, 0.0);
     let CHANNEL_ONE_MASK = SampleType (0.0, 1.0);
