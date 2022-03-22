@@ -55,7 +55,6 @@
 
     - generic ADAA snippet and implementation
     - smoothed parameter compile time
-    - improved smoothing: log smoothing
     - TheSlewEQ
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
 
@@ -190,11 +189,29 @@ VA::HighLevel Processors                                                03/17/22
                 let NumIdxs = 3;
             }
 
+            namespace AB_ModeIdx
+            {
+                let Dry = false;
+                let Wet = true;
+                let NumIdxs = 2;
+            }
+
+            namespace VolumeModeIdx
+            {
+                let WetDry = 0;
+                let WetMix = 1;
+                let WetAB = 2;
+                let NumIdxs = 3;
+            }
+
             graph Processor(bool iWetComplementBool = false,
                             bool iInvertL_Bool = false,
                             bool iInvertR_Bool = false,
-                            float iMakeup_dB = 0,
+                            float iWet_dB = 0,
+                            float iDry_dB = 0,
                             float iMixPercent = 100,
+                            bool iAB_ModeIdx = AB_ModeIdx::Wet,
+                            int iVolumeModeIdx = VolumeModeIdx::WetDry,
                             float iPanDry = 0,
                             float iPanWet = 0,
                             int iPanModeIdx = PanModeIdx::Unlinked)
@@ -208,34 +225,93 @@ VA::HighLevel Processors                                                03/17/22
                     phaseInverts.invertL_In [[ name: "Invert L", init: float (iInvertL_Bool), boolean, group: "Wet" ]];
                     phaseInverts.invertR_In [[ name: "Invert R", init: float (iInvertR_Bool), boolean, group: "Wet" ]];
 
-                    smoothedMakeupMixPans.makeupIn [[ name: "Makeup", min: -24, max: 24, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
-                    smoothedMakeupMixPans.mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
+                    up.WetIn wetVolumeIn [[ name: "Wet", min: FLOAT_MIN_VOLUME - 0.1f, max: 24, init: iWet_dB, step: 0.1f, unit: "dB", group: "Volume" ]]; //maps to -inf dB if below FLOAT_MIN_VOLUME
+                    up.DryIn dryVolumeIn [[ name: "Dry", min: FLOAT_MIN_VOLUME - 0.1f, max: 24, init: iDry_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
+                    upMix.in MixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
+                    upAB.in AB_In [[ name: "A/B", init: float (iAB_ModeIdx), boolean, text: "Dry|Wet", group: "Volume" ]];
+                    event float volumeModeIn [[ name: "Mode", min: 0, init: iVolumeModeIdx, text: "Wet-Dry|Wet-Mix|Wet-A/B", group: "Volume" ]];
 
-                    smoothedMakeupMixPans.panDryIn [[ name: "Dry", min: -1, max: 1, init: iPanDry, step: 0.01f, group: "Pan" ]];
-                    smoothedMakeupMixPans.panWetIn [[ name: "Wet", min: -1, max: 1, init: iPanWet, step: 0.01f, group: "Pan" ]];
+                    upPanDry.in panDryIn [[ name: "Dry", min: -1, max: 1, init: iPanDry, step: 0.01f, group: "Pan" ]];
+                    upPanWet.in panWetIn [[ name: "Wet", min: -1, max: 1, init: iPanWet, step: 0.01f, group: "Pan" ]];
                     event float panModeMetaIn [[ name: "Mode", min: 0, init: iPanModeIdx, text: "Unlinked|Linked|Inverted", group: "Pan" ]];
                 }
     
                 let
                 {
+                    //Wet
                     mux2To1 = Mux2To1::Processor (iWetComplementBool);
                     difference = Difference::Processor;
-
                     phaseInverts = PhaseInverts::Processor (iInvertL_Bool, iInvertR_Bool);
 
-                    smoothedMakeupMixPans = SmoothedMakeupMixPans::Processor (iMakeup_dB, iMixPercent, iPanDry, iPanWet);
+                    //Volume
+                    upWet = UP::Processor (UP::ParameterType (iWet_dB), UP::ModeIdx::DecibelToGain);
+                    upDry = UP::Processor (UP::ParameterType (iDry_dB), UP::ModeIdx::DecibelToGain);
+                    upMix = UP::Processor (UP::ParameterType (iMixPercent), UP::ModeIdx::MixToGains);
+                    upAB = UP::Processor (UP::ParameterType (iAB_ModeIdx), UP::ModeIdx::AB_ToGains);
+
+                    //Pan
+                    upPanWet = UP::Processor (UP::ParameterType (iPanWet), UP::ModeIdx::PanToGain);
+                    upPanDry = UP::Processor (UP::ParameterType (iPanDry), UP::ModeIdx::PanToGain);
+
+
+                    //gains, muxes, smoothing
+                    streamToEvents = StreamToEvents::Processor;
+                    streamToEvents1 = StreamToEvents::Processor;
+                    sp = SP::Processor (SP::ParameterType (1), SP::ModeIdx::StereoGainsToGains);
+
+                    applyGains = ApplyGains::Processor;
+
+                    applyGain = ApplyGain::Processor;
+                    applyGain1 = ApplyGain::Processor;
+                    applyGain3 = ApplyGain::Processor;
+                    applyGain4 = ApplyGain::Processor;
+
+                    mux3To1 = Mux3To1::Processor (iVolumeModeIdx);
+                    mux3To1_1 = Mux3To1::Processor (iVolumeModeIdx);
                 }
     
                 connection
                 {
-                    dryIn -> difference.in, smoothedMakeupMixPans.in;
+                    //events
+                    volumeModeIn -> mux3To1.idxIn, mux3To1_1.idxIn;
+
+                    //Wet
+                    dryIn -> difference.in;
                     in -> difference.in1, mux2To1.in;
                     difference.out -> mux2To1.in1;
-
                     mux2To1.out -> phaseInverts.in;
-                    phaseInverts.out -> smoothedMakeupMixPans.wetIn;
 
-                    smoothedMakeupMixPans.out -> out;
+                    //Volume and Pan (Wet)
+                    upWet.out -> applyGain.in, applyGain1.in, mux3To1.in;
+            
+                    upMix.out1 -> applyGain.b;
+                    applyGain.out -> mux3To1.in1;
+
+                    upAB.out1 -> applyGain1.b;
+                    applyGain1.out -> mux3To1.in2;
+
+                    upPanWet.out -> applyGain3.in;
+                    mux3To1.out -> applyGain3.b;
+                    applyGain3.out -> streamToEvents.in;
+                    streamToEvents.out -> sp.in2;
+                    streamToEvents.out1 -> sp.in3;
+
+                    //Volume and Pan (Dry)
+                    upDry.out -> mux3To1_1.in;
+                    upMix.out -> mux3To1_1.in1;
+                    upAB.out -> mux3To1_1.in2;
+                    mux3To1_1.out -> applyGain4.in;
+                    upPanDry.out -> applyGain4.b;
+                    applyGain4.out -> streamToEvents1;
+                    streamToEvents1.out -> sp.in;
+                    streamToEvents1.out1 -> sp.in1;
+                    
+                    //Apply Volume and Pan
+                    dryIn -> applyGains.in;
+                    sp.out -> applyGains.b;
+                    phaseInverts.out -> applyGains.in;
+                    sp.out1 -> applyGains.b1;
+                    applyGains.out -> out;
                 }
             }
         }
@@ -3014,6 +3090,38 @@ Parameter Processors                                                    03/04/22
         }
     }
 
+    /** Convert a SampleType steam to float events */
+    namespace StreamToEvents
+    {   
+        processor Processor ()
+        {
+            input stream SampleType in;
+            output event float out, out1;
+    
+            void run()
+            {   
+                SampleType prevStream;
+    
+                loop
+                {
+                    if (prevStream[0] != in[0])
+                    {
+                        prevStream[0] = in[0];
+                        out << float (in[0]);
+                    }
+                    
+                    if (prevStream[1] != in[1])
+                    {
+                        prevStream[1] = in[1];
+                        out1 << float (in[1]);
+                    }
+
+                    advance();
+                }
+            }
+        }
+    }
+    
     /** Map float event(s) to smoothed SampleType stream(s); heavily modified version of soul::gain::SmoothedGainParameter
 
         Note:
@@ -3021,24 +3129,26 @@ Parameter Processors                                                    03/04/22
         - iParameter is a float[] that defines the initial value of the parameter(s) corresponding to each of the float event(s)
         - This Processor may be modified in the future to include other one-to-one, one-to-two, two-to-one, or two-to-two event-stream mapping Modes
     */       
+    namespace SP = SmoothedParameter;
     namespace SmoothedParameter
     {
         //Only gains and gain-related metrics need smoothed. TPT filters intrinsically smooth their cutoff gains.
         let DOUBLE_SLEW_RATE_SECONDS_GAIN = 100.0; //1 unit unipolar sine period is approx 2 units of movement (i.e. the sine modulates b/w 0 and 1); 100/2 = 50 Hz 
         let DOUBLE_SLEW_RATE_SECONDS_DECIBEL = 5000.0; //1 unit unipolar sine period is approx 100dBs of movement; 5000/100 = 50 Hz  
-        let DOUBLE_SLEW_RATE_SECONDS_RATIO = 10.0; //1 unit unipolar sine period is approx 20 units of movement; 1000/20 = 50 Hz
+        let DOUBLE_SLEW_RATE_SECONDS_RATIO = 10.0; //slew rate after converting to the log domain
 
         namespace ModeIdx
         {
             let GainToGain = 0;
             let DecibelToGain = 1;
-            let MixPanToGains = 2;
+            let MixPanToGains = 2; //coupled smoothing
             let PercentToGain = 3;
             let DecibelToDecibel = 4;
             let RatioToRatio = 5;
-            let MakeupMixPansToGains = 6;
+            let MakeupMixPansToGains = 6; //coupled smoothing
             let DecibelToGainAndReciprocal = 7;
-            let NumIdxs = 8;
+            let StereoGainsToGains = 8;
+            let NumIdxs = 9;
         }
 
         namespace Func
@@ -3050,12 +3160,13 @@ Parameter Processors                                                    03/04/22
             let MakeupMixPansToGains = 4;
             let LinearToLog = 5;
             let LogToLinear = 6;
-            let DecibelToGainAndReciprocal = 7;
+            let StereoGainsToGains = 7;
+            let DecibelToGainAndReciprocal = 8;
         }   
 
         struct Mode
         {
-            int idx, numIn, numOut, funcD, funcE;
+            int idx, numIn, numOut, funcD, funcE; //decode and encode funcs
             float64 slewRateSeconds;
         }
         
@@ -3067,7 +3178,8 @@ Parameter Processors                                                    03/04/22
             Mode (ModeIdx::DecibelToDecibel, 1, 1, Func::Identity, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_DECIBEL),
             Mode (ModeIdx::RatioToRatio, 1, 1, Func::LinearToLog, Func::LogToLinear, DOUBLE_SLEW_RATE_SECONDS_RATIO),
             Mode (ModeIdx::MakeupMixPansToGains, 4, 2, Func::MakeupMixPansToGains, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
-            Mode (ModeIdx::DecibelToGainAndReciprocal, 1, 2, Func::DecibelToGainAndReciprocal, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN)
+            Mode (ModeIdx::DecibelToGainAndReciprocal, 1, 2, Func::DecibelToGainAndReciprocal, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
+            Mode (ModeIdx::StereoGainsToGains, 4, 2, Func::StereoGainsToGains, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN)
         );
 
         let MAX_NUM_IN = 4;
@@ -3115,13 +3227,22 @@ Parameter Processors                                                    03/04/22
                 for (int i = 0; i < y2.size; ++i)
                     y.at(i) = y2.at(i);
             }
-            else // if (mode.funcD == Func::DecibelToGainAndReciprocal)
+            else if (mode.funcD == Func::DecibelToGainAndReciprocal)
             {
                 SampleType[2] y2;
 
                 y2.at(0) = vdBtoGain (SampleType (parameter.at(0)));
                 y2.at(1) = ONE / y2.at(0);
                 
+                for (int i = 0; i < y2.size; ++i)
+                    y.at(i) = y2.at(i);
+            }
+            else //if (mode.funcD == Func::StereoGainsToGains)
+            {
+                SampleType[2] y2;
+
+                y2 = SampleType[2] ( SampleType (parameter.at(0), parameter.at(1)), SampleType (parameter.at(2), parameter.at(3)));
+
                 for (int i = 0; i < y2.size; ++i)
                     y.at(i) = y2.at(i);
             }
@@ -3234,6 +3355,7 @@ Parameter Processors                                                    03/04/22
     }
 
     /** Map a float event directly to a SampleType stream */
+    namespace UP = UnsmoothedParameter;
     namespace UnsmoothedParameter
     {     
         namespace ModeIdx
@@ -3241,28 +3363,45 @@ Parameter Processors                                                    03/04/22
             let TauToOmega = 0;
             let Identity = 1;
             let PhaseInverts = 2;
-            let NumIdxs = 3;
+            let PanToGain = 3;
+            let MixToGains = 4;
+            let VolumeToGain = 5;
+            let AB_ToGains = 6;
+            let NumIdxs = 7;
         }
 
+        let MAX_NUM_OUT = 2;
         let MAX_NUM_IN = 2;
         using ParameterType = float[MAX_NUM_IN];
 
         namespace M (int modeIdx)
         {
-            SampleType decodeParameter (ParameterType parameter) //do this per sample
+            SampleType[MAX_NUM_OUT] decodeParameter (ParameterType parameter)
             {
+                SampleType[MAX_NUM_OUT] y;
+
                 if const (modeIdx == ModeIdx::TauToOmega)
-                    return vTauToOmega (parameter.at(0));
+                    y.at(0) = vTauToOmega (parameter.at(0));
                 else if const (modeIdx == ModeIdx::Identity)
-                    return SampleType (parameter.at(0));
-                else //if const (modeIdx == ModeIdx::PhaseInverts)
-                    return vPhaseInvertsToGain (parameter.at(0), parameter.at(1)); 
+                    y.at(0) = SampleType (parameter.at(0));
+                else if const (modeIdx == ModeIdx::PhaseInverts)
+                    y.at(0) = vPhaseInvertsToGain (parameter.at(0), parameter.at(1)); 
+                else if const (modeIdx == ModeIdx::PanToGain)
+                    y.at(0) = vPanToGain (parameter.at(0));
+                else if const (modeIdx == ModeIdx::MixToGains)
+                    y = vMixToGains (parameter.at(0));
+                else if const (modeIdx == ModeIdx::VolumeToGain)
+                    y.at(0) = vVolumeToGain (parameter.at(0));
+                else if const (modeIdx == ModeIdx::AB_ToGains)
+                    y = vABtoGains (bool (parameter.at(0)));
+
+                return y;
             }
         }
 
         processor Processor (ParameterType iParameter, int modeIdx)
         {              
-            output stream SampleType out;
+            output stream SampleType out, out1;
             input event float in, in1;
 
             event in (float v) { parameter.at(0) = v; recalc = true; }
@@ -3271,7 +3410,7 @@ Parameter Processors                                                    03/04/22
             float[MAX_NUM_IN] parameter;
             bool recalc = true;
 
-            SampleType y;
+            SampleType[MAX_NUM_OUT] y;
 
             void init()
             {
@@ -3290,7 +3429,8 @@ Parameter Processors                                                    03/04/22
                         y = M(modeIdx)::decodeParameter (parameter);
                     }
                     
-                    out << y;
+                    out << y.at(0);
+                    out1 << y.at(1);
 
                     advance();
                 }
@@ -3531,6 +3671,14 @@ Vectorized Helper Functions                                             02/24/22
         return vmax (MIN_EFFECT_GAIN, b);
     }
 
+    /** Convert decibels to gain and map to zero if less than -60 dB */
+    SampleType vVolumeToGain (SampleType x)
+    {
+        let y = vdBtoGain (x);
+
+        return viflt (ZERO, y, x, MIN_VOLUME);
+    }
+
     /** Return 1 if x is positive, -1 if negative otherwise */
     SampleType vSgn (SampleType x)
     {
@@ -3550,6 +3698,19 @@ Vectorized Helper Functions                                             02/24/22
         let bPans = SampleType[2](vPanToGain (panDry), vPanToGain(panWet));
 
         return SampleType[2] (bMakeup.at(0) * bMix.at(0) *  bPans.at(0), bMakeup.at(1) * bMix.at(1) *  bPans.at(1));
+    }
+
+    /** Set gain of wet or dry stream to 1 and rest to 0 */
+    SampleType[2] vABtoGains (bool wet)
+    {
+        SampleType[2] y;
+
+        if (wet)
+            y.at(INT_WET_STREAM) = ONE;
+        else 
+            y.at(INT_DRY_STREAM) = ONE;
+
+        return y;
     }
 
     /** Convert a mix and a pan to a SampleType[2] gain array
@@ -3667,7 +3828,7 @@ Constants                                                               03/18/22
     using SampleType = float64<2>;
     let updateInterval = 256;
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
-    
+
     //const SampleType
     let ZERO = SampleType (0.0);
     let HALF = SampleType (0.5);
@@ -3676,6 +3837,7 @@ Constants                                                               03/18/22
     
     let MAX_EFFECT_GAIN = SampleType (1.5); // about +3.52 dB
     let MIN_EFFECT_GAIN = SampleType (0.00001); // -100 dB
+    let MIN_VOLUME = SampleType (FLOAT_MIN_VOLUME);
 
     let CHANNEL_ZERO_MASK = SampleType (1.0, 0.0);
     let CHANNEL_ONE_MASK = SampleType (0.0, 1.0);
@@ -3689,10 +3851,15 @@ Constants                                                               03/18/22
     let DOUBLE_EPSILON = pow (2.0, -52.0); 
 
     //const float
+    let FLOAT_MIN_VOLUME = -60.f;
     let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f); // Butterworth Q and resonance value for svf
     let FLOAT_MIN_TAU_MS = 1.f / (40.f * float (pi)); // tau in ms which corresponds to a 20kHz cutoff
 
     //const int
+    let INT_LEFT_CHANNEL = 0;
+    let INT_RIGHT_CHANNEL = 1;
+    let INT_DRY_STREAM = 0;
+    let INT_WET_STREAM = 1;
     let INT_MAX_BUFFER_SIZE = 48000; // for arrays of SampleType, 1 second of samples at 48 kHz sample rate
     let INT_MAX_BUFFER_SIZE_MS = 999; // INT_MAX_BUFFER_SIZE minus 1 ms
 
