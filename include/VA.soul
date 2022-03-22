@@ -225,9 +225,9 @@ VA::HighLevel Processors                                                03/17/22
                     phaseInverts.invertL_In [[ name: "Invert L", init: float (iInvertL_Bool), boolean, group: "Wet" ]];
                     phaseInverts.invertR_In [[ name: "Invert R", init: float (iInvertR_Bool), boolean, group: "Wet" ]];
 
-                    up.WetIn wetVolumeIn [[ name: "Wet", min: FLOAT_MIN_VOLUME - 0.1f, max: 24, init: iWet_dB, step: 0.1f, unit: "dB", group: "Volume" ]]; //maps to -inf dB if below FLOAT_MIN_VOLUME
-                    up.DryIn dryVolumeIn [[ name: "Dry", min: FLOAT_MIN_VOLUME - 0.1f, max: 24, init: iDry_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
-                    upMix.in MixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
+                    upWet.in volumeWetIn [[ name: "Wet", min: FLOAT_MIN_VOLUME - 0.1f, max: 24, init: iWet_dB, step: 0.1f, unit: "dB", group: "Volume" ]]; //maps to -inf dB if below FLOAT_MIN_VOLUME
+                    upDry.in volumeDryIn [[ name: "Dry", min: FLOAT_MIN_VOLUME - 0.1f, max: 24, init: iDry_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
+                    upMix.in mixIn [[ name: "Mix", min: 0, max: 100, init: iMixPercent, unit: "%", step: 1, group: "Volume" ]];
                     upAB.in AB_In [[ name: "A/B", init: float (iAB_ModeIdx), boolean, text: "Dry|Wet", group: "Volume" ]];
                     event float volumeModeIn [[ name: "Mode", min: 0, init: iVolumeModeIdx, text: "Wet-Dry|Wet-Mix|Wet-A/B", group: "Volume" ]];
 
@@ -244,15 +244,14 @@ VA::HighLevel Processors                                                03/17/22
                     phaseInverts = PhaseInverts::Processor (iInvertL_Bool, iInvertR_Bool);
 
                     //Volume
-                    upWet = UP::Processor (UP::ParameterType (iWet_dB), UP::ModeIdx::DecibelToGain);
-                    upDry = UP::Processor (UP::ParameterType (iDry_dB), UP::ModeIdx::DecibelToGain);
+                    upWet = UP::Processor (UP::ParameterType (iWet_dB), UP::ModeIdx::VolumeToGain);
+                    upDry = UP::Processor (UP::ParameterType (iDry_dB), UP::ModeIdx::VolumeToGain);
                     upMix = UP::Processor (UP::ParameterType (iMixPercent), UP::ModeIdx::MixToGains);
                     upAB = UP::Processor (UP::ParameterType (iAB_ModeIdx), UP::ModeIdx::AB_ToGains);
 
                     //Pan
                     upPanWet = UP::Processor (UP::ParameterType (iPanWet), UP::ModeIdx::PanToGain);
                     upPanDry = UP::Processor (UP::ParameterType (iPanDry), UP::ModeIdx::PanToGain);
-
 
                     //gains, muxes, smoothing
                     streamToEvents = StreamToEvents::Processor;
