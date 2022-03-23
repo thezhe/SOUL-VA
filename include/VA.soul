@@ -231,8 +231,8 @@ VA::HighLevel Processors                                                03/17/22
                     upAB.in AB_In [[ name: "A/B", init: float (iAB_ModeIdx), boolean, text: "Dry|Wet", group: "Volume" ]];
                     event float volumeModeIn [[ name: "Mode", min: 0, init: iVolumeModeIdx, text: "Wet-Dry|Wet-Mix|Wet-A/B", group: "Volume" ]];
 
-                    upPanDry.in panDryIn [[ name: "Dry", min: -1, max: 1, init: iPanDry, step: 0.01f, group: "Pan" ]];
                     upPanWet.in panWetIn [[ name: "Wet", min: -1, max: 1, init: iPanWet, step: 0.01f, group: "Pan" ]];
+                    upPanDry.in panDryIn [[ name: "Dry", min: -1, max: 1, init: iPanDry, step: 0.01f, group: "Pan" ]];
                     event float panModeMetaIn [[ name: "Mode", min: 0, init: iPanModeIdx, text: "Unlinked|Linked|Inverted", group: "Pan" ]];
                 }
     
@@ -281,35 +281,41 @@ VA::HighLevel Processors                                                03/17/22
                     mux2To1.out -> phaseInverts.in;
 
                     //Volume and Pan (Wet)
-                    upWet.out -> applyGain.in, applyGain1.in, mux3To1.in;
+                    upWet.out -> applyGain.in, mux3To1.in;
             
                     upMix.out1 -> applyGain.b;
                     applyGain.out -> mux3To1.in1;
 
-                    upAB.out1 -> applyGain1.b;
-                    applyGain1.out -> mux3To1.in2;
+                    upAB.out1 -> mux3To1.in2;
 
                     upPanWet.out -> applyGain3.in;
                     mux3To1.out -> applyGain3.b;
                     applyGain3.out -> streamToEvents.in;
+
                     streamToEvents.out -> sp.in2;
                     streamToEvents.out1 -> sp.in3;
 
                     //Volume and Pan (Dry)
                     upDry.out -> mux3To1_1.in;
+                    
                     upMix.out -> mux3To1_1.in1;
+                    
                     upAB.out -> mux3To1_1.in2;
+
                     mux3To1_1.out -> applyGain4.in;
                     upPanDry.out -> applyGain4.b;
                     applyGain4.out -> streamToEvents1;
+                    
                     streamToEvents1.out -> sp.in;
                     streamToEvents1.out1 -> sp.in1;
                     
                     //Apply Volume and Pan
                     dryIn -> applyGains.in;
                     sp.out -> applyGains.b;
+
                     phaseInverts.out -> applyGains.in;
                     sp.out1 -> applyGains.b1;
+                    
                     applyGains.out -> out;
                 }
             }
