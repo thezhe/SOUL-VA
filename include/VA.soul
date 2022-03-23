@@ -281,12 +281,13 @@ VA::HighLevel Processors                                                03/17/22
                     mux2To1.out -> phaseInverts.in;
 
                     //Volume and Pan (Wet)
-                    upWet.out -> applyGain.in, mux3To1.in;
+                    upWet.out -> applyGain.in, applyGain1.in, mux3To1.in;
             
                     upMix.out1 -> applyGain.b;
                     applyGain.out -> mux3To1.in1;
 
-                    upAB.out1 -> mux3To1.in2;
+                    upAB.out1 -> applyGain1.b;
+                    applyGain1.out -> mux3To1.in2;
 
                     upPanWet.out -> applyGain3.in;
                     mux3To1.out -> applyGain3.b;
@@ -304,7 +305,7 @@ VA::HighLevel Processors                                                03/17/22
 
                     mux3To1_1.out -> applyGain4.in;
                     upPanDry.out -> applyGain4.b;
-                    applyGain4.out -> streamToEvents1;
+                    applyGain4.out ->  streamToEvents1;
                     
                     streamToEvents1.out -> sp.in;
                     streamToEvents1.out1 -> sp.in1;
@@ -313,7 +314,7 @@ VA::HighLevel Processors                                                03/17/22
                     dryIn -> applyGains.in;
                     sp.out -> applyGains.b;
 
-                    phaseInverts.out -> applyGains.in;
+                    phaseInverts.out -> applyGains.in1;
                     sp.out1 -> applyGains.b1;
                     
                     applyGains.out -> out;
