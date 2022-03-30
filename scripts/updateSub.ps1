@@ -1,12 +1,14 @@
-#!/bin/bash
-
 # This script initializes/updates all submodules
+
+$CallerDir = (Get-Item .).FullName
+
+cd $PSScriptRoot/..
 
 git submodule foreach git pull origin master
 git submodule foreach git submodule update --init --recursive
-chmod +x ./PLUG-QA/SameWav/builds/SameWav.app
 
-cd ./PLUG-QA
+cd PLUG-QA
+
 octave qaClear.m
 
-cd ..
+cd $CallerDir

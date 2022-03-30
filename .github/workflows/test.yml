@@ -1,4 +1,4 @@
-name: Test all .soulpatch files
+name: Test all .soulpatch files (x64)
 
 on:
   push:
@@ -27,6 +27,9 @@ jobs:
         run: |
           powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-windows-x64.zip -OutFile SOUL.zip"
           powershell -Command "Expand-Archive SOUL.zip -DestinationPath ."
+          # for %%f in (*.ext) do (
+          #     if "%%~xf"==".ext" echo %%f
+          # )
           .\windows\x64\soul.exe errors tests\errors.soulpatch
           if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
           .\windows\x64\soul.exe errors tests\effect.soulpatch
@@ -45,7 +48,7 @@ jobs:
           ./osx/x64/soul errors examples/main.soulpatch || exit 1
         shell: bash
 
-      - name: Get SOUL compiler and Test (ubuntu)
+      - name: Get SOUL compiler and Test (linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           curl -L "https://github.com/soul-lang/SOUL/releases/download/${{env.SOUL_VER}}/binaries-linux-combined.zip" -o SOUL.zip

@@ -1,9 +1,9 @@
 
 # Octave Examples
-The following sections explain the outputs placed in `results/` after running `test.(bat/sh)` on different `VA::HighLevel` effects (instantiated in `effects.soul`). Note that the script runs at 44.1, 96, and 192 kHz; this combined with SOUL's speed may be slow.
+The following sections explain the outputs placed in `results/` after running `test.(bat/sh)` on different `VA::HighLevel` effects (instantiated in `effects.soul`). Note that the script runs at 44.1, 96, and 192 kHz; this combined with SOUL's speed may be slow. OCTAVE 6.4.0 and SOUL v1.0.82.
 
 ## Parameters
-Each effect is tested with approximately the most aliasing-prone parameter values within the valid set of parameter values. This does NOT mean that the plugin will be alias-free (up to -60dB, assuming parameters are not being modulated) for all input signal.parameter combinations; nonetheless, this is still an ambitious goal and ensures that aliasing is virtually inaudible under all circumstances. Below are the parameter values in the order of the Processor's instance declarations.
+Each effect can run at full quality at 44.1kHz without any additional antialiasing measures. Each effect is tested with approximately the most aliasing-prone parameter values within the valid set of parameter values. This does NOT mean that the plugin will be alias-free (up to -60dB, assuming parameters are not being modulated) for all input signal.parameter combinations; nonetheless, this is still an ambitious goal and ensures that aliasing is virtually inaudible under all circumstances. Below are the parameter values in the order of the Processor's instance declarations. In addition, unless marked as non-automatable, parameters are artifact-free (e.g. no clicks) and responsive under user interaction and under modulation by any waveform up through 8 Hz; theoretically they may modulate up to 50Hz without artifacts.
 
 - TheExpressor: 0, 0.5f, 30, 0 , -30, 20, 0.5f, 0, 18, 1, 0, 100
 

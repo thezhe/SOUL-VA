@@ -1,0 +1,38 @@
+{
+    // SOUL-VA compile task for vscode. Make sure the CLI is in system PATH!
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // See https://github.com/soul-lang/SOUL/blob/master/docs/SOUL_Command.md#soul-errors
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "compile soul",
+            "type": "shell",
+            "command": "soul errors tests/errors.soulpatch",
+            "presentation": {
+                "reveal": "never",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": {
+                "owner": "soul",
+                "fileLocation": [
+                    "absolute"
+                ],
+                "pattern": [
+                    {
+                        "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3,
+                        "severity": 4,
+                        "message": 5
+                    }
+                ]
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}

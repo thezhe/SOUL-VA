@@ -21,6 +21,8 @@
 
     Effects are 'Processors' under 'VA::HighLevel'
 
+    Use with SOUL v1.0.82
+
     The interface is nearly identical to soul::filters EXCEPT:
         - Each effect has at least input and output SampleType streams named 'in' and 'out'
         - All input events are of type 'float'
@@ -38,6 +40,8 @@
         - Algebraic operations are preferred to avoid expensive transcendentals while providing superior
         accuracy and click-free modulation when compared to lookup tables
         See: https://en.wikipedia.org/wiki/Algebraic_function
+        - Non-iterative, analytical solutions are preferred, but not always guaranteed
+        See: https://math.stackexchange.com/questions/935405/what-s-the-difference-between-analytical-and-numerical-approaches-to-problems
         - Common sampling rates from 44.1 to 192 kHz are supported, but the internal sampling rate will always be either 
         44.1 or 48 kHz. This allows for consistent rendering and antialiasing of all effects, including ones that behave 
         differently depending on sample rate.
@@ -65,7 +69,7 @@
     - small dx approximation for hysteretic L  
 */
 
-namespace VA 
+namespace VA
 {
 /*==============================================================================
 VA::HighLevel Processors                                                03/17/22

@@ -1,13 +1,14 @@
-/** A copy of '../examples/main.soulpatch' for testing */
+/** Run PLUG-QA on a specific effect */
 
 namespace main
 {
     //effect namespace definition
     namespace effect = VA::HighLevel::TheExpressor;
 
+    //modify as needed for effects with multiple I/O streams
     graph Processor [[main]]
     {
-        input stream SampleType32 in; //, scIn;
+        input stream SampleType32 in;
         output stream SampleType32 out;
 
         let
@@ -15,20 +16,18 @@ namespace main
             e = effect::Processor; 
 
             decode32 = Decode32::Processor;
-           // decode32_1 = Decode32::Processor;
             encode32 = Encode32::Processor;
         }
 
         connection
         {       
             in -> decode32 -> e.in;
-          //  scIn -> decode32_1 -> e.scIn;
             e.out -> encode32 -> out;
         }
     }
 
 /*==============================================================================
-CLI/Octave compatibility code                       
+float32 compatibility code (don't change)                      
 ==============================================================================*/
 
     using SampleType32 = float32<VA::SampleType.size>;
