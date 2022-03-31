@@ -5,7 +5,6 @@
 Effects are under `VA::HighLevel` in [`VA.soul`](https://github.com/thezhe/SOUL-VA/blob/master/include/VA.soul).
 
 ## Background
-### Effects
 1. [SOUL Language Guide](https://github.com/soul-lang/SOUL/blob/master/docs/SOUL_Language.md)  
 2. [soul::filters](https://github.com/soul-lang/SOUL/blob/master/source/soul_library/soul_library_filters.soul)  
 3. [SOUL Patch Format](https://github.com/soul-lang/SOUL/blob/master/docs/SOUL_Patch_Format.md)   
