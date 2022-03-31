@@ -1,16 +1,25 @@
+## PLUG-QA
+To run PLUG-QA on an effect, edit the instantiation/connections in ([`effect.soulpatch`](https://github.com/thezhe/SOUL-VA/blob/master/tests/effect.soulpatch)) and then run test.bat/test.sh.
 
-# Octave Examples
+### Official aliasing-prone instantiations:
+- VA::HighLevel::TheExpressor::Processor (false, 0.1f, 30, 0 , -20, 20, 0.5f, 0, 18, 1, 0, 100)
+
+## Parameter Modulateability
+Unless commented as non-modulateable, parameters are artifact-free (i.e., no clicks) and responsive under modulation by any waveform up through 8 Hz; most parameters can modulate up to 50Hz without any noticable problems.
+
+
+
+
+
 The following sections explain the outputs placed in `results/` after running `test.(bat/sh)` on different `VA::HighLevel` effects (instantiated in `effects.soul`). Note that the script runs at 44.1, 96, and 192 kHz; this combined with SOUL's speed may be slow. OCTAVE 6.4.0 and SOUL v1.0.82.
 
-## Parameters
-Each effect can run at full quality at 44.1kHz without any additional antialiasing measures. Each effect is tested with approximately the most aliasing-prone parameter values within the valid set of parameter values. This does NOT mean that the plugin will be alias-free (up to -60dB, assuming parameters are not being modulated) for all input signal.parameter combinations; nonetheless, this is still an ambitious goal and ensures that aliasing is virtually inaudible under all circumstances. Below are the parameter values in the order of the Processor's instance declarations. In addition, unless marked as non-automatable, parameters are artifact-free (e.g. no clicks) and responsive under user interaction and under modulation by any waveform up through 8 Hz; theoretically they may modulate up to 50Hz without artifacts.
-
-- TheExpressor: 0, 0.5f, 30, 0 , -30, 20, 0.5f, 0, 18, 1, 0, 100
+Each effect can run at full quality at 44.1kHz without any additional antialiasing measures. Each effect is tested with approximately the most aliasing-prone parameter values within the valid set of parameter values. This does NOT mean that the plugin will be alias-free (up to -60dB, assuming parameters are not being modulated) for all input signal.parameter combinations; nonetheless, this is still an ambitious goal and ensures that aliasing is virtually inaudible under all circumstances. Below are the parameter values in the order of the Processor's instance declarations.
 
 ### Example Effect 1: `TheDummy`
 The system is trivial (and linear) and simply passes signals through unmodified. Notice how the step response input is actually a pulse signal with values 0.5 and 0.25 so that the test can measure overshoot (up towards 1) and undershoot (down towards -1). The DC IO plot is the same as the decibel mapping of a dynamic range compressor with a ratio of 1 and SinRamp IO plot shows what the system would look like as a waveshaper (may not always be a function). 
 ![Dummy2](https://user-images.githubusercontent.com/42720670/143499549-a8484fe7-bb55-4c24-8242-aa6dd5be6b1c.png)  
 ![Dummy1](https://user-images.githubusercontent.com/42720670/143499553-e699e725-ad35-413c-9378-3121313d5d49.png)  
+
 ### Example Effect 2: `TheBass` (nonlinearity = 200)
 The system is significantly nonlinear and all outputs show some sort of nontrivial filtering. While the 'Magnitude Response' only applies to linear systems, its plot accurately predicts that `TheBass` tends to boost bass frequencies. In addition, the internal DC blocker filter corresponds to the high-pass effect at 5 Hz. Consequently, the 'DC IO Plot' does not contain any meaningful information for this effect.
 ![200_0](https://user-images.githubusercontent.com/42720670/147501416-b4dd38a7-3c66-49b3-8b57-07cc84e9f2ea.png)

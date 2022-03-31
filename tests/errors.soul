@@ -1,13 +1,4 @@
-/** Processor [[main]] 
-
-    '../examples/main.soul' modified to include all 'Processors' in 'VA::HighLevel'
-
-    Notes:
-    - Tests that all 'Processors' compile without errors
-    - command: soul errors errors.soulpatch | echo
-    - Only use with CLI/Octave is officially supported
-    - Processors are connected in series using all input/output streams
-*/
+/** Use with `soul errors` (see ../.vscode/tasks.json) */
 
 namespace main
 {
@@ -18,6 +9,7 @@ namespace main
         input stream VA::SampleType in;
         output stream VA::SampleType out;
 
+        //instantiate all effects
         let
         { 
             e0 = va::TheDummy::Processor;
@@ -29,6 +21,7 @@ namespace main
             e6 = va::TheSlewEQ::Processor;
         }
 
+        //connect all instantiations
         connection
         {       
             in -> e0.in;

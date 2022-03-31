@@ -2,16 +2,11 @@
 
 # NOTE: This script is not thouroughly tested. Please modify to match the behaviour of 'test.bat' as needed.
 
-# Script to run soul errors on 'errors.soulpatch' and PLUG-QA on 'testEffect.soulpatch'
-# results and logs in './results/'
+# Helper script for PLUG-Qa
+# Run PLUG-QA on 'testEffect.soulpatch' and save results
 # Usage sh ./test.sh
 
 set -e
-
-echo "running 'soul errors'"
-echo ""
-
-soul errors errors.soulpatch
 
 echo "populating 'results'"
 echo ""

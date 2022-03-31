@@ -1,14 +1,8 @@
 @echo off
 
-REM Script to run soul errors on 'errors.soulpatch' and PLUG-QA on 'testEffect.soulpatch'
-REM results and logs in 'results\'
+REM Helper script for PLUG-QA
+REM Run PLUG-QA on `effect.soulpatch` and save results
 REM Usage .\test.bat 
-
-echo running 'soul errors'
-echo:
-
-call soul errors errors.soulpatch
-if %errorlevel% neq 0 exit /b %errorlevel%
 
 echo populating 'results'
 echo:

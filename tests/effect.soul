@@ -1,24 +1,22 @@
-/** Run PLUG-QA on a specific effect */
+/** Use with PLUG-QA (see README.md) */
 
 namespace main
 {
-    //effect namespace definition
-    namespace effect = VA::HighLevel::TheExpressor;
-
-    //modify as needed for effects with multiple I/O streams
     graph Processor [[main]]
     {
         input stream SampleType32 in;
         output stream SampleType32 out;
 
+        //instantiate effect
         let
         { 
-            e = effect::Processor; 
+            e = VA::HighLevel::TheExpressor::Processor; 
 
             decode32 = Decode32::Processor;
             encode32 = Encode32::Processor;
         }
 
+        //connect instantiation
         connection
         {       
             in -> decode32 -> e.in;
