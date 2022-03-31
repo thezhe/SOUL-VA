@@ -3,6 +3,6 @@
 *.cpp
 *.png
 
-tests/results
+results/
 
 !logo.png

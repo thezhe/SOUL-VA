@@ -2,13 +2,13 @@
 
 $CallerDir = (Get-Item .).FullName
 
-cd $PSScriptRoot/..
+Set-Location $PSScriptRoot/..
 
 git submodule foreach git pull origin master
 git submodule foreach git submodule update --init --recursive
 
-cd PLUG-QA
+Set-Location PLUG-QA
 
 octave qaClear.m
 
-cd $CallerDir
+Set-Location $CallerDir
