@@ -12,6 +12,9 @@ Effects are under `VA::HighLevel` in [`VA.soul`](https://github.com/thezhe/SOUL-
 5. [Antiderivative Antialiasing for Memoryless Nonlinearities](https://acris.aalto.fi/ws/portalfiles/portal/27135145/ELEC_bilbao_et_al_antiderivative_antialiasing_IEEESPL.pdf).
 6. [SOUL Command-Line Tool](https://github.com/soul-lang/SOUL/blob/master/docs/SOUL_Command.md).
 
+## Contributing
+Please post bugs in issues and feature requests in discussions. Currently, pull requests are not accepted.
+
 ## Made with SOUL-VA 
 [![bluecup](https://user-images.githubusercontent.com/42720670/152609111-888165ed-e27e-4955-a22f-347d2954891c.png)](https://ko-fi.com/thezhe/shop)
 [![kvr](https://user-images.githubusercontent.com/42720670/152609112-e1d92040-9d24-41b8-aaff-470976a1b883.png)](https://kvraudio.com/developer/thezhe)

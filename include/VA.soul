@@ -2735,6 +2735,59 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
         }
     }
 
+    /** A DFI Integrator with an implied input gain of 1 
+    
+        If inverse == true, do the inverse operation (differentiation)
+    */
+    namespace Differentiator (bool inverse = false)
+    {   
+        struct State
+        {
+            SampleType y1;
+        }
+
+        SampleType[2] process (State& s, SampleType x)
+        {   
+            if const (inverse)
+            {
+                let y = x - s.s;
+
+                s.s = x + y;
+                return SampleType[2] (y, s.s);
+            } 
+            else
+            {
+                let y = x + s.s; 
+
+                s.s = x + y;
+                return SampleType[2] (y, s.s);
+            } 
+        }
+
+        processor Processor
+        {
+            input stream SampleType in;
+            output stream SampleType out, sOut;
+
+            void run()
+            {   
+                State s;
+
+                loop
+                {
+                    let y = s.process (in);
+
+                    out << y.at(0);
+                    sOut << y.at(1);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+
+
 /*==============================================================================
 Mix Processors                                                          03/01/22
 ==============================================================================*/
