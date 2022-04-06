@@ -59,7 +59,7 @@
 
     - generic ADAA snippet and implementation
     - smoothed parameter compile time
-    - TheSlewEQ
+    - TheSlewEQ, match 44.1 and 48 kHz sound, soft clip
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
 
     - TheChorus LadderLpfS input is Omega
@@ -87,7 +87,7 @@ VA::HighLevel Processors                                                03/17/22
         */
         namespace TheSlewEQ
         {            
-            graph Processor(float iSlewMax_dB = 0,
+            graph Processor(float iSlewMax = 0.01f,
                             int iModeIdx = OnepoleMixer::ModeIdx::LP,
                             float iGain_dB = 0,
                             float iMakeup_dB = 0,
@@ -108,9 +108,9 @@ VA::HighLevel Processors                                                03/17/22
         
                 let
                 {
-                    internalDS0 = Internal::Processor (iSlewMax_dB, iModeIdx, iGain_dB);
-                    internalDS2 = Internal::Processor (iSlewMax_dB, iModeIdx, iGain_dB) / 2;
-                    internalDS4 = Internal::Processor (iSlewMax_dB, iModeIdx, iGain_dB) / 4;
+                    internalDS0 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB);
+                    internalDS2 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB) / 2;
+                    internalDS4 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB) / 4;
                     mux3To1Fs = Mux3To1Fs::Processor;
 
                     smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
@@ -120,7 +120,7 @@ VA::HighLevel Processors                                                03/17/22
                 connection
                 {
                     //shared input events
-                    slewMaxIn -> internalDS0.slewMaxIn, internalDS2.slewMaxIn, internalDS4.slewMaxIn;
+                    //slewMaxIn -> internalDS0.slewMaxIn, internalDS2.slewMaxIn, internalDS4.slewMaxIn;
                     modeIn -> internalDS0.modeIn, internalDS2.modeIn, internalDS4.modeIn;
                     gainIn -> internalDS0.gainIn, internalDS2.gainIn, internalDS4.gainIn;               
 
@@ -141,16 +141,16 @@ VA::HighLevel Processors                                                03/17/22
             
             namespace Internal
             {
-                graph Processor(float iSlewMax_dB = 0,
-                                int iModeIdx = OnepoleMixer::ModeIdx::LP,
-                                float iGain_dB = 0)
+                graph Processor(float iSlewMax,
+                                int iModeIdx,
+                                float iGain_dB)
                 {
                     input stream SampleType in;
                     output stream SampleType out;
         
                     input
                     {
-                        onepoleSlew.slewMaxIn;
+                       // onepoleSlew.slewMaxIn;
                         onepoleMixer.modeIn [[ name: "Mode", min: OnepoleMixer::ModeIdx::LP, init: iModeIdx, text: "LP|HP|AP|LS|HS" ]];
                         onepoleMixer.gainIn [[ name: "Gain", min: -24, max: 24, init: iGain_dB, unit: "dB", step: 0.1f ]];
                     }
@@ -159,14 +159,13 @@ VA::HighLevel Processors                                                03/17/22
                     {
                         dcBlocker = DC_Blocker::Processor;
 
-                        onepoleSlew = OnepoleSlew::Processor (iSlewMax_dB);
+                        onepoleSlew = OnepoleSlew::Processor (iSlewMax);
                         onepoleMixer = OnepoleMixer::Processor (iModeIdx, iGain_dB);
                     }
         
                     connection
                     {
-                        in -> dcBlocker -> onepoleSlew.in;
-
+                        in -> dcBlocker -> onepoleSlew.in; 
                         onepoleSlew.lowpassOut -> onepoleMixer.lowpassIn;
                         onepoleSlew.highpassOut -> onepoleMixer.highpassIn;
                         onepoleMixer.out -> out;
@@ -1411,36 +1410,48 @@ Filter Processors                                                       02/24/22
         }
     }
 
-    /** Onepole-style filter based on slew rate lowpass (nonlinear) */
     namespace OnepoleSlew
-    {
-        graph Processor(float iSlewMax_dB)
+    {   
+        struct Coeffs
+        {
+            SampleType slew;
+        }
+
+        struct State
+        {
+            SampleType y1;
+        }
+
+        SampleType[2] process (State& s, SampleType x, const Coeffs& c)
+        {
+            let y = viflt (vmax(x, s.y1 - c.slew), vmin (x, s.y1 + c.slew), x, s.y1);
+
+            s.y1 = y;
+
+            return SampleType[2] (y, x - y);
+        }
+
+        processor Processor (float iSlewMax)
         {
             input stream SampleType in;
             output stream SampleType lowpassOut, highpassOut;
-    
-            input
-            {
-                slewLimiter.slewMaxIn;
-            }
-    
-            let
-            {
-                differentiator = Integrator(true)::Processor;
-                slewLimiter = SlewLimiter::Processor (iSlewMax_dB);
-                integrator = Integrator::Processor;
 
-                difference = Difference::Processor;
-            }
-    
-            connection
-            {
-                in -> differentiator.in, difference.in;
-                differentiator.out -> slewLimiter.in;
-                slewLimiter.out -> integrator.in;
-                integrator.out -> difference.in1, lowpassOut;
+            void run()
+            {   
+                State s;
+                Coeffs c;
 
-                difference.out -> highpassOut;
+                c.slew = SampleType (iSlewMax);
+
+                loop
+                {
+                    let y = s.process (in, c);
+
+                    lowpassOut << y.at(0);
+                    highpassOut << y.at(1);
+
+                    advance();
+                }
             }
         }
     }
@@ -2047,7 +2058,7 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
     /** Limit Slew rate using sigmoidC2*/
     namespace SlewLimiter
     {   
-        graph Processor (float iSlewMax_dB)
+        graph Processor (float iSlewMax)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -2063,10 +2074,7 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
                 applyGain1 = ApplyGain::Processor;
                 sigmoidC2 = SigmoidC2::Processor;
 
-                integrator = Integrator::Processor;
-                differentiator = Integrator(true)::Processor;
-
-                smoothedParameter = SmoothedParameter::Processor (SmoothedParameter::ParameterType (iSlewMax_dB, 0, 0, 0), SmoothedParameter::ModeIdx::DecibelToGainAndReciprocal);
+                smoothedParameter = SmoothedParameter::Processor (SmoothedParameter::ParameterType (iSlewMax), SmoothedParameter::ModeIdx::DecibelToGainAndReciprocal);
             }
     
             connection
@@ -2074,11 +2082,11 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
                 smoothedParameter.out -> applyGain.b; //pre sigmoid
                 smoothedParameter.out1 -> applyGain1.b; //post sigmoid
 
-                in -> differentiator.in;
-                differentiator.out -> applyGain.in;
-                applyGain.out -> sigmoidC2 -> applyGain1.in;
-                applyGain1.out -> integrator.in;
-                integrator.out -> out;
+                // in -> applyGain.in;
+                // applyGain.out -> sigmoidC2 -> applyGain1.in;
+                // applyGain1.out -> out;
+
+                in -> Clamp::Processor(-0.01f, 0.01f) -> out;
             }
         }  
     }
@@ -2096,6 +2104,26 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
                 loop
                 {
                     out << vSigmoidC2 (in);
+
+                    advance();
+                }
+            }
+        }
+    }
+
+    namespace Clamp
+    {   
+        processor Processor(float iLo,
+                            float iHi)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            void run()
+            {   
+                loop
+                {
+                    out << vclamp (in, iLo, iHi);
 
                     advance();
                 }
@@ -2684,7 +2712,7 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
         }
     }
 
-    /** A TDF-II Integrator with an implied input gain of 1 
+    /** A TDF2 Integrator with an implied input gain of 1 
     
         If inverse == true, do the inverse operation (differentiation)
     */
@@ -2735,15 +2763,15 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
         }
     }
 
-    /** A DFI Integrator with an implied input gain of 1 
+    /** A DF1 Integrator with an implied input gain of 1 
     
         If inverse == true, do the inverse operation (differentiation)
     */
-    namespace Differentiator (bool inverse = false)
+    namespace Integrator1 (bool inverse = false)
     {   
         struct State
         {
-            SampleType y1;
+            SampleType s;
         }
 
         SampleType[2] process (State& s, SampleType x)
@@ -2752,14 +2780,16 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             {
                 let y = x - s.s;
 
-                s.s = x + y;
+                s.s = x;
+
                 return SampleType[2] (y, s.s);
             } 
             else
             {
                 let y = x + s.s; 
 
-                s.s = x + y;
+                s.s = y;
+
                 return SampleType[2] (y, s.s);
             } 
         }
@@ -2785,8 +2815,6 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             }
         }
     }
-
-
 
 /*==============================================================================
 Mix Processors                                                          03/01/22
@@ -3655,6 +3683,21 @@ Vectorized Helper Functions                                             02/24/22
         return b.at(0) * x + b.at(1) * x1;
     }
 
+    
+    // /** An algebraic sigmoid function of class C2
+
+    //     f(x) = x / sqrt (x^2 + 1) 
+
+    //     Notes:
+    //     - A cheap 'tanh' approximation
+    //     - See: https://en.wikipedia.org/wiki/Differentiable_function#Differentiability_classes
+    // */
+    // SampleType vSigmoidC2 (SampleType x)
+    // {
+    //     return x / sqrt (x * x + ONE);
+    // }
+
+
     /** An algebraic sigmoid function of class C2
 
         f(x) = x / sqrt (x^2 + 1) 
@@ -3824,6 +3867,11 @@ Vectorized Helper Functions                                             02/24/22
 /*==============================================================================
 Vectorized Intrinsic Functions                                          03/16/22
 ==============================================================================*/
+
+    SampleType vclamp (SampleType x, SampleType lo, SampleType hi)
+    {
+        return SampleType (clamp (x[0], lo[0], hi[0]), clamp (x[1], lo[1], hi[1]));
+    }
 
     SampleType vabs (SampleType x)
     {

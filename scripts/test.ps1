@@ -12,7 +12,7 @@ Set-Location $QADir
 $TestDir="..\tests"
 $ResultDir="..\results"
 
-$null=Remove-Item -Path $ResultDir -Recurse -Force -Confirm:$false
+Remove-Item -Path $ResultDir -Recurse -Force -Confirm:$false > $null
 $null=New-Item -Path $ResultDir -ItemType "directory"
 octave qa.m "$TestDir\effect.soulpatch" > $ResultDir/qa.log
 if ($LastExitCode -ne 0) {
