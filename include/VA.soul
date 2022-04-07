@@ -31,8 +31,8 @@
         - No user-defined types:
             *'SampleType' is float64<2>
             *The internal 'CoeffType' is float64<2>
-            *Coefficient 'updateInterval' is every 256 samples at 44.1kHz 
-            or every 278 samples at 48 kHz (linearly scaled with sample rate)
+            *Coefficient 'updateInterval' is every 1024 samples at 44.1kHz 
+            or every (48/44.1)*1024 samples at 48 kHz (scales with sample rate)
         - Parameters not suitable for modulation are commented as 'UNSMOOTHED' in their annotations. 
         Annotations with "boolean" and "text" values are assumed to be unsuitable for modulation.
         - Meta parameters will have "Meta" in their event endpoint names.

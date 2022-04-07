@@ -5,8 +5,4 @@ To run PLUG-QA on an effect, edit the instantiation/connections in ([`effect.sou
 - VA::HighLevel::TheExpressor::Processor (false, 0.1f, 30, 0 , -20, 20, 0.5f, 0, 18, 1, 0, 100)
 
 ## Parameter Modulateability
-Unless commented as non-modulateable, parameters are artifact-free (i.e., no clicks) and responsive under modulation by any waveform up through 8 Hz; most parameters can modulate up to 50Hz without any noticable problems.
-
-
-
-
+Unless commented as non-modulateable, parameters are tested to be artifact-free (i.e., no clicks or zipper noise) and responsive under modulation by any waveform up through 8 Hz; most parameters can theoretically modulate up to 20 Hz without any noticable problems.
