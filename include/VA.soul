@@ -50,14 +50,14 @@
 
 /** Next version (1.1.0) changelog
     - New Effects: TheExpressor, TheSplit, TheUtility, TheSlewEQ
-    - Tests now use Octave via PLUG-QA and support multichannel IO
-    - More parameters are now smoothed and modulation stable
+    - Testing is done with PLUG-QA
+    - Better parameter smoothing
     - Effects can now run at common sample rates from 44.1 to 192 kHz
 */
 
 /** Task List
 
-    - generic ADAA snippet and implementation
+    - generic ADAA snippet and refactor
     - smoothed parameter compile time
     - TheSlewEQ, match 44.1 and 48 kHz sound, soft clip
     - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
@@ -3932,12 +3932,12 @@ Vectorized Intrinsic Functions                                          03/16/22
     }
 
 /*==============================================================================
-Constants                                                               03/18/22
+Constants                                                               04/07/22
 ==============================================================================*/
 
     //soul::filters
     using SampleType = float64<2>;
-    let updateInterval = 256;
+    let updateInterval = 1024; // 44100/1024 = 43; approx 20Hz Nyquist for 43Hz parameter sampling rate
     namespace filt = soul::filters (SampleType, SampleType.elementType, updateInterval);
 
     //const SampleType
