@@ -49,10 +49,10 @@
 */
 
 /** Next version (1.1.0) changelog
-    - New Effects: TheExpressor, TheSplit, TheUtility, TheSlewEQ
-    - Testing is done with PLUG-QA
-    - Better parameter smoothing
-    - Effects can now run at common sample rates from 44.1 to 192 kHz
+    - New Effects: TheExpressor, TheSplit, TheUtility
+    - New QA Framework: PLUG-QA
+    - Updated Effects
+    - All common sample rates from 44.1 to 192 kHz supported
 */
 
 /** Task List
@@ -60,9 +60,8 @@
     - generic ADAA snippet and refactor
     - smoothed parameter compile time
     - TheSlewEQ, match 44.1 and 48 kHz sound, soft clip
-    - TheChorus, TheBass, TheSplit update to 192kHz support and TheExpressor standard
+    - TheBass, TheSplit update to 192kHz support and TheExpressor standard
 
-    - TheChorus LadderLpfS input is Omega
     - low attack times the split, and compensate attack * 2 for attacks & sustains
     - more Processors, include integrator processors, more modularity and oversampling/ADAA granularity
     - TheBass boilerplate, abs before stereo link and rectified lan
@@ -81,99 +80,6 @@ VA::HighLevel Processors                                                03/17/22
     */
     namespace HighLevel
     {          
-        /** Onepole-Style EQ using Slew Limiting
-        
-            Use case: Nonlinear EQ
-        */
-        namespace TheSlewEQ
-        {            
-            graph Processor(float iSlewMax = 0.01f,
-                            int iModeIdx = OnepoleMixer::ModeIdx::LP,
-                            float iGain_dB = 0,
-                            float iMakeup_dB = 0,
-                            float iMixPercent = 100)
-            {
-                input stream SampleType in;
-                output stream SampleType out;
-        
-                input
-                {
-                    event float slewMaxIn;
-                    event float modeIn [[ name: "Mode", min: 0, init: iModeIdx, text: "LP|HP|AP|LS|HS" ]];
-                    event float gainIn [[ name: "Gain", min: -24, max: 24, init: iGain_dB, unit: "dB", step: 0.1f ]];
-
-                    smoothedVolume.volumeIn makeupIn;
-                    smoothedMixPan.mixIn;
-                }
-        
-                let
-                {
-                    internalDS0 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB);
-                    internalDS2 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB) / 2;
-                    internalDS4 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB) / 4;
-                    mux3To1Fs = Mux3To1Fs::Processor;
-
-                    smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
-                    smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
-                }
-        
-                connection
-                {
-                    //shared input events
-                    //slewMaxIn -> internalDS0.slewMaxIn, internalDS2.slewMaxIn, internalDS4.slewMaxIn;
-                    modeIn -> internalDS0.modeIn, internalDS2.modeIn, internalDS4.modeIn;
-                    gainIn -> internalDS0.gainIn, internalDS2.gainIn, internalDS4.gainIn;               
-
-                    //dynamically downsample to 44.1/48 kHz
-                    [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
-        
-                    [sinc] internalDS0.out -> mux3To1Fs.in;
-                    [sinc] internalDS2.out -> mux3To1Fs.in1;
-                    [sinc] internalDS4.out -> mux3To1Fs.in2;
-        
-                    in -> smoothedMixPan.dryIn;
-
-                    mux3To1Fs.out -> smoothedVolume.in;
-                    smoothedVolume.out -> smoothedMixPan.wetIn;
-                    smoothedMixPan.out -> out;
-                }
-            }
-            
-            namespace Internal
-            {
-                graph Processor(float iSlewMax,
-                                int iModeIdx,
-                                float iGain_dB)
-                {
-                    input stream SampleType in;
-                    output stream SampleType out;
-        
-                    input
-                    {
-                       // onepoleSlew.slewMaxIn;
-                        onepoleMixer.modeIn [[ name: "Mode", min: OnepoleMixer::ModeIdx::LP, init: iModeIdx, text: "LP|HP|AP|LS|HS" ]];
-                        onepoleMixer.gainIn [[ name: "Gain", min: -24, max: 24, init: iGain_dB, unit: "dB", step: 0.1f ]];
-                    }
-        
-                    let
-                    {
-                        dcBlocker = DC_Blocker::Processor;
-
-                        onepoleSlew = OnepoleSlew::Processor (iSlewMax);
-                        onepoleMixer = OnepoleMixer::Processor (iModeIdx, iGain_dB);
-                    }
-        
-                    connection
-                    {
-                        in -> dcBlocker -> onepoleSlew.in; 
-                        onepoleSlew.lowpassOut -> onepoleMixer.lowpassIn;
-                        onepoleSlew.highpassOut -> onepoleMixer.highpassIn;
-                        onepoleMixer.out -> out;
-                    }
-                }
-            }
-        }   
-
         /** Utility Processor
         
             Use case: Mix, Pan, Makeup, and Complement
@@ -675,8 +581,8 @@ VA::HighLevel Processors                                                03/17/22
             graph Processor(float iDepthPercent = 0,
                             float iRateHz = 0,
                             float iWidthDeg = 0,
-                            int iMode = Lfo::Modes::Triangle,
                             float iDelayMs = 0,
+                            int iMode = Lfo::Modes::Triangle,
                             float iCutoffHz = 3000,
                             float iMakeup_dB = 0,
                             float iMixPercent = 100,
@@ -691,8 +597,8 @@ VA::HighLevel Processors                                                03/17/22
                     event float rateIn [[ name: "Rate", min: 0.1, max: 4.0, init: iRateHz, unit: "Hz", step: 0.1, group: "Main" ]];
                     event float widthIn [[ name: "Width", min: -180, max: 180, init: iWidthDeg, unit: "deg", step: 1, group: "Main" /*UNSMOOTHED*/ ]];
                     
-                    event float modeIn [[ name: "Waveform", init: iMode, boolean, text: "Tri|Sine", group: "LFO" /*UNSMOOTHED*/ ]];
                     event float delayIn [[ name: "Min Delay", min: 0, max: 35, init: iDelayMs, unit: "ms", step: 1, group: "LFO" /*UNSMOOTHED*/ ]];
+                    event float modeIn [[ name: "Waveform", init: iMode, boolean, text: "Tri|Sine", group: "LFO" /*UNSMOOTHED*/ ]];
                     event float cutoffIn [[ name: "Cutoff", min: 3000, max: 18000, init: iCutoffHz, unit: "Hz", step: 1, group: "BBD Ladder" ]];
 
                     smoothedVolume.volumeIn makeupIn [[ name: "Makeup", min: -12, max: 12, init: iMakeup_dB, step: 0.1f, unit: "dB", group: "Utility" ]];
@@ -717,8 +623,8 @@ VA::HighLevel Processors                                                03/17/22
                     depthIn -> internalDS0.depthIn, internalDS2.depthIn, internalDS4.depthIn;
                     rateIn -> internalDS0.rateIn, internalDS2.rateIn, internalDS4.rateIn;
                     widthIn -> internalDS0.widthIn, internalDS2.widthIn, internalDS4.widthIn;
-                    modeIn -> internalDS0.modeIn, internalDS2.modeIn, internalDS4.modeIn;
                     delayIn -> internalDS0.delayIn, internalDS2.delayIn, internalDS4.delayIn;
+                    modeIn -> internalDS0.modeIn, internalDS2.modeIn, internalDS4.modeIn;
                     cutoffIn -> internalDS0.cutoffIn, internalDS2.cutoffIn, internalDS4.cutoffIn;
         
                     //dynamically downsample to 44.1/48 kHz
@@ -883,7 +789,7 @@ VA::HighLevel Processors                                                03/17/22
     } //namespace HighLevel
 
 /*==============================================================================
-Filter Processors                                                       02/24/22
+Filter Processors                                                       04/09/22
 ==============================================================================*/
 
     /** Ladder Low Pass Filter with variable order and saturating state 
@@ -910,7 +816,7 @@ Filter Processors                                                       02/24/22
     
             let
             {
-                smoothedParameter0 = UnsmoothedParameter::Processor (UnsmoothedParameter::ParameterType (iCutoff), UnsmoothedParameter::ModeIdx::Identity);
+                smoothedParameter0 = UnsmoothedParameter::Processor (UnsmoothedParameter::ParameterType (iCutoff), UnsmoothedParameter::ModeIdx::CutoffToOmega);
                 smoothedParameter1 = SmoothedParameter::Processor (SmoothedParameter::ParameterType (iResonance), SmoothedParameter::ModeIdx::GainToGain);
                 
                 internal = Internal::Processor (iNonlinearity) * 2;
@@ -918,7 +824,7 @@ Filter Processors                                                       02/24/22
     
             connection
             {
-                smoothedParameter0.out -> internal.G_OnepoleIn;
+                smoothedParameter0.out -> internal.OmegaIn;
                 smoothedParameter1.out -> internal.kIn;
 
                 in -> internal.in;
@@ -935,9 +841,9 @@ Filter Processors                                                       02/24/22
                 SampleType N; //nonlinearity
             }
 
-            void updatePerSample (Coeffs& c, SampleType G_Onepole, SampleType k)
+            void updatePerSample (Coeffs& c, SampleType Omega, SampleType k, float64 fs)
             {
-                c.g = G_Onepole;
+                c.g = vOmegaToG_Onepole (Omega, fs);
                 c.k = k;
             }
 
@@ -945,7 +851,7 @@ Filter Processors                                                       02/24/22
             {
                 static_assert (order % 2 == 0, "LadderFilter::M [[Filter Processors]]");
 
-                void update (Coeffs& c, float nonlinearity, State& s, float64 fs)
+                void update (Coeffs& c, float nonlinearity, float64 fs)
                 {
                     c.N = float (88200 / fs) * nonlinearity * (1.f + float (c.k[0])); //nonlinearity scaled according to fs and other params
                 }
@@ -957,6 +863,8 @@ Filter Processors                                                       02/24/22
 
                 SampleType process (State& s, SampleType x, const Coeffs& c)
                 {
+                    let xNorm = x *  (ONE + c.k); //normalize magnitude at 0 Hz to 0 dB 
+
                     var S = ZERO;
                     var G = ONE;
                     for (int i = order - 1; i > -1; --i)
@@ -966,18 +874,18 @@ Filter Processors                                                       02/24/22
                     }
 
                     //input to first lowpass ('u')
-                    var y = (x - c.k * S) / (ONE + c.k * G);
+                    var y = (xNorm - c.k * S) / (ONE + c.k * G);
 
                     //'order' lowpasses in series
                     for (int i = 0; i < order; ++i)
                     {
                         let v = (y - s.s.at(i)) * c.g;
                         
-                        y = vBBD(v  + s.s.at(i), c.N); // "state saturation"
+                        y = vBBD(v  + s.s.at(i), c.N); //saturation
                         s.s.at(i) = v + y;
                     }
                     
-                    return y * (ONE + c.k); //normalize
+                    return y;
                 }
             }
         
@@ -986,7 +894,7 @@ Filter Processors                                                       02/24/22
                 input stream SampleType in;
                 output stream SampleType out;
 
-                input stream SampleType G_OnepoleIn, kIn;
+                input stream SampleType OmegaIn, kIn;
 
                 input event float nonlinearityIn [[ name: "Nonlin", min: 0, max: 1, init: iNonlinearity, step: 0.01]];
 
@@ -1001,21 +909,21 @@ Filter Processors                                                       02/24/22
                 {   
                     M(order)::State s;
                     Coeffs c;
-
-                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
         
                     loop
                     {
+                        let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                         if (recalc)
                         {
                             recalc = false;
 
-                            M(order)::update (c, nonlinearity, s, processor.frequency);
+                            M(order)::update (c, nonlinearity, processor.frequency);
                         }
 
                         loop (updateIntervalSamples)
                         {
-                            c.updatePerSample (G_OnepoleIn, kIn);                            
+                            c.updatePerSample (OmegaIn, kIn, processor.frequency);                            
 
                             out << M(order)::process (s, in, c);
 
@@ -1388,10 +1296,10 @@ Filter Processors                                                       02/24/22
             {   
                 Coeffs c;
 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                     if (recalc)
                     {
                         recalc = false;
@@ -1581,12 +1489,13 @@ Filter Processors                                                       02/24/22
             void run()
             {  
                 m::State s;
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
 
-                if (processor.frequency < 48001)
+                loop
                 {
-                    loop
+                    if (processor.frequency < 48001)
                     {
+                        let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                         if (recalc)
                         {
                             recalc = false;
@@ -1904,10 +1813,10 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             {   
                 Coeffs c;
     
-                let updateIntervalSamples = int ((processor.frequency/44100.0) * updateInterval);
-
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                     if (recalc)
                     {
                         recalc = false;
@@ -2032,10 +1941,10 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
                 State s;
                 Coeffs c;
 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                     if (recalc)
                     {
                         recalc = false;
@@ -2111,10 +2020,14 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
         }
     }
 
+    /** 'vclamp' wrapper 
+
+        By default clamps to max amplitude of -0.1 dB
+    */
     namespace Clamp
     {   
-        processor Processor(float iLo,
-                            float iHi)
+        processor Processor(float iLo = -FLOAT_MAX_SIGNAL_AMP,
+                            float iHi = FLOAT_MAX_SIGNAL_AMP)
         {
             input stream SampleType in;
             output stream SampleType out;
@@ -2123,7 +2036,7 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             {   
                 loop
                 {
-                    out << vclamp (in, iLo, iHi);
+                    out << vclamp (in, SampleType (iLo), SampleType (iHi));
 
                     advance();
                 }
@@ -2471,10 +2384,10 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             {   
                 Coeffs c;
     
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+                    
                     if (recalc)
                     {
                         recalc = false;
@@ -2531,10 +2444,10 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             {   
                 Coeffs c;
 
-                c.update (processor.frequency);
-
                 loop
                 {
+                    c.update (processor.frequency);
+
                     out << process (SampleType[3] (in, in1, in2), c);
 
                     advance();
@@ -2576,11 +2489,11 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             void run()
             {   
                 Coeffs c;
-    
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
+
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                     if (recalc)
                     {
                         recalc = false;
@@ -2632,11 +2545,11 @@ Vectorized Instrinsic/Helper Processors                                 02/24/22
             void run()
             {    
                 Coeffs c;
-    
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-    
+
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                     if (recalc)
                     {
                         recalc = false;
@@ -3080,10 +2993,10 @@ Parameter Processors                                                    03/04/22
                     State s;
                     Coeffs c;
 
-                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-        
                     loop
                     {
+                        let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                         if (recalc)
                         {
                             recalc = false;
@@ -3161,10 +3074,10 @@ Parameter Processors                                                    03/04/22
 
             void run() 
             { 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                     if (recalc)
                     {
                         recalc = false;
@@ -3418,12 +3331,12 @@ Parameter Processors                                                    03/04/22
                 State s;
                 Coeffs c;
 
-                let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
-
                 c.updateUnsmoothed (parameter, s, modeIdx);
             
                 loop
                 {
+                    let updateIntervalSamples = int ((processor.frequency / 44100.0) * updateInterval);
+
                     if (recalc)
                     {
                         recalc = false;
@@ -3458,7 +3371,8 @@ Parameter Processors                                                    03/04/22
             let MixToGains = 4;
             let VolumeToGain = 5;
             let AB_ToGains = 6;
-            let NumIdxs = 7;
+            let CutoffToOmega = 7;
+            let NumIdxs = 8;
         }
 
         let MAX_NUM_OUT = 2;
@@ -3485,6 +3399,8 @@ Parameter Processors                                                    03/04/22
                     y.at(0) = vVolumeToGain (parameter.at(0));
                 else if const (modeIdx == ModeIdx::AB_ToGains)
                     y = vABtoGains (bool (parameter.at(0)));
+                else if const (modeIdx == ModeIdx::CutoffToOmega)
+                    y.at(0) = vCutoffToOmega (parameter.at(0));
 
                 return y;
             }
@@ -3683,21 +3599,6 @@ Vectorized Helper Functions                                             02/24/22
         return b.at(0) * x + b.at(1) * x1;
     }
 
-    
-    // /** An algebraic sigmoid function of class C2
-
-    //     f(x) = x / sqrt (x^2 + 1) 
-
-    //     Notes:
-    //     - A cheap 'tanh' approximation
-    //     - See: https://en.wikipedia.org/wiki/Differentiable_function#Differentiability_classes
-    // */
-    // SampleType vSigmoidC2 (SampleType x)
-    // {
-    //     return x / sqrt (x * x + ONE);
-    // }
-
-
     /** An algebraic sigmoid function of class C2
 
         f(x) = x / sqrt (x^2 + 1) 
@@ -3711,19 +3612,14 @@ Vectorized Helper Functions                                             02/24/22
         return x / sqrt (x * x + ONE);
     }
 
-    /** Convert cutoff (Hz) to the cutoff gain of a TPT Onepole filter 
+    /** Convert cutoff (Hz) to Omega, the analog angular cutoff frequency
     
         Notes:
         - Optimized for 'update'
-        - Prewarped
     */
-    SampleType vCutoffToG_Onepole (float x, float64 fs)
+    SampleType vCutoffToOmega (float x)
     {
-        let Tpi = SampleType (pi / fs);
-        
-        let gOnepole = tanh (SampleType (x) * Tpi);
-
-        return gOnepole / (ONE + gOnepole);
+        return x * float (twoPi);
     }
 
     /** Convert tau (ms) to Omega, the analog angular cutoff frequency
@@ -3754,11 +3650,17 @@ Vectorized Helper Functions                                             02/24/22
     /** Convert Omega (rad/s) to the cutoff gain of a TPT Onepole filter */
     SampleType vOmegaToG_Onepole (SampleType x, float64 fs)
     {
-        let Tdiv2 = SampleType (1.0 / (2.0 * fs));
-
-        let gOnepole = tan (x * Tdiv2);
+        let gOnepole = vOmegaTogOnepole (x, fs);
 
         return gOnepole / (ONE + gOnepole);
+    }
+
+    /** Convert Omega (rad/s) to the cutoff gain of a TPT Onepole filter (unresolved zero delay feedback) */
+    SampleType vOmegaTogOnepole (SampleType x, float64 fs)
+    {
+        let Tdiv2 = SampleType (1.0 / (2.0 * fs));
+
+        return tan (x * Tdiv2);
     }
 
     /** Convert gain to decibels and limit input to >= -100.0 dB */
@@ -3965,6 +3867,7 @@ Constants                                                               04/07/22
     let FLOAT_MIN_VOLUME = -60.f;
     let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f); // Butterworth Q and resonance value for svf
     let FLOAT_MIN_TAU_MS = 1.f / (40.f * float (pi)); // tau in ms which corresponds to a 20kHz cutoff
+    let FLOAT_MAX_SIGNAL_AMP = pow (10.f, -0.005f); //-0.1 dB
 
     //const int
     let INT_LEFT_CHANNEL = 0;
@@ -3980,6 +3883,100 @@ Constants                                                               04/07/22
 /** Very unstable and random snippets */
 namespace VA::Experimental
 {
+        /** Onepole-Style EQ using Slew Limiting
+        
+            Use case: Nonlinear EQ
+        */
+        // namespace TheSlewEQ
+        // {            
+        //     graph Processor(float iSlewMax = 0.01f,
+        //                     int iModeIdx = OnepoleMixer::ModeIdx::LP,
+        //                     float iGain_dB = 0,
+        //                     float iMakeup_dB = 0,
+        //                     float iMixPercent = 100)
+        //     {
+        //         input stream SampleType in;
+        //         output stream SampleType out;
+        
+        //         input
+        //         {
+        //             event float slewMaxIn;
+        //             event float modeIn [[ name: "Mode", min: 0, init: iModeIdx, text: "LP|HP|AP|LS|HS" ]];
+        //             event float gainIn [[ name: "Gain", min: -24, max: 24, init: iGain_dB, unit: "dB", step: 0.1f ]];
+
+        //             smoothedVolume.volumeIn makeupIn;
+        //             smoothedMixPan.mixIn;
+        //         }
+        
+        //         let
+        //         {
+        //             internalDS0 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB);
+        //             internalDS2 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB) / 2;
+        //             internalDS4 = Internal::Processor (iSlewMax, iModeIdx, iGain_dB) / 4;
+        //             mux3To1Fs = Mux3To1Fs::Processor;
+
+        //             smoothedMixPan = SmoothedMixPan::Processor (iMixPercent, 0);
+        //             smoothedVolume = SmoothedVolume::Processor (iMakeup_dB);
+        //         }
+        
+        //         connection
+        //         {
+        //             //shared input events
+        //             //slewMaxIn -> internalDS0.slewMaxIn, internalDS2.slewMaxIn, internalDS4.slewMaxIn;
+        //             modeIn -> internalDS0.modeIn, internalDS2.modeIn, internalDS4.modeIn;
+        //             gainIn -> internalDS0.gainIn, internalDS2.gainIn, internalDS4.gainIn;               
+
+        //             //dynamically downsample to 44.1/48 kHz
+        //             [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
+        
+        //             [sinc] internalDS0.out -> mux3To1Fs.in;
+        //             [sinc] internalDS2.out -> mux3To1Fs.in1;
+        //             [sinc] internalDS4.out -> mux3To1Fs.in2;
+        
+        //             in -> smoothedMixPan.dryIn;
+
+        //             mux3To1Fs.out -> smoothedVolume.in;
+        //             smoothedVolume.out -> smoothedMixPan.wetIn;
+        //             smoothedMixPan.out -> out;
+        //         }
+        //     }
+            
+        //     namespace Internal
+        //     {
+        //         graph Processor(float iSlewMax,
+        //                         int iModeIdx,
+        //                         float iGain_dB)
+        //         {
+        //             input stream SampleType in;
+        //             output stream SampleType out;
+        
+        //             input
+        //             {
+        //                // onepoleSlew.slewMaxIn;
+        //                 onepoleMixer.modeIn [[ name: "Mode", min: OnepoleMixer::ModeIdx::LP, init: iModeIdx, text: "LP|HP|AP|LS|HS" ]];
+        //                 onepoleMixer.gainIn [[ name: "Gain", min: -24, max: 24, init: iGain_dB, unit: "dB", step: 0.1f ]];
+        //             }
+        
+        //             let
+        //             {
+        //                 dcBlocker = DC_Blocker::Processor;
+
+        //                 onepoleSlew = OnepoleSlew::Processor (iSlewMax);
+        //                 onepoleMixer = OnepoleMixer::Processor (iModeIdx, iGain_dB);
+        //             }
+        
+        //             connection
+        //             {
+        //                 in -> dcBlocker -> onepoleSlew.in; 
+        //                 onepoleSlew.lowpassOut -> onepoleMixer.lowpassIn;
+        //                 onepoleSlew.highpassOut -> onepoleMixer.highpassIn;
+        //                 onepoleMixer.out -> out;
+        //             }
+        //         }
+        //     }
+        // }   
+
+
     /** vSigmoidC2 with a gain of 1 at the origin and drive (linear gain) of b
     
         Notes:

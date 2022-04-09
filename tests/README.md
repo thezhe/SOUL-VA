@@ -3,6 +3,7 @@ To run PLUG-QA on an effect, edit the instantiation/connections in ([`effect.sou
 
 ### Official aliasing-prone instantiations:
 - VA::HighLevel::TheExpressor::Processor (false, 0.1f, 30, 0 , -20, 20, 0.5f, 0, 18, 1, 0, 100)
+- VA::HighLevel::TheChorus::Processor (0, 0, 0, 0, VA::Lfo::Modes::Triangle, 3000, 0, 100, 0);
 
 ## Parameter Modulateability
 Unless commented as non-modulateable, parameters are tested to be artifact-free (i.e., no clicks or zipper noise) and responsive under modulation by any waveform up through 8 Hz; most parameters can theoretically modulate up to 20 Hz without any noticable problems.
