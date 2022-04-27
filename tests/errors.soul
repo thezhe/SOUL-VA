@@ -18,7 +18,7 @@ namespace main
             e3 = va::TheSplit::Processor;
             e4 = va::TheExpressor::Processor;
             e5 = va::TheUtility::Processor;
-         //   e6 = va::TheSlewEQ::Processor;
+            e6 = va::TheSlap::Processor;
         }
 
         //connect all instantiations
@@ -32,8 +32,8 @@ namespace main
             e3.out, e3.out1 -> e4.scIn;
             e4.out, e4.guiOut -> e5.in;
             e4.out, e4.guiOut -> e5.dryIn;
-            e5.out -> out; //e6.in;
-         //   e6.out -> out;
+            e5.out -> e6.in;
+            e6.out -> out;
         }
     }
 }

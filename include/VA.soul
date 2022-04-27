@@ -26,8 +26,8 @@
     The interface is nearly identical to soul::filters EXCEPT:
         - Each effect has at least input and output SampleType streams named 'in' and 'out'
         - All input events are of type 'float'
-        - Max gain applied via an effect (excluding Makeup) is set to 1.5 or about +3.52 dB. 
-        In practice (depending on sampling rate), signals may be boosted up to approximately +6 dB.
+        - Max gain applied via an effect (excluding Makeup) is about +6 dB. 
+        In practice (depending on sampling rate), this value may be a few dB higher due to over/undersampling interpolation filters.
         - No user-defined types:
             *'SampleType' is float64<2>
             *The internal 'CoeffType' is float64<2>
@@ -79,7 +79,107 @@ VA::HighLevel Processors                                                03/17/22
         ALL effects can behave nonlinearly and add their own 'virtual analog warmth' 
     */
     namespace HighLevel
-    {          
+    {   
+        /** Transient Designer with accurate
+        
+            Use case: Mix the attack/sustain portions of a signal
+        */
+        namespace TheSlap
+        {            
+            graph Processor (float iHpfCutoffHz = 1,
+                            float iStereoLinkPercent = 0,
+                            float iAttackMs = 4,
+                            float iSustainMs = 75,
+                            float iSensitivity_dB = 24,
+                            float iAttack_dB = 0,
+                            float iSustain_dB = -60,
+                            float iMaster_dB = 0)
+            {
+                input stream SampleType in;
+                output stream SampleType out;
+        
+                input
+                {
+                    smoothedVolume.volumeIn attackVolIn [[ name: "Attack", min: FLOAT_MIN_VOLUME - 0.1f, max: 12, init: iAttack_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
+                    smoothedVolume1.volumeIn sustainVolIn [[ name: "Sustain", min: FLOAT_MIN_VOLUME - 0.1f, max: 12, init: iSustain_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
+                    smoothedVolume2.volumeIn masterIn [[ name: "Master", min: -12, max: 12, init: iMaster_dB, step: 0.1f, unit: "dB", group: "Volume" ]];
+                }
+        
+                let
+                {
+                    internalDS0 = Internal::Processor (iHpfCutoffHz, iStereoLinkPercent, iAttackMs, iSustainMs, iSensitivity_dB);
+                    internalDS2 = Internal::Processor (iHpfCutoffHz, iStereoLinkPercent, iAttackMs, iSustainMs, iSensitivity_dB) / 2;
+                    internalDS4 = Internal::Processor (iHpfCutoffHz, iStereoLinkPercent, iAttackMs, iSustainMs, iSensitivity_dB) / 4;
+                    mux3To1Fs = Mux3To1Fs::Processor;
+                    mux3To1Fs1 = Mux3To1Fs::Processor;
+        
+                    smoothedVolume = SmoothedVolume::Processor (iAttack_dB);
+                    smoothedVolume1 = SmoothedVolume::Processor (iSustain_dB);
+                    sum = Sum::Processor;
+                    smoothedVolume2 = SmoothedVolume::Processor (iMaster_dB);  
+                }
+        
+                connection
+                {
+                    //shared input events
+                    
+                    //dynamically downsample to 44.1/48 kHz
+                    [sinc] in -> internalDS0.in, internalDS2.in, internalDS4.in;
+        
+                    [sinc] internalDS0.attackOut -> mux3To1Fs.in;
+                    [sinc] internalDS2.attackOut -> mux3To1Fs.in1;
+                    [sinc] internalDS4.attackOut -> mux3To1Fs.in2;
+
+                    [sinc] internalDS0.sustainOut -> mux3To1Fs1.in;
+                    [sinc] internalDS2.sustainOut -> mux3To1Fs1.in1;
+                    [sinc] internalDS4.sustainOut -> mux3To1Fs1.in2;
+        
+                    //volume
+                    mux3To1Fs.out -> smoothedVolume.in;
+                    mux3To1Fs1.out -> smoothedVolume1.in;
+                    smoothedVolume.out -> sum.in;
+                    smoothedVolume1.out -> sum.in1;
+                    
+                    sum.out -> smoothedVolume2.in;
+                    smoothedVolume2.out -> out;
+                }
+            }
+           
+            namespace Internal
+            {
+                graph Processor (float iHpfCutoffHz,
+                                float iStereoLinkPercent,
+                                float iAttackMs,
+                                float iSustainMs,
+                                float iSensitivity_dB)
+                {
+                    input stream SampleType in;
+                    output stream SampleType attackOut, sustainOut;
+        
+                    input
+                    {
+                            splitAttackSustain.cutoffHP_In;
+                            splitAttackSustain.stereoLinkIn;
+                            splitAttackSustain.attackIn;
+                            splitAttackSustain.sustainIn;
+                            splitAttackSustain.sensitivityIn;
+                    }
+        
+                    let
+                    {
+                        splitAttackSustain = SplitAttackSustain::Processor (iHpfCutoffHz, iStereoLinkPercent, iAttackMs, iSustainMs, iSensitivity_dB);
+                    }
+        
+                    connection
+                    {
+                        in -> splitAttackSustain.in;
+                        splitAttackSustain.attackOut -> attackOut;
+                        splitAttackSustain.sustainOut -> sustainOut;
+                    }
+                }
+            }
+        }    
+
         /** Utility Processor
         
             Use case: Mix, Pan, Makeup, and Complement
@@ -252,7 +352,7 @@ VA::HighLevel Processors                                                03/17/22
                             float iFrequencyHz = 1000,
                             float iAttackMs = 4,
                             float iSustainMs = 30,
-                            float iSensitivity_dB = 36,
+                            float iSensitivity_dB = 24,
                             float iThreshold_dB = -30,
                             float iReleaseMs = 30,
                             float iStereoLinkLsPercent = 0)
@@ -355,7 +455,7 @@ VA::HighLevel Processors                                                03/17/22
                         //non-boilerplate Processors
                         splitCenterSides = SplitCenterSides::Processor (iCenterSidesPercent);
                         pCrossover = filt::tpt::crossover::Processor (iFrequencyHz);
-                        splitAttackSustain = SplitAttackSustain::Processor (iAttackMs, iSustainMs, iSensitivity_dB, 100);
+                        splitAttackSustain = SplitAttackSustain::Processor (1, 100, iAttackMs, iSustainMs, iSensitivity_dB);
                         splitLoudSoft = SplitLoudSoft::Processor (iThreshold_dB, iReleaseMs, iStereoLinkLsPercent);
                         
                         mux4To1_0 = Mux4To1::Processor (iMode);
@@ -514,19 +614,17 @@ VA::HighLevel Processors                                                03/17/22
                     {
                         mux2To1.idxIn sidechainIn;   
 
+                        detector.cutoffHP_In;
+                        detector.stereoLinkIn;
+
                         ballisticsFilter.attackIn;
                         ballisticsFilter.releaseIn;
-
-                        stereoLink.stereoLinkIn;
 
                         ctfColor.thresholdIn;
                         ctfColor.ratioIn;
                         ctfColor.ratio1In;
                         ctfColor.softnessIn;
-                        ctfColor.colorIn;
-
-                        pSvf.frequencyIn cutoffHP_In;
-                        pSvf1.frequencyIn cutoffLP_In;
+                        ctfColor.colorIn;   
                     }
 
                     let
@@ -535,16 +633,8 @@ VA::HighLevel Processors                                                03/17/22
 
                         mux2To1 = Mux2To1::Processor (iSidechainBool);
                         
-                        pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
-
-                        //minimum attack is 0.1 ms or a cutoff of approx. 1592 Hz
-                        //a low pass with a cutoff that's approx. a decade higher
-                        //reduces aliasing without affecting attack speed
-                        pSvf1 = filt::tpt::svf::Processor (10000, FLOAT_DIV_SQRT_TWO); 
-                        absADAA = AbsADAA(1)::Processor;     
-
+                        detector = Detector::Processor (iHpfCutoffHz, iStereoLinkPercent);
                         ballisticsFilter = BallisticsFilter::Processor (iAttackMs, iReleaseMs);
-                        stereoLink = StereoLink::Processor (iStereoLinkPercent);
                         ctfColor = CTF_Color::Processor (iThreshold_dB, iRatio, iRatio1, iSoftness_dB, iColor_dB);
 
                         applyGain = ApplyGain::Processor;
@@ -556,10 +646,8 @@ VA::HighLevel Processors                                                03/17/22
 
                         in -> mux2To1.in;
                         scIn -> mux2To1.in1;
-                        mux2To1.out -> pSvf.in; 
-                        pSvf.highpassOut -> absADAA -> pSvf1.in;
-                        pSvf1.lowpassOut ->  stereoLink.in;
-                        stereoLink.out -> ballisticsFilter.in;
+                        mux2To1.out -> detector.in;
+                        detector.out -> ballisticsFilter.in;
                         ballisticsFilter.out -> ctfColor.in;
                         ctfColor.out -> applyGain.b, guiOut;
 
@@ -567,7 +655,7 @@ VA::HighLevel Processors                                                03/17/22
                     }
                 }
             }
-        }
+        }        
 
         /** Modulated 'DelayLine' with 'LadderLpfS' attached to its output
         
@@ -935,28 +1023,31 @@ Filter Processors                                                       04/09/22
         }
     }
 
-    /** Split into attack/release via IsolateAttackSustain */
+    /** Split into attack/sustain via IsolateAttackSustain */
     namespace SplitAttackSustain
     {
-        graph Processor(float iAttack,
+        graph Processor(float iHpfCutoff,
+                        float iStereoLink,
+                        float iAttack,
                         float iSustain,
-                        float iSensitivity,
-                        float iStereoLink)
+                        float iSensitivity)
         {
             input stream SampleType in;
             output stream SampleType attackOut, sustainOut;
     
             input
             {
+                sustainIsolator.cutoffHP_In;
+                sustainIsolator.stereoLinkIn;
+
                 sustainIsolator.attackIn;
                 sustainIsolator.sustainIn;
                 sustainIsolator.sensitivityIn;
-                sustainIsolator.stereoLinkIn;
             }
     
             let
             {
-                sustainIsolator = SustainIsolator::Processor (iAttack, iSustain, iSensitivity, iStereoLink);
+                sustainIsolator = SustainIsolator::Processor (iHpfCutoff, iStereoLink, iAttack, iSustain, iSensitivity);
 
                 difference = Difference::Processor;
             }
@@ -1011,7 +1102,7 @@ Filter Processors                                                       04/09/22
     
             let
             {
-                expressorClassical = ExpressorClassical::Processor (iStereoLink, 4, iRelease, iThreshold, 1, 0.25f);
+                expressorClassical = ExpressorClassical::Processor (0, iStereoLink, 4, iRelease, iThreshold, 1, 0.25f);
                 difference = Difference::Processor;
             }
     
@@ -1032,29 +1123,29 @@ Filter Processors                                                       04/09/22
     */
     namespace SustainIsolator
     {
-        graph Processor(float iAttack,
+        graph Processor(float iHpfCutoff,
+                        float iStereoLink,
+                        float iAttack,
                         float iSustain,
-                        float iSensitivity,
-                        float iStereoLink)
+                        float iSensitivity)
         {
             input stream SampleType in;
             output stream SampleType out;
     
             input
             {
+                detector.cutoffHP_In;
+                detector.stereoLinkIn;
+
                 det.release0In sustainIn [[ name: "Sustain", min: 30, max: 200, init: iSustain, step: 1, unit: "ms" ]];
-                det.release1In attackIn [[ name: "Attack", min: 4, max: 25, init: iAttack, step: 1, unit: "ms" ]];       
-                smoothedVolume.volumeIn sensitivityIn [[ name: "Sens", min: 0, max: 36, init: iSensitivity, step: 1, unit: "dB" ]];
-                stereoLink.stereoLinkIn;
+                event float attackIn [[ name: "Attack", min: 4, max: 25, init: iAttack, step: 1, unit: "ms" ]];   
+                smoothedVolume.volumeIn sensitivityIn [[ name: "Sens", min: 0, max: 24, init: iSensitivity, step: 1, unit: "dB" ]];  
             }
     
             let
             {
-                absADAA = AbsADAA::Processor;
-                stereoLink = StereoLink::Processor (iStereoLink);
-
-                det = DET::Processor (4, iSustain, 4, iAttack);
-
+                detector = Detector::Processor (iHpfCutoff, iStereoLink);
+                det = DET::Processor (iAttack, iSustain, iAttack, iAttack);
                 smoothedVolume = SmoothedVolume::Processor (iSensitivity);
                 sigmoidC2 = SigmoidC2::Processor;
 
@@ -1063,10 +1154,12 @@ Filter Processors                                                       04/09/22
     
             connection
             {
+                attackIn -> det.attack0In, det.attack1In, det.release1In;
+
                 in -> applyGain.in;
 
-                in -> absADAA -> stereoLink.in;
-                stereoLink.out -> det.in;
+                in -> detector.in;
+                detector.out -> det.in;
                 det.out -> smoothedVolume.in;
                 smoothedVolume.out -> sigmoidC2 -> applyGain.b;
 
@@ -1078,7 +1171,8 @@ Filter Processors                                                       04/09/22
     /** Classical digital downwards/updawards ex(pander)/(com)pressor */
     namespace ExpressorClassical
     {
-        graph Processor (float iStereoLink,
+        graph Processor (float iHpfCutoffHz,
+                        float iStereoLink,
                         float iAttack,
                         float iRelease,
                         float iThreshold,
@@ -1090,7 +1184,8 @@ Filter Processors                                                       04/09/22
     
             input
             {
-                stereoLink.stereoLinkIn;
+                detector.cutoffHP_In;
+                detector.stereoLinkIn;
 
                 ballisticsFilter.attackIn;
                 ballisticsFilter.releaseIn;
@@ -1102,8 +1197,7 @@ Filter Processors                                                       04/09/22
     
             let
             {
-                absADAA = AbsADAA::Processor;
-                stereoLink = StereoLink::Processor (iStereoLink);
+                detector = Detector::Processor (iHpfCutoffHz, iStereoLink);
                 ballisticsFilter = BallisticsFilter::Processor (iAttack, iRelease);
                 ctf = CTF::Processor (iThreshold, iRatio, iRatio1);
 
@@ -1112,10 +1206,8 @@ Filter Processors                                                       04/09/22
     
             connection
             {
-                in -> applyGain.in;
-
-                in -> absADAA -> stereoLink.in;
-                stereoLink.out -> ballisticsFilter.in;
+                in -> applyGain.in, detector.in;
+                detector.out-> ballisticsFilter.in;
                 ballisticsFilter.out -> ctf.in;
                 ctf.out -> applyGain.b;
 
@@ -1236,6 +1328,46 @@ Filter Processors                                                       04/09/22
         }
     }
     
+    /** Peak Volume Detector 
+    
+        Anti-aliased for use with ballistics filters with attack times as low as 0.1 ms
+    */
+    namespace Detector
+    {
+        graph Processor(float iHpfCutoffHz,
+                        float iStereoLinkPercent)
+        {
+            input stream SampleType in;
+            output stream SampleType out;
+    
+            input
+            {
+                pSvf.frequencyIn cutoffHP_In;
+                stereoLink.stereoLinkIn;
+            }
+    
+            let
+            {
+                pSvf = filt::tpt::svf::Processor (iHpfCutoffHz, FLOAT_DIV_SQRT_TWO);
+                absADAA = AbsADAA(1)::Processor;
+            
+                //minimum attack is 0.1 ms or a cutoff of approx. 1592 Hz
+                //a low pass with a cutoff that's approx. a decade higher
+                //reduces aliasing without affecting attack speed
+                pSvf1 = filt::tpt::svf::Processor (10000, FLOAT_DIV_SQRT_TWO); 
+                stereoLink = StereoLink::Processor (iStereoLinkPercent);
+            }
+    
+            connection
+            {
+                in -> pSvf.in;
+                pSvf.highpassOut -> absADAA -> pSvf1.in;
+                pSvf1.lowpassOut -> stereoLink.in;
+                stereoLink.out -> out;
+            }
+        }
+    }
+
     /** Mix outputs from any Onepole-style filter to make more complicated frequency responses */
     namespace OnepoleMixer
     {   
@@ -2843,7 +2975,7 @@ Mix Processors                                                          03/01/22
     
             let
             {
-                smoothedGain = SmoothedParameter::Processor (SmoothedParameter::ParameterType (iVolume), SmoothedParameter::ModeIdx::DecibelToGain);
+                smoothedGain = SmoothedParameter::Processor (SmoothedParameter::ParameterType (iVolume), SmoothedParameter::ModeIdx::VolumeToGain);
                 applyGain = ApplyGain::Processor;
             }
     
@@ -3144,7 +3276,7 @@ Parameter Processors                                                    03/04/22
         namespace ModeIdx
         {
             let GainToGain = 0;
-            let DecibelToGain = 1;
+            let VolumeToGain = 1;
             let MixPanToGains = 2; //coupled smoothing
             let PercentToGain = 3;
             let DecibelToDecibel = 4;
@@ -3152,13 +3284,14 @@ Parameter Processors                                                    03/04/22
             let MakeupMixPansToGains = 6; //coupled smoothing
             let DecibelToGainAndReciprocal = 7;
             let StereoGainsToGains = 8;
+            
             let NumIdxs = 9;
         }
 
         namespace Func
         {
             let Identity = 0;
-            let DecibelToGain = 1; 
+            let VolumeToGain = 1; 
             let MixPanToGains = 2;
             let PercentToGain = 3;
             let MakeupMixPansToGains = 4;
@@ -3176,7 +3309,7 @@ Parameter Processors                                                    03/04/22
         
         let Modes = Mode[ModeIdx::NumIdxs] (
             Mode (ModeIdx::GainToGain, 1, 1, Func::Identity, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
-            Mode (ModeIdx::DecibelToGain, 1, 1, Func::DecibelToGain, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
+            Mode (ModeIdx::VolumeToGain, 1, 1, Func::VolumeToGain, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
             Mode (ModeIdx::MixPanToGains, 2, 2, Func::MixPanToGains, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
             Mode (ModeIdx::PercentToGain, 1, 1, Func::PercentToGain, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_GAIN),
             Mode (ModeIdx::DecibelToDecibel, 1, 1, Func::Identity, Func::Identity, DOUBLE_SLEW_RATE_SECONDS_DECIBEL),
@@ -3211,8 +3344,8 @@ Parameter Processors                                                    03/04/22
 
             if (mode.funcD == Func::Identity)
                 y.at(0) = SampleType (parameter.at(0));
-            else if (mode.funcD ==  Func::DecibelToGain)
-                y.at(0) = vdBtoGain (SampleType (parameter.at(0)));
+            else if (mode.funcD ==  Func::VolumeToGain)
+                y.at(0) = vVolumeToGain (SampleType (parameter.at(0)));
             else if (mode.funcD == Func::MixPanToGains)
             {
                 let y2 = vMixPanToGains (parameter.at(0), parameter.at(1));
@@ -3396,7 +3529,7 @@ Parameter Processors                                                    03/04/22
                 else if const (modeIdx == ModeIdx::MixToGains)
                     y = vMixToGains (parameter.at(0));
                 else if const (modeIdx == ModeIdx::VolumeToGain)
-                    y.at(0) = vVolumeToGain (parameter.at(0));
+                    y.at(0) = vVolumeToGain (SampleType (parameter.at(0)));
                 else if const (modeIdx == ModeIdx::AB_ToGains)
                     y = vABtoGains (bool (parameter.at(0)));
                 else if const (modeIdx == ModeIdx::CutoffToOmega)
@@ -3848,7 +3981,7 @@ Constants                                                               04/07/22
     let ONE = SampleType (1.0);
     let TWO = SampleType (2.0);
     
-    let MAX_EFFECT_GAIN = SampleType (1.5); // about +3.52 dB
+    let MAX_EFFECT_GAIN = SampleType (FLOAT_MAX_SIGNAL_AMP * 2.f); // gain of about 2 or approx +6 dB
     let MIN_EFFECT_GAIN = SampleType (0.00001); // -100 dB
     let MIN_VOLUME = SampleType (FLOAT_MIN_VOLUME);
 
@@ -3864,7 +3997,7 @@ Constants                                                               04/07/22
     let DOUBLE_EPSILON = pow (2.0, -52.0); 
 
     //const float
-    let FLOAT_MIN_VOLUME = -60.f;
+    let FLOAT_MIN_VOLUME = -60.f; //Make sure that volume annotations below this value are treated as -inf dB
     let FLOAT_DIV_SQRT_TWO = 1.f / sqrt (2.f); // Butterworth Q and resonance value for svf
     let FLOAT_MIN_TAU_MS = 1.f / (40.f * float (pi)); // tau in ms which corresponds to a 20kHz cutoff
     let FLOAT_MAX_SIGNAL_AMP = pow (10.f, -0.005f); //-0.1 dB

@@ -10,7 +10,7 @@ namespace main
         //instantiate effect
         let
         { 
-            e = VA::HighLevel::TheChorus::Processor; 
+            e = VA::HighLevel::TheSlap::Processor(1, 0, 6, 75, 30, 0, -60, 0);
 
             decode32 = Decode32::Processor;
             encode32 = Encode32::Processor;
