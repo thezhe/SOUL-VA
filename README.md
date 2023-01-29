@@ -1,5 +1,8 @@
+# WARNING:
+SOUL-VA is deprecated. A permanent replacement is currently in the works...
+
 ## Description
-[SOUL-VA](https://github.com/thezhe/SOUL-VA) is a collection of virtual analog audio effects that pass [PLUG-QA](https://github.com/thezhe/SOUL-VA/blob/master/tests/README.md). 
+[SOUL-VA](https://github.com/thezhe/SOUL-VA) is a collection of virtual analog audio effects that pass [PLUG-QA](https://github.com/thezhe/SOUL-VA/blob/master/tests/README.md). This project is not associated with [soul-lang](https://github.com/soul-lang).
 
 ## Interface
 Effects are under `VA::HighLevel` in [`VA.soul`](https://github.com/thezhe/SOUL-VA/blob/master/include/VA.soul).
